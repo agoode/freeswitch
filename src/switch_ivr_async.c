@@ -2,6 +2,7 @@
  * FreeSWITCH Modular Media Switching Software Library / Soft-Switch Application
  * Copyright (C) 2005-2015, Anthony Minessale II <anthm@freeswitch.org>
  *
+ *
  * Version: MPL 1.1
  *
  * The contents of this file are subject to the Mozilla Public License Version
@@ -1241,6 +1242,10 @@ static switch_bool_t record_callback(switch_media_bug_t *bug, void *user_data, s
 			switch_time_t now = switch_time_now();
 			switch_time_t diff;
 
+			if (!rh->rready && !rh->wready) {
+				rh->last_read_time = now - rh->read_impl.microseconds_per_packet;
+				rh->last_write_time = rh->last_read_time;
+			}
 			rh->rready = 1;
 
 			nframe = switch_core_media_bug_get_native_read_frame(bug);
@@ -1252,7 +1257,9 @@ static switch_bool_t record_callback(switch_media_bug_t *bug, void *user_data, s
 
 				switch_core_gen_encoded_silence(fill_data, &rh->read_impl, len);
 				switch_core_file_write(&rh->out_fh, fill_data, &fill_len);
+				rh->last_write_time += rh->read_impl.microseconds_per_packet;
 			}
+	
 
 
 			if (rh->last_read_time && rh->last_read_time < now) {
@@ -1264,21 +1271,34 @@ static switch_bool_t record_callback(switch_media_bug_t *bug, void *user_data, s
 
 					while(diff > 1) {
 						switch_size_t fill_len = len;
+						
 						switch_core_file_write(&rh->in_fh, fill_data, &fill_len);
+						rh->last_read_time += rh->read_impl.microseconds_per_packet;
+
+						if (!rh->wready) {
+							fill_len = len;
+							switch_core_file_write(&rh->out_fh, fill_data, &fill_len);
+							rh->last_write_time += rh->read_impl.microseconds_per_packet;
+						}
+
 						diff--;
 					}
 				}
 			}
 
 			switch_core_file_write(&rh->in_fh, mask ? null_data : nframe->data, &len);
-			rh->last_read_time = now;
-			rh->writes++;
+			rh->last_read_time += rh->read_impl.microseconds_per_packet;
 		}
 		break;
 	case SWITCH_ABC_TYPE_TAP_NATIVE_WRITE:
 		{
 			switch_time_t now = switch_time_now();
 			switch_time_t diff;
+			
+			if (!rh->rready && !rh->wready) {
+				rh->last_write_time = now - rh->read_impl.microseconds_per_packet;
+				rh->last_read_time = rh->last_write_time;
+			}			
 			rh->wready = 1;
 
 			nframe = switch_core_media_bug_get_native_write_frame(bug);
@@ -1287,8 +1307,10 @@ static switch_bool_t record_callback(switch_media_bug_t *bug, void *user_data, s
 			if (!rh->rready) {
 				unsigned char fill_data[SWITCH_RECOMMENDED_BUFFER_SIZE] = {0};
 				switch_size_t fill_len = len;
+				
 				switch_core_gen_encoded_silence(fill_data, &rh->read_impl, len);
 				switch_core_file_write(&rh->in_fh, fill_data, &fill_len);
+				rh->last_read_time += rh->read_impl.microseconds_per_packet;
 			}
 
 
@@ -1303,7 +1325,16 @@ static switch_bool_t record_callback(switch_media_bug_t *bug, void *user_data, s
 
 					while(diff > 1) {
 						switch_size_t fill_len = len;
+						
 						switch_core_file_write(&rh->out_fh, fill_data, &fill_len);
+						rh->last_write_time += rh->read_impl.microseconds_per_packet;
+						
+						if (!rh->rready) {
+							fill_len = len;
+							switch_core_file_write(&rh->in_fh, fill_data, &fill_len);
+							rh->last_read_time += rh->read_impl.microseconds_per_packet;
+						}
+
 						diff--;
 					}
 				}
@@ -1312,6 +1343,7 @@ static switch_bool_t record_callback(switch_media_bug_t *bug, void *user_data, s
 			switch_core_file_write(&rh->out_fh, mask ? null_data : nframe->data, &len);
 			rh->last_write_time = now;
 			rh->writes++;
+			rh->last_write_time += rh->read_impl.microseconds_per_packet;
 		}
 		break;
 	case SWITCH_ABC_TYPE_CLOSE:
