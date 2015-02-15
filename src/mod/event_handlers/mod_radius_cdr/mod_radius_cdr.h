@@ -34,6 +34,15 @@
 #ifndef MODRADIUSCDR
 #define MODRADIUSCDR
 
+#define	PW_CISCO_PEC		9
+
+#define PW_CISCO_NAS_PORT	2 // NAS-Port-Name
+#define PW_CISCO_CONF_ID	24 // h323-conf-id
+#define PW_CISCO_ORIGIN		26 // h323-call-origin
+#define PW_CISCO_CONNECT_TIME	28 // h323-connect-time
+#define PW_CISCO_DISCONNECT_TIME	29 // h323-disconnect-time
+#define PW_CISCO_GW		33 // h323-gw-id
+
 #define	PW_FS_PEC		27880
 
 #define PW_FS_AVPAIR		1

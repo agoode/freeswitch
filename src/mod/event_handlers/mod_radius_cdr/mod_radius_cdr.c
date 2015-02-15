@@ -36,6 +36,8 @@
 #include <freeradius-client.h>
 #include "mod_radius_cdr.h"
 
+#define ENABLE_CISCO_ATTRIBUTES
+
 SWITCH_MODULE_LOAD_FUNCTION(mod_radius_cdr_load);
 SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_radius_cdr_shutdown);
 SWITCH_MODULE_DEFINITION(mod_radius_cdr, mod_radius_cdr_load, mod_radius_cdr_shutdown, NULL);
@@ -50,9 +52,11 @@ static char cf[] = "mod_radius_cdr.conf";
 static char my_dictionary[PATH_MAX];
 static char my_seqfile[PATH_MAX];
 static char *my_deadtime;		/* 0 */
+static char *my_deadtime_action;	/* drop */
 static char *my_timeout;		/* 5 */
 static char *my_retries;		/* 3 */
 static char my_servers[SERVER_MAX][255];
+static int32_t my_gmtoff = 0;
 
 static rc_handle *my_radius_init(void)
 {
@@ -151,7 +155,11 @@ static switch_status_t my_on_routing(switch_core_session_t *session)
 	char *uuid_str;
 
 	switch_time_exp_t tm;
-	char buffer[32];
+	char buffer[64] = "";
+#if defined(ENABLE_CISCO_ATTRIBUTES)
+	char format[64] = "";
+	switch_size_t retsize; // Ignored value
+#endif
 
 	char *radius_avpair_data;
 	char *delim;
@@ -203,11 +211,15 @@ static switch_status_t my_on_routing(switch_core_session_t *session)
 
 	/* Add VSAs */
 
+
 	if (channel) {
 		/*switch_call_cause_t   cause; */
 		switch_caller_profile_t *profile;
 		const char *radius_avpair = switch_channel_get_variable(channel, "radius_avpair");
-
+		const char *partner_uuid_str = switch_channel_get_partner_uuid(channel);
+#if defined(ENABLE_CISCO_ATTRIBUTES)
+		const char *sip_gateway_name = switch_channel_get_variable(channel, "sip_gateway_name");
+#endif
 		/*
 		   cause = switch_channel_get_cause(channel);
 		   if (rc_avpair_add(rad_config, &send, PW_FS_HANGUPCAUSE, &cause, -1, PW_FS_PEC) == NULL) {
@@ -223,6 +235,31 @@ static switch_status_t my_on_routing(switch_core_session_t *session)
 				rc_destroy(rad_config);
 				goto end;
 			}
+		}
+
+#if defined(ENABLE_CISCO_ATTRIBUTES)
+		if (sip_gateway_name) {
+			switch_snprintf(buffer, sizeof(buffer), "h323-gw-id=%s", sip_gateway_name);
+			if (rc_avpair_add(rad_config, &send, PW_CISCO_GW, (void *) &buffer, -1, PW_CISCO_PEC) == NULL) {
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding h323-gw-id: %s\n", sip_gateway_name);
+				rc_destroy(rad_config);
+				goto end;
+			}
+		}
+
+		if (uuid_str) {
+			switch_snprintf(buffer, sizeof(buffer), "h323-conf-id=%s", uuid_str);
+			if (rc_avpair_add(rad_config, &send, PW_CISCO_CONF_ID, (void *) &buffer, -1, PW_CISCO_PEC) == NULL) {
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Failed adding h323-conf-id: %s\n", uuid_str);
+				rc_destroy(rad_config);
+				goto end;
+			}
+		}
+#endif
+		if (partner_uuid_str &&  rc_avpair_add(rad_config, &send, PW_FS_OTHER_LEG_ID, (void*) partner_uuid_str, -1, PW_FS_PEC) == NULL) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Failed adding Freeswitch-Other-Leg-Id: %s\n", partner_uuid_str);
+			rc_destroy(rad_config);
+			goto end;
 		}
 
 		profile = switch_channel_get_caller_profile(channel);
@@ -254,10 +291,20 @@ static switch_status_t my_on_routing(switch_core_session_t *session)
 					rc_destroy(rad_config);
 					goto end;
 				}
+				if (rc_avpair_add(rad_config, &send, PW_CALLING_STATION_ID, (void *) profile->caller_id_number, -1, 0) == NULL) {
+					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding Calling-Station-Id: %s\n", profile->caller_id_number);
+					rc_destroy(rad_config);
+					goto end;
+				}
 			}
 			if (profile->destination_number) {
 				if (rc_avpair_add(rad_config, &send, PW_FS_DST, (void *) profile->destination_number, -1, PW_FS_PEC) == NULL) {
 					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding Freeswitch-Dst: %s\n", profile->destination_number);
+					rc_destroy(rad_config);
+					goto end;
+				}
+				if (rc_avpair_add(rad_config, &send, PW_CALLED_STATION_ID, (void *) profile->destination_number, -1, 0) == NULL) {
+					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding Called-Station-Id: %s\n", profile->destination_number);
 					rc_destroy(rad_config);
 					goto end;
 				}
@@ -313,8 +360,17 @@ static switch_status_t my_on_routing(switch_core_session_t *session)
 					goto end;
 				}
 			}
+#if defined(ENABLE_CISCO_ATTRIBUTES)
+			if (profile->chan_name) {
+				if (rc_avpair_add(rad_config, &send, PW_CISCO_NAS_PORT, (void *) profile->chan_name, -1, PW_CISCO_PEC) == NULL) {
+					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding NAS-Port-Name: %s\n", profile->chan_name);
+					rc_destroy(rad_config);
+					goto end;
+				}
+			}
+#endif
 			if (callstartdate > 0) {
-				switch_time_exp_lt(&tm, callstartdate);
+				switch_time_exp_tz(&tm, callstartdate, my_gmtoff);
 				switch_snprintf(buffer, sizeof(buffer), "%04u-%02u-%02uT%02u:%02u:%02u.%06u%+03d%02d",
 								tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
 								tm.tm_hour, tm.tm_min, tm.tm_sec, tm.tm_usec, tm.tm_gmtoff / 3600, tm.tm_gmtoff % 3600);
@@ -326,7 +382,7 @@ static switch_status_t my_on_routing(switch_core_session_t *session)
 			}
 
 			if (callanswerdate > 0) {
-				switch_time_exp_lt(&tm, callanswerdate);
+				switch_time_exp_tz(&tm, callanswerdate, my_gmtoff);
 				switch_snprintf(buffer, sizeof(buffer), "%04u-%02u-%02uT%02u:%02u:%02u.%06u%+03d%02d",
 								tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
 								tm.tm_hour, tm.tm_min, tm.tm_sec, tm.tm_usec, tm.tm_gmtoff / 3600, tm.tm_gmtoff % 3600);
@@ -335,10 +391,19 @@ static switch_status_t my_on_routing(switch_core_session_t *session)
 					rc_destroy(rad_config);
 					goto end;
 				}
+#if defined(ENABLE_CISCO_ATTRIBUTES)
+				switch_snprintf(format, sizeof(format), "h323-connect-time=.%%H:%%M:%%S.%03u %%Z %%a %%b %%d %%Y", tm.tm_usec/1000);
+				switch_strftime(buffer, &retsize, sizeof(buffer), format, &tm);
+				if (rc_avpair_add(rad_config, &send, PW_CISCO_CONNECT_TIME, &buffer, -1, PW_CISCO_PEC) == NULL) {
+					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding h323-connect-time: %s\n", buffer);
+					rc_destroy(rad_config);
+					goto end;
+				}
+#endif
 			}
 
 			if (calltransferdate > 0) {
-				switch_time_exp_lt(&tm, calltransferdate);
+				switch_time_exp_tz(&tm, calltransferdate, my_gmtoff);
 				switch_snprintf(buffer, sizeof(buffer), "%04u-%02u-%02uT%02u:%02u:%02u.%06u%+03d%02d",
 								tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
 								tm.tm_hour, tm.tm_min, tm.tm_sec, tm.tm_usec, tm.tm_gmtoff / 3600, tm.tm_gmtoff % 3600);
@@ -350,7 +415,7 @@ static switch_status_t my_on_routing(switch_core_session_t *session)
 			}
 
 			if (callenddate > 0) {
-				switch_time_exp_lt(&tm, callenddate);
+				switch_time_exp_tz(&tm, callenddate, my_gmtoff);
 				switch_snprintf(buffer, sizeof(buffer), "%04u-%02u-%02uT%02u:%02u:%02u.%06u%+03d%02d",
 								tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
 								tm.tm_hour, tm.tm_min, tm.tm_sec, tm.tm_usec, tm.tm_gmtoff / 3600, tm.tm_gmtoff % 3600);
@@ -359,16 +424,46 @@ static switch_status_t my_on_routing(switch_core_session_t *session)
 					rc_destroy(rad_config);
 					goto end;
 				}
+#if defined(ENABLE_CISCO_ATTRIBUTES)
+				switch_snprintf(format, sizeof(format), "h323-disconnect-time=.%%H:%%M:%%S.%03u %%Z %%a %%b %%d %%Y", tm.tm_usec/1000);
+				switch_strftime(buffer, &retsize, sizeof(buffer), format, &tm);
+				if (rc_avpair_add(rad_config, &send, PW_CISCO_DISCONNECT_TIME, &buffer, -1, PW_CISCO_PEC) == NULL) {
+					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding h323-disconnect-time: %s\n", buffer);
+					rc_destroy(rad_config);
+					goto end;
+				}
+#endif
 			}
 
 			if (profile->caller_extension && profile->caller_extension->last_application && profile->caller_extension->last_application->application_name) {
 				if (rc_avpair_add(rad_config, &send, PW_FS_LASTAPP,
 								  (void *) profile->caller_extension->last_application->application_name, -1, PW_FS_PEC) == NULL) {
-					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding Freeswitch-Lastapp: %s\n", profile->source);
+					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding Freeswitch-Lastapp: %s\n", profile->caller_extension->last_application->application_name);
 					rc_destroy(rad_config);
 					goto end;
 				}
 			}
+
+			{
+				const char *direction_str = profile->direction == SWITCH_CALL_DIRECTION_INBOUND ? "inbound" : "outbound";
+#if defined(ENABLE_CISCO_ATTRIBUTES)
+				const char *h323_call_origin = profile->direction == SWITCH_CALL_DIRECTION_INBOUND ? "h323-call-origin=originate": "h323-call-origin=answer";
+#endif
+
+				if (rc_avpair_add(rad_config, &send, PW_FS_DIRECTION, (void *) direction_str, -1, PW_FS_PEC) == NULL) {
+					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding Freeswitch-Direction: %s\n", direction_str);
+					rc_destroy(rad_config);
+					goto end;
+				}
+#if defined(ENABLE_CISCO_ATTRIBUTES)
+				if (rc_avpair_add(rad_config, &send, PW_CISCO_ORIGIN, (void *) h323_call_origin, -1, PW_CISCO_PEC) == NULL) {
+					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding h323-call-origin: %s\n", h323_call_origin);
+					rc_destroy(rad_config);
+					goto end;
+				}
+#endif
+			}
+
 
 			if (radius_avpair) {
 				radius_avpair_data = strdup(radius_avpair + (strncmp(radius_avpair, "ARRAY::", 7) ? 0 : 7));
@@ -398,10 +493,14 @@ static switch_status_t my_on_routing(switch_core_session_t *session)
 	}
 
 	if (rc_acct(rad_config, client_port, send) == OK_RC) {
-		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "[mod_radius_cdr] RADIUS Accounting OK\n");
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "RADIUS Accounting OK\n");
+		retval = SWITCH_STATUS_SUCCESS;
+	} else if (strncmp(my_deadtime_action, "pass", 4)==0) {
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_NOTICE, "RADIUS Accounting Failed. Ignoring\n");
+		switch_channel_set_variable(channel, "radius_failed", "true");
 		retval = SWITCH_STATUS_SUCCESS;
 	} else {
-		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "[mod_radius_cdr] RADIUS Accounting Failed\n");
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "RADIUS Accounting Failed\n");
 		retval = SWITCH_STATUS_TERM;
 	}
 	rc_avpair_free(send);
@@ -431,7 +530,11 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 	char *uuid_str;
 
 	switch_time_exp_t tm;
-	char buffer[32] = "";
+	char buffer[64] = "";
+#if defined(ENABLE_CISCO_ATTRIBUTES)
+	char format[64] = "";
+	switch_size_t retsize; // Ignored value
+#endif
 
 	char *radius_avpair_data;
 	char *delim;
@@ -439,7 +542,6 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 	if (globals.shutdown) {
 		return SWITCH_STATUS_FALSE;
 	}
-
 
 	if (channel) {
 		const char *disable_flag = switch_channel_get_variable(channel, "disable_radius_stop");
@@ -488,10 +590,41 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 		switch_call_cause_t cause;
 		switch_caller_profile_t *profile;
 		const char *radius_avpair = switch_channel_get_variable(channel, "radius_avpair");
+		const char *partner_uuid_str = switch_channel_get_partner_uuid(channel);
+#if defined(ENABLE_CISCO_ATTRIBUTES)
+		const char *sip_gateway_name = switch_channel_get_variable(channel, "sip_gateway_name");
+#endif
 
 		cause = switch_channel_get_cause(channel);
 		if (rc_avpair_add(rad_config, &send, PW_FS_HANGUPCAUSE, &cause, -1, PW_FS_PEC) == NULL) {
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding Freeswitch-Hangupcause: %d\n", cause);
+			rc_destroy(rad_config);
+			goto end;
+		}
+
+
+#if defined(ENABLE_CISCO_ATTRIBUTES)
+		if (sip_gateway_name) {
+			switch_snprintf(buffer, sizeof(buffer), "h323-gw-id=%s", sip_gateway_name);
+			if (rc_avpair_add(rad_config, &send, PW_CISCO_GW, (void *) &buffer, -1, PW_CISCO_PEC) == NULL) {
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding h323-gw-id: %s\n", sip_gateway_name);
+				rc_destroy(rad_config);
+				goto end;
+			}
+		}
+
+		if (uuid_str) {
+			switch_snprintf(buffer, sizeof(buffer), "h323-conf-id=%s", uuid_str);
+			if (rc_avpair_add(rad_config, &send, PW_CISCO_CONF_ID, (void *) &buffer, -1, PW_CISCO_PEC) == NULL) {
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Failed adding h323-conf-id: %s\n", uuid_str);
+				rc_destroy(rad_config);
+				goto end;
+			}
+		}
+#endif
+
+		if (partner_uuid_str &&  rc_avpair_add(rad_config, &send, PW_FS_OTHER_LEG_ID, (void*) partner_uuid_str, -1, PW_FS_PEC) == NULL) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Failed adding Freeswitch-Other-Leg-Id: %s\n", partner_uuid_str);
 			rc_destroy(rad_config);
 			goto end;
 		}
@@ -536,6 +669,11 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 					rc_destroy(rad_config);
 					goto end;
 				}
+				if (rc_avpair_add(rad_config, &send, PW_CALLING_STATION_ID, (void *) profile->caller_id_number, -1, 0) == NULL) {
+					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding Calling-Station-Id: %s\n", profile->caller_id_number);
+					rc_destroy(rad_config);
+					goto end;
+				}
 			}
 			if (profile->caller_id_name) {
 				if (rc_avpair_add(rad_config, &send, PW_FS_CLID, (void *) profile->caller_id_name, -1, PW_FS_PEC) == NULL) {
@@ -547,6 +685,11 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 			if (profile->destination_number) {
 				if (rc_avpair_add(rad_config, &send, PW_FS_DST, (void *) profile->destination_number, -1, PW_FS_PEC) == NULL) {
 					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding Freeswitch-Dst: %s\n", profile->destination_number);
+					rc_destroy(rad_config);
+					goto end;
+				}
+				if (rc_avpair_add(rad_config, &send, PW_CALLED_STATION_ID, (void *) profile->destination_number, -1, 0) == NULL) {
+					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding Called-Station-Id: %s\n", profile->destination_number);
 					rc_destroy(rad_config);
 					goto end;
 				}
@@ -602,10 +745,19 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 					goto end;
 				}
 			}
+#if defined(ENABLE_CISCO_ATTRIBUTES)
+			if (profile->chan_name) {
+				if (rc_avpair_add(rad_config, &send, PW_CISCO_NAS_PORT, (void *) profile->chan_name, -1, PW_CISCO_PEC) == NULL) {
+					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding NAS-Port-Name: %s\n", profile->source);
+					rc_destroy(rad_config);
+					goto end;
+				}
+			}
+#endif
 			if (profile->caller_extension && profile->caller_extension->last_application && profile->caller_extension->last_application->application_name) {
 				if (rc_avpair_add(rad_config, &send, PW_FS_LASTAPP,
 								  (void *) profile->caller_extension->last_application->application_name, -1, PW_FS_PEC) == NULL) {
-					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding Freeswitch-Lastapp: %s\n", profile->source);
+					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding Freeswitch-Lastapp: %s\n", profile->caller_extension->last_application->application_name);
 					rc_destroy(rad_config);
 					goto end;
 				}
@@ -617,7 +769,7 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 			}
 
 			if (callstartdate > 0) {
-				switch_time_exp_lt(&tm, callstartdate);
+				switch_time_exp_tz(&tm, callstartdate, my_gmtoff);
 				switch_snprintf(buffer, sizeof(buffer), "%04u-%02u-%02uT%02u:%02u:%02u.%06u%+03d%02d",
 								tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
 								tm.tm_hour, tm.tm_min, tm.tm_sec, tm.tm_usec, tm.tm_gmtoff / 3600, tm.tm_gmtoff % 3600);
@@ -629,7 +781,7 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 			}
 
 			if (callanswerdate > 0) {
-				switch_time_exp_lt(&tm, callanswerdate);
+				switch_time_exp_tz(&tm, callanswerdate, my_gmtoff);
 				switch_snprintf(buffer, sizeof(buffer), "%04u-%02u-%02uT%02u:%02u:%02u.%06u%+03d%02d",
 								tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
 								tm.tm_hour, tm.tm_min, tm.tm_sec, tm.tm_usec, tm.tm_gmtoff / 3600, tm.tm_gmtoff % 3600);
@@ -638,10 +790,19 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 					rc_destroy(rad_config);
 					goto end;
 				}
+#if defined(ENABLE_CISCO_ATTRIBUTES)
+				switch_snprintf(format, sizeof(format), "h323-connect-time=.%%H:%%M:%%S.%03u %%Z %%a %%b %%d %%Y", tm.tm_usec/1000);
+				switch_strftime(buffer, &retsize, sizeof(buffer), format, &tm);
+				if (rc_avpair_add(rad_config, &send, PW_CISCO_CONNECT_TIME, &buffer, -1, PW_CISCO_PEC) == NULL) {
+					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding h323-connect-time: %s\n", buffer);
+					rc_destroy(rad_config);
+					goto end;
+				}
+#endif
 			}
 
 			if (calltransferdate > 0) {
-				switch_time_exp_lt(&tm, calltransferdate);
+				switch_time_exp_tz(&tm, calltransferdate, my_gmtoff);
 				switch_snprintf(buffer, sizeof(buffer), "%04u-%02u-%02uT%02u:%02u:%02u.%06u%+03d%02d",
 								tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
 								tm.tm_hour, tm.tm_min, tm.tm_sec, tm.tm_usec, tm.tm_gmtoff / 3600, tm.tm_gmtoff % 3600);
@@ -653,7 +814,7 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 			}
 
 			if (callenddate > 0) {
-				switch_time_exp_lt(&tm, callenddate);
+				switch_time_exp_tz(&tm, callenddate, my_gmtoff);
 				switch_snprintf(buffer, sizeof(buffer), "%04u-%02u-%02uT%02u:%02u:%02u.%06u%+03d%02d",
 								tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
 								tm.tm_hour, tm.tm_min, tm.tm_sec, tm.tm_usec, tm.tm_gmtoff / 3600, tm.tm_gmtoff % 3600);
@@ -662,6 +823,15 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 					rc_destroy(rad_config);
 					goto end;
 				}
+#if defined(ENABLE_CISCO_ATTRIBUTES)
+				switch_snprintf(format, sizeof(format), "h323-disconnect-time=.%%H:%%M:%%S.%03u %%Z %%a %%b %%d %%Y", tm.tm_usec/1000);
+				switch_strftime(buffer, &retsize, sizeof(buffer), format, &tm);
+				if (rc_avpair_add(rad_config, &send, PW_CISCO_DISCONNECT_TIME, &buffer, -1, PW_CISCO_PEC) == NULL) {
+					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding h323-disconnect-time: %s\n", buffer);
+					rc_destroy(rad_config);
+					goto end;
+				}
+#endif
 			}
 
 			if (rc_avpair_add(rad_config, &send, PW_ACCT_SESSION_TIME, &billsec, -1, 0) == NULL) {
@@ -672,12 +842,22 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 			
 			{
 				const char *direction_str = profile->direction == SWITCH_CALL_DIRECTION_INBOUND ? "inbound" : "outbound";
-				
+#if defined(ENABLE_CISCO_ATTRIBUTES)
+				const char *h323_call_origin = profile->direction == SWITCH_CALL_DIRECTION_INBOUND ? "h323-call-origin=originate": "h323-call-origin=answer";
+#endif
+
 				if (rc_avpair_add(rad_config, &send, PW_FS_DIRECTION, (void *) direction_str, -1, PW_FS_PEC) == NULL) {
 					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding Freeswitch-Direction: %s\n", direction_str);
 					rc_destroy(rad_config);
 					goto end;
 				}
+#if defined(ENABLE_CISCO_ATTRIBUTES)
+				if (rc_avpair_add(rad_config, &send, PW_CISCO_ORIGIN, (void *) h323_call_origin, -1, PW_CISCO_PEC) == NULL) {
+					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "failed adding h323-call-origin: %s\n", h323_call_origin);
+					rc_destroy(rad_config);
+					goto end;
+				}
+#endif
 			}
 
 			if (radius_avpair) {
@@ -710,6 +890,10 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 	if (rc_acct(rad_config, client_port, send) == OK_RC) {
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "RADIUS Accounting OK\n");
 		retval = SWITCH_STATUS_SUCCESS;
+	} else if (strncmp(my_deadtime_action, "pass", 4)==0) {
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_NOTICE, "RADIUS Accounting Failed. Passing call\n");
+		switch_channel_set_variable(channel, "radius_failed", "true");
+		retval = SWITCH_STATUS_SUCCESS;
 	} else {
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "RADIUS Accounting Failed\n");
 		retval = SWITCH_STATUS_TERM;
@@ -726,6 +910,7 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 static switch_status_t load_config(void)
 {
 	switch_xml_t cfg, xml, settings, param;
+	static char *my_timezone = "";	/* Asia/Tokyo */
 
 	int num_servers = 0;
 	int i = 0;
@@ -733,6 +918,7 @@ static switch_status_t load_config(void)
 	my_timeout = "5";
 	my_retries = "3";
 	my_deadtime = "0";
+	my_deadtime_action = "drop";
 	strncpy(my_seqfile, "/var/run/radius.seq", PATH_MAX - 1);
 	strncpy(my_dictionary, "/usr/local/freeswitch/conf/radius/dictionary", PATH_MAX - 1);
 
@@ -768,6 +954,10 @@ static switch_status_t load_config(void)
 				my_retries = strdup(val);
 			} else if (!strcmp(var, "radius_deadtime")) {
 				my_deadtime = strdup(val);
+			} else if (!strcmp(var, "radius_deadtime_action")) {
+				my_deadtime_action = strdup(val);
+			} else if (!strcmp(var, "timezone")) {
+				my_timezone = strdup(val);
 			}
 		}
 	}
@@ -777,6 +967,17 @@ static switch_status_t load_config(void)
 	if (num_servers < 1) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "you must specify at least 1 radius server\n");
 		return SWITCH_STATUS_TERM;
+	}
+
+	if (zstr(my_timezone)) {
+		switch_time_exp_t tm;
+		switch_time_exp_lt(&tm, 0);
+		my_gmtoff=tm.tm_gmtoff;
+	}
+	else {
+		switch_time_exp_t tm;
+		switch_time_exp_tz_name(my_timezone, &tm, 0);
+		my_gmtoff=tm.tm_gmtoff;
 	}
 
 	/* If we made it this far, we succeeded */
