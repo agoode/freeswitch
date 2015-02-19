@@ -1,0 +1,4 @@
+$INCLUDE dictionary
+$INCLUDE dictionary.sip
+$INCLUDE dictionary.cisco
+$INCLUDE dictionary.freeswitch
