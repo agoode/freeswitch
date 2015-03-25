@@ -412,16 +412,25 @@ static switch_status_t de_say_money(switch_core_session_t *session, char *tosay,
 
  
 	/* Say dollar amount */
-	de_say_general_count(session, dollars, say_args, args);
-	say_file("currency/dollars.wav");
-
+	if (atoi(dollars) == 1) {
+		say_file("digits/1.wav");
+		say_file("currency/dollar.wav");
+	} else {
+		de_say_general_count(session, dollars, say_args, args);
+		say_file("currency/dollars.wav");
+	}
 
 	/* Say cents */
 	if (cents) {
 		/* Say "and" */
 		say_file("currency/and.wav");
-		de_say_general_count(session, cents, say_args, args);
-		say_file("currency/cents.wav");
+		if (atoi(cents) == 1) {
+			say_file("digits/1.wav");
+			say_file("currency/cent.wav");
+		} else {
+			de_say_general_count(session, cents, say_args, args);
+			say_file("currency/cents.wav");
+		}
 	} else {
 		say_file("digits/0.wav");
 		say_file("currency/cents.wav");
