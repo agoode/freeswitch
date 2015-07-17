@@ -596,13 +596,17 @@ SWITCH_DECLARE_CONSTRUCTOR CoreSession::CoreSession(char *nuuid, CoreSession *a_
 	if (!strchr(nuuid, '/') && (session = switch_core_session_force_locate(nuuid))) {
 		uuid = strdup(nuuid);
 		channel = switch_core_session_get_channel(session);
-		allocated = 1;
+		if (switch_core_session_read_lock_hangup(session) == SWITCH_STATUS_SUCCESS) {
+	       allocated = 1;
+        }
     } else {
 		cause = SWITCH_CAUSE_DESTINATION_OUT_OF_ORDER;
 		if (switch_ivr_originate(a_leg ? a_leg->session : NULL, &session, &cause, nuuid, 60, NULL, NULL, NULL, NULL, NULL, SOF_NONE, NULL) 
 			== SWITCH_STATUS_SUCCESS) {
 			channel = switch_core_session_get_channel(session);
-			allocated = 1;
+			if (switch_core_session_read_lock_hangup(session) == SWITCH_STATUS_SUCCESS) {
+               allocated = 1;
+            }
 			switch_set_flag(this, S_HUP);
 			uuid = strdup(switch_core_session_get_uuid(session));
 			switch_channel_set_state(switch_core_session_get_channel(session), CS_SOFT_EXECUTE);
@@ -618,8 +622,9 @@ SWITCH_DECLARE_CONSTRUCTOR CoreSession::CoreSession(switch_core_session_t *new_s
 	if (new_session) {
 		session = new_session;
 		channel = switch_core_session_get_channel(session);
-		allocated = 1;
-		switch_core_session_read_lock_hangup(session);
+		if (switch_core_session_read_lock_hangup(session) == SWITCH_STATUS_SUCCESS) {
+           allocated = 1;
+        }
 		uuid = strdup(switch_core_session_get_uuid(session));
 	}
 }
@@ -1410,15 +1415,21 @@ SWITCH_DECLARE_NONSTD(switch_status_t) hanguphook(switch_core_session_t *session
 		switch_channel_t *channel = switch_core_session_get_channel(session_hungup);
 		CoreSession *coresession = NULL;
 		switch_channel_state_t state = switch_channel_get_state(channel);
-
-		if ((coresession = (CoreSession *) switch_channel_get_private(channel, "CoreSession"))) {
+		if ((coresession = (CoreSession *)switch_channel_get_private(channel, "CoreSession"))) {
+			if (coresession->session != session_hungup) {
+				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, 
+					"FATAL bug, crash likely imminent! CoreSession's session (%p) is not session_hungup (%p). State %d. Please comment on FS-6484.\n", coresession->session, session_hungup, state);
+			}
+			if (!coresession->allocated) {
+				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT,
+					"FATAL bug, crash likely imminent! CoreSession is unallocated. State: %d; CoreSession state: %d. Please comment on FS-6484.\n", state, coresession->hook_state);
+			}
 			if (coresession->hook_state != state) {
 				coresession->cause = switch_channel_get_cause(channel);
 				coresession->hook_state = state;
 				coresession->check_hangup_hook();
 			}
 		}
-
 		return SWITCH_STATUS_SUCCESS;
 	} else {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "hangup hook called with null session, something is horribly wrong\n");

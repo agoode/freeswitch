@@ -40,17 +40,20 @@
 
 ManagedSession::ManagedSession():CoreSession() 
 {
-
+	hangupDelegate = NULL;
+	dtmfDelegate = NULL;
 } 
 
 ManagedSession::ManagedSession(char *uuid):CoreSession(uuid) 
 {
-
+	hangupDelegate = NULL;
+	dtmfDelegate = NULL;
 } 
 
 ManagedSession::ManagedSession(switch_core_session_t *session):CoreSession(session) 
 {
-
+	hangupDelegate = NULL;
+	dtmfDelegate = NULL;
 } 
 
 bool ManagedSession::begin_allow_threads() 
@@ -69,12 +72,12 @@ ManagedSession::~ManagedSession()
 	// Do auto-hangup ourselves because CoreSession can't call check_hangup_hook 
 	// after ManagedSession destruction (cause at point it's pure virtual)
 	if (session) {
+		// Don't let any callbacks use this CoreSession anymore
+		switch_channel_set_private(channel, "CoreSession", NULL);
 		if (switch_test_flag(this, S_HUP) && !switch_channel_test_flag(channel, CF_TRANSFER)) {
 			switch_channel_hangup(channel, SWITCH_CAUSE_NORMAL_CLEARING);
 			setAutoHangup(0);
 		}
-		// Don't let any callbacks use this CoreSession anymore
-		switch_channel_set_private(channel, "CoreSession", NULL);
 	}
 }
 

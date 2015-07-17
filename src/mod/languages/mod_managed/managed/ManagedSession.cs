@@ -57,7 +57,7 @@ namespace FreeSWITCH.Native
         internal void Initialize()
         {
             if (allocated == 0) {
-                throw new InvalidOperationException("Cannot initialize a ManagedSession until it is allocated (originated successfully).");
+                throw new InvalidOperationException("Cannot initialize a ManagedSession until it is allocated (originated successfully). Allocated is also false if session fails to lock (see FS-6484).");
             }
             // P/Invoke generated function pointers stick around until the delegate is collected
             // By sticking the delegates in fields, their lifetime won't be less than the session
