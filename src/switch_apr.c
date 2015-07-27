@@ -95,7 +95,7 @@ SWITCH_DECLARE(int) switch_thread_equal(switch_thread_id_t tid1, switch_thread_i
 
 }
 
-SWITCH_DECLARE(unsigned int) switch_ci_hashfunc_default(const char *char_key, switch_ssize_t *klen)
+SWITCH_DECLARE(uint32_t) switch_ci_hashfunc_default(const char *char_key, switch_ssize_t *klen)
 {
 	unsigned int hash = 0;
 	const unsigned char *key = (const unsigned char *) char_key;
@@ -113,7 +113,7 @@ SWITCH_DECLARE(unsigned int) switch_ci_hashfunc_default(const char *char_key, sw
 		}
 	}
 
-	return hash;
+	return hash ? hash : 1; // Ensure hash is non-zero
 }
 
 

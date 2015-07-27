@@ -781,8 +781,9 @@ SWITCH_DECLARE(switch_status_t) switch_event_rename_header(switch_event_t *event
 
 	for (hp = event->headers; hp; hp = hp->next) {
 		if ((!hp->hash || hash == hp->hash) && !strcasecmp(hp->name, header_name)) {
-			FREE(hp->name);
+			if (!(hp->hflags & SWITCH_EVENT_HFLAG_STATIC_NAME))	FREE(hp->name);
 			hp->name = DUP(new_header_name);
+			hp->hflags = 0; // DUP'ing the header name means its now dynamic alloc
 			hlen = -1;
 			hp->hash = switch_ci_hashfunc_default(hp->name, &hlen);
 			x++;
@@ -866,7 +867,7 @@ SWITCH_DECLARE(switch_status_t) switch_event_del_header_val(switch_event_t *even
 			if (hp == event->last_header || !hp->next) {
 				event->last_header = lp;
 			}
-			FREE(hp->name);
+			if (!(hp->hflags & SWITCH_EVENT_HFLAG_STATIC_NAME)) FREE(hp->name);
 
 			if (hp->idx) {
 				int i = 0;
@@ -879,8 +880,9 @@ SWITCH_DECLARE(switch_status_t) switch_event_del_header_val(switch_event_t *even
 
 			FREE(hp->value);
 
-			memset(hp, 0, sizeof(*hp));
 #ifdef SWITCH_EVENT_RECYCLE
+			// XXX TODO: We don't need to memset this if we're just gonna free right? This was supposed to be in recycle eh?
+			memset(hp, 0, sizeof(*hp)); 
 			if (switch_queue_trypush(EVENT_HEADER_RECYCLE_QUEUE, hp) != SWITCH_STATUS_SUCCESS) {
 				FREE(hp);
 			}
@@ -896,7 +898,7 @@ SWITCH_DECLARE(switch_status_t) switch_event_del_header_val(switch_event_t *even
 	return status;
 }
 
-static switch_event_header_t *new_header(const char *header_name)
+static switch_event_header_t *new_header(const char *header_name, int32_t hflags, uint32_t name_hash)
 {
 	switch_event_header_t *header;
 
@@ -913,10 +915,14 @@ static switch_event_header_t *new_header(const char *header_name)
 #endif
 
 		memset(header, 0, sizeof(*header));
-		header->name = DUP(header_name);
-
+		header->hflags = hflags;
+		header->hash = name_hash;
+		if (hflags & SWITCH_EVENT_HFLAG_STATIC_NAME) {
+			header->name = (char*)header_name; // QUESTION: How should const be handled in such a case?
+		} else {
+			header->name = DUP(header_name);
+		}
 		return header;
-
 }
 
 SWITCH_DECLARE(int) switch_event_add_array(switch_event_t *event, const char *var, const char *val)
@@ -965,8 +971,9 @@ SWITCH_DECLARE(int) switch_event_add_array(switch_event_t *event, const char *va
 	return 0;
 }
 
-static switch_status_t switch_event_base_add_header(switch_event_t *event, switch_stack_t stack, const char *header_name, char *data)
+static switch_status_t switch_event_base_add_header(switch_event_t *event, switch_stack_t stack, const char *header_name, char *data, int32_t hflags, uint32_t name_hash)
 {
+    // data is result of vasprintf and we own it; no need to dup it
 	switch_event_header_t *header = NULL;
 	switch_ssize_t hlen = -1;
 	int exists = 0, fly = 0;
@@ -974,15 +981,18 @@ static switch_status_t switch_event_base_add_header(switch_event_t *event, switc
 	int index = 0;
 	char *real_header_name = NULL;
 
-
 	if (!strcmp(header_name, "_body")) {
-		switch_event_set_body(event, data);
+        // event_set_body DUPs data but we own data, so set direct
+        switch_safe_free(event->body);
+        event->body = data;
+        return SWITCH_STATUS_SUCCESS; // QUESTION: If special _body name is used, we're done?
 	}
 
 	if ((index_ptr = strchr(header_name, '['))) {
 		index_ptr++;
 		index = atoi(index_ptr);
 		real_header_name = DUP(header_name);
+		hflags &= ~SWITCH_EVENT_HFLAG_STATIC_NAME; // Name no longer static after strdup'ing it
 		if ((index_ptr = strchr(real_header_name, '['))) {
 			*index_ptr++ = '\0';
 		}
@@ -993,7 +1003,7 @@ static switch_status_t switch_event_base_add_header(switch_event_t *event, switc
 
 		if (!(header = switch_event_get_header_ptr(event, header_name)) && index_ptr) {
 
-			header = new_header(header_name);
+			header = new_header(header_name, hflags, name_hash);
 
 			if (switch_test_flag(event, EF_UNIQ_HEADERS)) {
 				switch_event_del_header(event, header_name);
@@ -1008,7 +1018,7 @@ static switch_status_t switch_event_base_add_header(switch_event_t *event, switc
 				if (index > -1 && index <= 4000) {
 					if (index < header->idx) {
 						FREE(header->array[index]);
-						header->array[index] = DUP(data);
+						header->array[index] = data;
 					} else {
 						int i;
 						char **m;
@@ -1019,7 +1029,7 @@ static switch_status_t switch_event_base_add_header(switch_event_t *event, switc
 						for (i = header->idx; i < index; i++) {
 							m[i] = DUP("");
 						}
-						m[index] = DUP(data);
+						m[index] = data;
 						header->idx = index + 1;
 						if (!fly) {
 							exists = 1;
@@ -1060,7 +1070,7 @@ static switch_status_t switch_event_base_add_header(switch_event_t *event, switc
 		}
 
 
-		header = new_header(header_name);
+		header = new_header(header_name, hflags, name_hash);
 	}
 
 	if ((stack & SWITCH_STACK_PUSH) || (stack & SWITCH_STACK_UNSHIFT)) {
@@ -1131,7 +1141,7 @@ static switch_status_t switch_event_base_add_header(switch_event_t *event, switc
 	}
 
 	if (!exists) {
-		header->hash = switch_ci_hashfunc_default(header->name, &hlen);
+		if (!header->hash) header->hash = switch_ci_hashfunc_default(header->name, &hlen);
 
 		if ((stack & SWITCH_STACK_TOP)) {
 			header->next = event->headers;
@@ -1160,6 +1170,17 @@ static switch_status_t switch_event_base_add_header(switch_event_t *event, switc
 SWITCH_DECLARE(switch_status_t) switch_event_add_header(switch_event_t *event, switch_stack_t stack, const char *header_name, const char *fmt, ...)
 {
 	int ret = 0;
+	va_list ap;
+	va_start(ap, fmt);
+	ret = switch_event_add_header_ex(event, stack, header_name, 0, 0, fmt, ap);
+	va_end(ap);
+	return ret;
+}
+
+SWITCH_DECLARE(switch_status_t) switch_event_add_header_ex(switch_event_t *event, switch_stack_t stack, const char *header_name,
+														   int32_t hflags, uint32_t name_hash, const char *fmt, ...)
+{
+	int ret = 0;
 	char *data;
 	va_list ap;
 
@@ -1171,7 +1192,7 @@ SWITCH_DECLARE(switch_status_t) switch_event_add_header(switch_event_t *event, s
 		return SWITCH_STATUS_MEMERR;
 	}
 
-	return switch_event_base_add_header(event, stack, header_name, data);
+	return switch_event_base_add_header(event, stack, header_name, data, hflags, name_hash);
 }
 
 SWITCH_DECLARE(switch_status_t) switch_event_set_subclass_name(switch_event_t *event, const char *subclass_name)
@@ -1182,16 +1203,20 @@ SWITCH_DECLARE(switch_status_t) switch_event_set_subclass_name(switch_event_t *e
 	switch_safe_free(event->subclass_name);
 	event->subclass_name = DUP(subclass_name);
 	switch_event_del_header(event, "Event-Subclass");
-	switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Event-Subclass", event->subclass_name);
+	switch_event_add_header_string_static(event, SWITCH_STACK_BOTTOM, "Event-Subclass", event->subclass_name);
 	return SWITCH_STATUS_SUCCESS;
 }
 
 SWITCH_DECLARE(switch_status_t) switch_event_add_header_string(switch_event_t *event, switch_stack_t stack, const char *header_name, const char *data)
 {
-	if (data) {
-		return switch_event_base_add_header(event, stack, header_name, (stack & SWITCH_STACK_NODUP) ? (char *)data : DUP(data));
-	}
-	return SWITCH_STATUS_GENERR;
+	return switch_event_add_header_string_ex(event, stack, header_name, data, 0, 0);
+}
+
+SWITCH_DECLARE(switch_status_t) switch_event_add_header_string_ex(switch_event_t *event, switch_stack_t stack, const char *header_name, const char *data,
+																  int32_t hflags, uint32_t name_hash)
+{
+	if (!data) return SWITCH_STATUS_GENERR;
+	return switch_event_base_add_header(event, stack, header_name, (stack & SWITCH_STACK_NODUP) ? (char *)data : DUP(data), hflags, name_hash);
 }
 
 SWITCH_DECLARE(switch_status_t) switch_event_set_body(switch_event_t *event, const char *body)
@@ -1251,9 +1276,8 @@ SWITCH_DECLARE(void) switch_event_destroy(switch_event_t **event)
 				}
 			}
 
-			FREE(this->name);
+			if (!(this->hflags & SWITCH_EVENT_HFLAG_STATIC_NAME)) FREE(this->name);
 			FREE(this->value);
-
 
 #ifdef SWITCH_EVENT_RECYCLE
 			if (switch_queue_trypush(EVENT_HEADER_RECYCLE_QUEUE, this) != SWITCH_STATUS_SUCCESS) {
@@ -1262,7 +1286,6 @@ SWITCH_DECLARE(void) switch_event_destroy(switch_event_t **event)
 #else
 			FREE(this);
 #endif
-
 
 		}
 		FREE(ep->body);
@@ -1291,10 +1314,10 @@ SWITCH_DECLARE(void) switch_event_merge(switch_event_t *event, switch_event_t *t
 			int i;
 
 			for(i = 0; i < hp->idx; i++) {
-				switch_event_add_header_string(event, SWITCH_STACK_PUSH, hp->name, hp->array[i]);
+				switch_event_add_header_string_ex(event, SWITCH_STACK_PUSH, hp->name, hp->array[i], hp->hflags, hp->hash);
 			}
 		} else {
-			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, hp->name, hp->value);
+			switch_event_add_header_string_ex(event, SWITCH_STACK_BOTTOM, hp->name, hp->value, hp->hflags, hp->hash);
 		}
 	}
 }
@@ -1319,10 +1342,10 @@ SWITCH_DECLARE(switch_status_t) switch_event_dup(switch_event_t **event, switch_
 		if (hp->idx) {
 			int i;
 			for (i = 0; i < hp->idx; i++) {
-				switch_event_add_header_string(*event, SWITCH_STACK_PUSH, hp->name, hp->array[i]);
+				switch_event_add_header_string_ex(*event, SWITCH_STACK_PUSH, hp->name, hp->array[i], hp->hflags, hp->hash);
 			}
 		} else {
-			switch_event_add_header_string(*event, SWITCH_STACK_BOTTOM, hp->name, hp->value);
+			switch_event_add_header_string_ex(*event, SWITCH_STACK_BOTTOM, hp->name, hp->value, hp->hflags, hp->hash);
 		}
 	}
 
@@ -1382,10 +1405,10 @@ SWITCH_DECLARE(switch_status_t) switch_event_dup_reply(switch_event_t **event, s
 		}
 	}
 
-	switch_event_add_header_string(*event, SWITCH_STACK_BOTTOM, "replying", "true");
+	switch_event_add_header_string_static(*event, SWITCH_STACK_BOTTOM, "replying", "true");
 
 	if (todup->body) {
-		switch_event_add_header_string(*event, SWITCH_STACK_BOTTOM, "orig_body", todup->body);
+		switch_event_add_header_string_static(*event, SWITCH_STACK_BOTTOM, "orig_body", todup->body);
 	}
 
 	(*event)->key = todup->key;
@@ -1937,26 +1960,23 @@ SWITCH_DECLARE(void) switch_event_prep_for_delivery_detailed(const char *file, c
 	EVENT_SEQUENCE_NR++;
 	switch_mutex_unlock(EVENT_QUEUE_MUTEX);
 
-
-	switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Event-Name", switch_event_name(event->event_id));
-	switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Core-UUID", switch_core_get_uuid());
-	switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "FreeSWITCH-Hostname", switch_core_get_hostname());
-	switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "FreeSWITCH-Switchname", switch_core_get_switchname());
-	switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "FreeSWITCH-IPv4", guess_ip_v4);
-	switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "FreeSWITCH-IPv6", guess_ip_v6);
+	switch_event_add_header_string_static(event, SWITCH_STACK_BOTTOM, "Event-Name", switch_event_name(event->event_id));
+	switch_event_add_header_string_static(event, SWITCH_STACK_BOTTOM, "Core-UUID", switch_core_get_uuid());
+	switch_event_add_header_string_static(event, SWITCH_STACK_BOTTOM, "FreeSWITCH-Hostname", switch_core_get_hostname());
+	switch_event_add_header_string_static(event, SWITCH_STACK_BOTTOM, "FreeSWITCH-Switchname", switch_core_get_switchname());
+	switch_event_add_header_string_static(event, SWITCH_STACK_BOTTOM, "FreeSWITCH-IPv4", guess_ip_v4);
+	switch_event_add_header_string_static(event, SWITCH_STACK_BOTTOM, "FreeSWITCH-IPv6", guess_ip_v6);
 
 	switch_time_exp_lt(&tm, ts);
 	switch_strftime_nocheck(date, &retsize, sizeof(date), "%Y-%m-%d %T", &tm);
-	switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Event-Date-Local", date);
+	switch_event_add_header_string_static(event, SWITCH_STACK_BOTTOM, "Event-Date-Local", date);
 	switch_rfc822_date(date, ts);
-	switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Event-Date-GMT", date);
-	switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Event-Date-Timestamp", "%" SWITCH_UINT64_T_FMT, (uint64_t) ts);
-	switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Event-Calling-File", switch_cut_path(file));
-	switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Event-Calling-Function", func);
-	switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Event-Calling-Line-Number", "%d", line);
-	switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Event-Sequence", "%" SWITCH_UINT64_T_FMT, (uint64_t) EVENT_SEQUENCE_NR);
-
-
+	switch_event_add_header_string_static(event, SWITCH_STACK_BOTTOM, "Event-Date-GMT", date);
+	switch_event_add_header_static(event, SWITCH_STACK_BOTTOM, "Event-Date-Timestamp", "%" SWITCH_UINT64_T_FMT, (uint64_t)ts);
+	switch_event_add_header_string_static(event, SWITCH_STACK_BOTTOM, "Event-Calling-File", switch_cut_path(file));
+	switch_event_add_header_string_static(event, SWITCH_STACK_BOTTOM, "Event-Calling-Function", func);
+	switch_event_add_header_static(event, SWITCH_STACK_BOTTOM, "Event-Calling-Line-Number", "%d", line);
+	switch_event_add_header_static(event, SWITCH_STACK_BOTTOM, "Event-Sequence", "%" SWITCH_UINT64_T_FMT, (uint64_t)EVENT_SEQUENCE_NR);
 }
 
 SWITCH_DECLARE(switch_status_t) switch_event_fire_detailed(const char *file, const char *func, int line, switch_event_t **event, void *user_data)

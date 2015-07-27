@@ -72,8 +72,8 @@ static void send_heartbeat(void)
 	switch_core_measure_time(switch_core_uptime(), &duration);
 
 	if (switch_event_create(&event, SWITCH_EVENT_HEARTBEAT) == SWITCH_STATUS_SUCCESS) {
-		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Event-Info", "System Ready");
-		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Up-Time",
+		switch_event_add_header_static(event, SWITCH_STACK_BOTTOM, "Event-Info", "System Ready");
+		switch_event_add_header_static(event, SWITCH_STACK_BOTTOM, "Up-Time",
 								"%u year%s, "
 								"%u day%s, "
 								"%u hour%s, "
@@ -88,17 +88,17 @@ static void send_heartbeat(void)
 								duration.sec, duration.sec == 1 ? "" : "s",
 								duration.ms, duration.ms == 1 ? "" : "s", duration.mms, duration.mms == 1 ? "" : "s");
 
-		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "FreeSWITCH-Version", "%s", switch_version_full());
-		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Uptime-msec", "%"SWITCH_TIME_T_FMT, switch_core_uptime() / 1000);
-		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Session-Count", "%u", switch_core_session_count());
-		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Max-Sessions", "%u", switch_core_session_limit(0));
-		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Session-Per-Sec", "%u", runtime.sps);
-		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Session-Per-Sec-Max", "%u", runtime.sps_peak);
-		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Session-Per-Sec-FiveMin", "%u", runtime.sps_peak_fivemin);
-		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Session-Since-Startup", "%" SWITCH_SIZE_T_FMT, switch_core_session_id() - 1);
-		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Session-Peak-Max", "%u", runtime.sessions_peak);
-		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Session-Peak-FiveMin", "%u", runtime.sessions_peak_fivemin);
-		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Idle-CPU", "%f", switch_core_idle_cpu());
+		switch_event_add_header_static(event, SWITCH_STACK_BOTTOM, "FreeSWITCH-Version", "%s", switch_version_full());
+		switch_event_add_header_static(event, SWITCH_STACK_BOTTOM, "Uptime-msec", "%"SWITCH_TIME_T_FMT, switch_core_uptime() / 1000);
+		switch_event_add_header_static(event, SWITCH_STACK_BOTTOM, "Session-Count", "%u", switch_core_session_count());
+		switch_event_add_header_static(event, SWITCH_STACK_BOTTOM, "Max-Sessions", "%u", switch_core_session_limit(0));
+		switch_event_add_header_static(event, SWITCH_STACK_BOTTOM, "Session-Per-Sec", "%u", runtime.sps);
+		switch_event_add_header_static(event, SWITCH_STACK_BOTTOM, "Session-Per-Sec-Max", "%u", runtime.sps_peak);
+		switch_event_add_header_static(event, SWITCH_STACK_BOTTOM, "Session-Per-Sec-FiveMin", "%u", runtime.sps_peak_fivemin);
+		switch_event_add_header_static(event, SWITCH_STACK_BOTTOM, "Session-Since-Startup", "%" SWITCH_SIZE_T_FMT, switch_core_session_id() - 1);
+		switch_event_add_header_static(event, SWITCH_STACK_BOTTOM, "Session-Peak-Max", "%u", runtime.sessions_peak);
+		switch_event_add_header_static(event, SWITCH_STACK_BOTTOM, "Session-Peak-FiveMin", "%u", runtime.sessions_peak_fivemin);
+		switch_event_add_header_static(event, SWITCH_STACK_BOTTOM, "Idle-CPU", "%f", switch_core_idle_cpu());
 		switch_event_fire(&event);
 	}
 }

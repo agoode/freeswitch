@@ -61,19 +61,23 @@
 #include <switch.h>
 
 SWITCH_BEGIN_EXTERN_C
+
+#define SWITCH_EVENT_HFLAG_STATIC_NAME (1 << 0)
+
 /*! \brief An event Header */
-	struct switch_event_header {
+struct switch_event_header {
 	/*! the header name */
 	char *name;
 	/*! the header value */
 	char *value;
 	/*! array space */
 	char **array;
-	/*! array index */
-	int idx;
-	/*! hash of the header name */
-	unsigned long hash;
 	struct switch_event_header *next;
+	/*! array index */
+	int32_t idx;
+	/*! hash of the header name */
+	uint32_t hash;
+	int32_t hflags;
 };
 
 /*! \brief Representation of an event */
@@ -193,6 +197,15 @@ SWITCH_DECLARE(char *) switch_event_get_body(switch_event_t *event);
 */
 SWITCH_DECLARE(switch_status_t) switch_event_add_header(switch_event_t *event, switch_stack_t stack,
 														const char *header_name, const char *fmt, ...) PRINTF_FUNCTION(4, 5);
+SWITCH_DECLARE(switch_status_t) switch_event_add_header_ex(switch_event_t *event, switch_stack_t stack, const char *header_name, 
+														   int32_t header_flags, uint32_t name_hash, const char *fmt, ...) PRINTF_FUNCTION(6, 7);
+#define switch_event_add_header_static(evt, stack, header_name, ...) do { \
+    static uint32_t _hh_hash = 0; \
+    switch_ssize_t _hh_klen = -1; \
+    if (_hh_hash == 0) _hh_hash = switch_ci_hashfunc_default(header_name, &_hh_klen); \
+    switch_event_add_header_ex(evt, stack, header_name, SWITCH_EVENT_HFLAG_STATIC_NAME, _hh_hash, __VA_ARGS__); \
+} while(0)
+
 #endif
 
 SWITCH_DECLARE(switch_status_t) switch_event_set_subclass_name(switch_event_t *event, const char *subclass_name);
@@ -206,6 +219,14 @@ SWITCH_DECLARE(switch_status_t) switch_event_set_subclass_name(switch_event_t *e
   \return SWITCH_STATUS_SUCCESS if the header was added
 */
 SWITCH_DECLARE(switch_status_t) switch_event_add_header_string(switch_event_t *event, switch_stack_t stack, const char *header_name, const char *data);
+SWITCH_DECLARE(switch_status_t) switch_event_add_header_string_ex(switch_event_t *event, switch_stack_t stack, const char *header_name, const char *data, 
+																  int32_t header_flags, uint32_t name_hash);
+#define switch_event_add_header_string_static(evt, stack, header_name, data) do { \
+    static uint32_t _hh_hash = 0; \
+    switch_ssize_t _hh_klen = -1; \
+    if (_hh_hash == 0) _hh_hash = switch_ci_hashfunc_default(header_name, &_hh_klen); \
+    switch_event_add_header_ex(evt, stack, header_name, SWITCH_EVENT_HFLAG_STATIC_NAME, _hh_hash, data); \
+} while(0)
 
 SWITCH_DECLARE(switch_status_t) switch_event_del_header_val(switch_event_t *event, const char *header_name, const char *val);
 #define switch_event_del_header(_e, _h) switch_event_del_header_val(_e, _h, NULL)
