@@ -1347,7 +1347,9 @@ static switch_bool_t record_callback(switch_media_bug_t *bug, void *user_data, s
 				if (rh->fh->samples_out < rh->fh->samplerate * rh->min_sec) {
 					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Discarding short file %s\n", rh->file);
 					switch_channel_set_variable(channel, "RECORD_DISCARDED", "true");
-					switch_file_remove(rh->file, switch_core_session_get_pool(session));
+					if (switch_core_file_remove(rh->fh) != SWITCH_STATUS_SUCCESS) {
+						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Can't remove file: %s\n", rh->file);
+					}
 					set_completion_cause(rh, "input-too-short");
 				}
 

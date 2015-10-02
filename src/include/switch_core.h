@@ -1905,6 +1905,12 @@ SWITCH_DECLARE(switch_status_t) switch_core_file_get_string(_In_ switch_file_han
   \return SWITCH_STATUS_SUCCESS if the file handle was closed
 */
 SWITCH_DECLARE(switch_status_t) switch_core_file_close(_In_ switch_file_handle_t *fh);
+/*! 
+  \brief Remove a closed file handle
+  \param fh the file handle to remove
+  \return SWITCH_STATUS_SUCCESS if the file handle was removed
+*/
+SWITCH_DECLARE(switch_status_t) switch_core_file_remove(_In_ switch_file_handle_t *fh);
 
 SWITCH_DECLARE(switch_status_t) switch_core_file_truncate(switch_file_handle_t *fh, int64_t offset);
 SWITCH_DECLARE(switch_bool_t) switch_core_file_has_video(switch_file_handle_t *fh);

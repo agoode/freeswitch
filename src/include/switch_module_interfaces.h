@@ -289,6 +289,8 @@ struct switch_file_interface {
 	switch_status_t (*file_set_string) (switch_file_handle_t *fh, switch_audio_col_t col, const char *string);
 	/*! function to get meta data */
 	switch_status_t (*file_get_string) (switch_file_handle_t *fh, switch_audio_col_t col, const char **string);
+	/*! function to remove the file */
+	switch_status_t (*file_remove) (switch_file_handle_t *);
 	/*! list of supported file extensions */
 	char **extens;
 	switch_thread_rwlock_t *rwlock;

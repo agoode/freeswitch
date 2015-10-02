@@ -4795,6 +4795,13 @@ static switch_status_t file_string_file_close(switch_file_handle_t *handle)
 	return SWITCH_STATUS_SUCCESS;
 }
 
+static switch_status_t file_string_file_remove(switch_file_handle_t *handle)
+{
+	file_string_context_t *context = handle->private_info;
+
+	return switch_core_file_remove(&context->fh);
+}
+
 static switch_status_t file_string_file_set_string(switch_file_handle_t *handle, switch_audio_col_t col, const char *string)
 {
 	file_string_context_t *context = handle->private_info;
@@ -5970,6 +5977,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_dptools_load)
 	file_interface->file_seek = file_string_file_seek;
 	file_interface->file_set_string = file_string_file_set_string;
 	file_interface->file_get_string = file_string_file_get_string;
+	file_interface->file_remove = file_string_file_remove;
 
 	file_url_supported_formats[0] = "file";
 
