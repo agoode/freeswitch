@@ -738,14 +738,16 @@ SWITCH_DECLARE(switch_status_t) switch_core_file_remove(switch_file_handle_t *fh
 	switch_assert(fh != NULL);
 	switch_assert(fh->file_interface != NULL);
 
-	if (switch_test_flag(fh, SWITCH_FILE_OPEN)) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Can't remove open file: %s\n", fh->file_path);
+	if (!switch_test_flag(fh, SWITCH_FILE_OPEN)) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Can't remove closed file: %s\n", fh->file_path);
 		return SWITCH_STATUS_FALSE;
 	}
 
 	if (fh->file_interface->file_remove) {
 		return fh->file_interface->file_remove(fh);
 	}
+
+	switch_core_file_close(fh);
 
 	return switch_file_remove(fh->file_path, fh->memory_pool);
 }

@@ -1906,7 +1906,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_file_get_string(_In_ switch_file_han
 */
 SWITCH_DECLARE(switch_status_t) switch_core_file_close(_In_ switch_file_handle_t *fh);
 /*! 
-  \brief Remove a closed file handle
+  \brief Remove an open file handle
   \param fh the file handle to remove
   \return SWITCH_STATUS_SUCCESS if the file handle was removed
 */
