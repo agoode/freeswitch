@@ -29,7 +29,7 @@
  * Bret McDanel <trixter AT 0xdecafbad.com>
  * Raymond Chandler <intralanman@freeswitch.org>
  * William King <william.king@quentustech.com>
- * Emmanuel Schmidbauer <e.schmidbauer@gmail.com>
+ * Emmanuel Schmidbauer <eschmidbauer@gmail.com>
  * David Knell <david.knell@telng.com>
  *
  * sofia_presence.c -- SOFIA SIP Endpoint (presence code)
@@ -1438,7 +1438,7 @@ static switch_event_t *actual_sofia_presence_event_handler(switch_event_t *event
 
 
 
-					sql = switch_mprintf("select distinct sip_subscriptions.proto,sip_subscriptions.sip_user,sip_subscriptions.sip_host,"
+					sql = switch_mprintf("select %ssip_subscriptions.proto,sip_subscriptions.sip_user,sip_subscriptions.sip_host,"
 										 "sip_subscriptions.sub_to_user,sip_subscriptions.sub_to_host,sip_subscriptions.event,"
 										 "sip_subscriptions.contact,sip_subscriptions.call_id,sip_subscriptions.full_from,"
 										 "sip_subscriptions.full_via,sip_subscriptions.expires,sip_subscriptions.user_agent,"
@@ -1458,7 +1458,7 @@ static switch_event_t *actual_sofia_presence_event_handler(switch_event_t *event
 										 "and (sub_to_host='%q' or sub_to_host='%q' or sub_to_host='%q' or presence_hosts like '%%%q%%') ",
 
 
-										 switch_str_nil(status), switch_str_nil(rpid), host,
+										 strcasecmp(proto, "orbit") ? "distinct " : "", switch_str_nil(status), switch_str_nil(rpid), host,
 										 dh.status,dh.rpid,dh.presence_id, mod_sofia_globals.hostname, profile->name, proto,
 										 event_type, alt_event_type, euser, host, profile->sipip,
 										 profile->extsipip ? profile->extsipip : "N/A", host);
@@ -1476,7 +1476,7 @@ static switch_event_t *actual_sofia_presence_event_handler(switch_event_t *event
 					sofia_glue_execute_sql_now(profile, &sql, SWITCH_TRUE);
 
 
-					sql = switch_mprintf("select distinct sip_subscriptions.proto,sip_subscriptions.sip_user,sip_subscriptions.sip_host,"
+					sql = switch_mprintf("select %ssip_subscriptions.proto,sip_subscriptions.sip_user,sip_subscriptions.sip_host,"
 										 "sip_subscriptions.sub_to_user,sip_subscriptions.sub_to_host,sip_subscriptions.event,"
 										 "sip_subscriptions.contact,sip_subscriptions.call_id,sip_subscriptions.full_from,"
 										 "sip_subscriptions.full_via,sip_subscriptions.expires,sip_subscriptions.user_agent,"
@@ -1493,7 +1493,7 @@ static switch_event_t *actual_sofia_presence_event_handler(switch_event_t *event
 										 "sip_subscriptions.event != 'line-seize' and "
 										 "sip_subscriptions.call_id='%q'",
 
-										 switch_str_nil(status), switch_str_nil(rpid), host,
+										 strcasecmp(proto, "orbit") ? "distinct " : "", switch_str_nil(status), switch_str_nil(rpid), host,
 										 dh.status,dh.rpid,dh.presence_id, mod_sofia_globals.hostname, profile->name, call_id);
 
 				}
@@ -2834,6 +2834,9 @@ static int sofia_presence_sub_callback(void *pArg, int argc, char **argv, char *
 		const char *from_user = switch_str_nil(switch_event_get_header(helper->event, "variable_sip_from_user"));
 		const char *disable_early = switch_str_nil(switch_event_get_header(helper->event, "variable_presence_disable_early"));
 		const char *answer_epoch = switch_str_nil(switch_event_get_header(helper->event, "variable_answer_epoch"));
+		const char *cid_ext = switch_str_nil(switch_event_get_header(helper->event, "cid-ext"));
+		const char *cid_name = switch_str_nil(switch_event_get_header(helper->event, "cid-name"));
+		const char *cid_number = switch_str_nil(switch_event_get_header(helper->event, "cid-number"));
 		int answered = 0;
 		char *clean_to_user = NULL;
 		char *clean_from_user = NULL;
@@ -2926,7 +2929,7 @@ static int sofia_presence_sub_callback(void *pArg, int argc, char **argv, char *
 			stream.write_function(&stream,
 								  "<?xml version=\"1.0\"?>\n"
 								  "<dialog-info xmlns=\"urn:ietf:params:xml:ns:dialog-info\" "
-								  "version=\"%s\" state=\"%s\" entity=\"%s\">\n", version, default_dialog, clean_id);
+								  "version=\"%s\" state=\"%s\" entity=\"%s\">\n", version, default_dialog, !zstr(cid_ext) ? cid_ext : clean_id);
 
 		}
 
@@ -2973,7 +2976,7 @@ static int sofia_presence_sub_callback(void *pArg, int argc, char **argv, char *
 					astate = "terminated";
 				}
 
-				stream.write_function(&stream, "<dialog id=\"%s\" direction=\"%s\">\n", uuid, direction);
+				stream.write_function(&stream, "<dialog id=\"%s\" direction=\"%s\">\n", !zstr(cid_ext) ? cid_ext : uuid, direction);
 				stream.write_function(&stream, "<state>%s</state>\n", astate);
 			} else {
 				if (!strcasecmp(astate, "ringing")) {
@@ -3034,6 +3037,14 @@ static int sofia_presence_sub_callback(void *pArg, int argc, char **argv, char *
 						} else {
 							stream.write_function(&stream, "<target uri=\"sip:park+%s\"/>\n", uuid);
 						}
+						stream.write_function(&stream, "</remote>\n");
+					} else if (!strcasecmp(proto, "orbit")) {
+						stream.write_function(&stream, "<local>\n<identity display=\"orbit\">sip:%s@%s;proto=orbit</identity>\n",
+											  !zstr(cid_ext) ? cid_ext : "unknown", host);
+						stream.write_function(&stream, "<target uri=\"sip:%s@%s;proto=orbit\">\n", !zstr(cid_ext) ? cid_ext : "unknown", host);
+						stream.write_function(&stream, "<param pname=\"+sip.rendering\" pvalue=\"no\"/>\n</target>\n</local>\n");
+						stream.write_function(&stream, "<remote>\n<identity display=\"%s\">sip:%s@%s</identity>\n", cid_name, cid_number, host);
+						stream.write_function(&stream, "<target uri=\"sip:%s@%s\"/>\n", cid_number, host);
 						stream.write_function(&stream, "</remote>\n");
 					} else if (!strcasecmp(proto, "pickup")) {
 						stream.write_function(&stream, "<local>\n<identity display=\"pickup\">sip:%s@%s;proto=pickup</identity>\n",

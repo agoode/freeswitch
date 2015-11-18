@@ -33,6 +33,7 @@
 #include <switch.h>
 #define VALET_EVENT "valet_parking::info"
 #define VALET_PROTO "park"
+#define ORBIT_PROTO "orbit"
 #define TOKEN_FREQ 5
 
 /* Prototypes */
@@ -49,6 +50,8 @@ typedef struct {
 	time_t timeout;
 	int bridged;
 	time_t start_time;
+	char cid_name[128];
+	char cid_number[128];
 } valet_token_t;
 
 typedef struct {
@@ -230,11 +233,15 @@ static valet_token_t *next_id(switch_core_session_t *session, valet_lot_t *lot, 
 	token = NULL;
 
 	if (r) {
+		switch_channel_t *channel = switch_core_session_get_channel(session);
+		switch_caller_profile_t *caller_profile = switch_channel_get_caller_profile(channel);
 		switch_snprintf(buf, sizeof(buf), "%d", r);
 		switch_zmalloc(token, sizeof(*token));
 		switch_set_string(token->uuid, switch_core_session_get_uuid(session));
 		switch_set_string(token->ext, buf);
 		token->start_time = switch_epoch_time_now(NULL);
+		switch_set_string(token->cid_name, caller_profile->caller_id_name);
+		switch_set_string(token->cid_number, caller_profile->caller_id_number);
 		switch_mutex_lock(lot->mutex);
 		switch_core_hash_insert(lot->hash, buf, token);
 		switch_mutex_unlock(lot->mutex);
@@ -356,6 +363,24 @@ static void valet_send_presence(const char *lot_name, valet_lot_t *lot, valet_to
 			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "presence-call-direction", token->bridged == 0 ? "outbound" : "inbound");
 			switch_event_fire(&event);
 		}
+		if (switch_event_create(&event, SWITCH_EVENT_PRESENCE_IN) == SWITCH_STATUS_SUCCESS) {
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "proto", ORBIT_PROTO);
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "login", lot_name);
+			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "from", "%s@%s", lot_name, domain_name);
+			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "force-status", "Active (%d caller%s)", count, count == 1 ? "" : "s");
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "rpid", "active");
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "event_type", "presence");
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "alt_event_type", "dialog");
+			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "event_count", "%d", EC);
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "unique-id", lot_name);
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "channel-state", "CS_ROUTING");
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "answer-state", "early");
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "presence-call-direction", "inbound");
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "cid-ext", token->ext);
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "cid-name", token->cid_name);
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "cid-number", token->cid_number);
+			switch_event_fire(&event);
+		}
 	} else {
 		if (switch_event_create(&event, SWITCH_EVENT_PRESENCE_IN) == SWITCH_STATUS_SUCCESS) {
 			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "proto", VALET_PROTO);
@@ -372,6 +397,24 @@ static void valet_send_presence(const char *lot_name, valet_lot_t *lot, valet_to
 			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "presence-call-direction", "inbound");
 			switch_event_fire(&event);
 		}		
+		if (switch_event_create(&event, SWITCH_EVENT_PRESENCE_IN) == SWITCH_STATUS_SUCCESS) {
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "proto", ORBIT_PROTO);
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "login", lot_name);
+			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "from", "%s@%s", lot_name, domain_name);
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "force-status", "Empty");
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "rpid", "unknown");
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "event_type", "presence");
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "alt_event_type", "dialog");
+			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "event_count", "%d", EC);
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "unique-id", lot_name);
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "channel-state", "CS_HANGUP");
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "answer-state", "terminated");
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "presence-call-direction", "inbound");
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "cid-ext", token->ext);
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "cid-name", token->cid_name);
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "cid-number", token->cid_number);
+			switch_event_fire(&event);
+		}
 	}
 
 	switch_safe_free(dup_domain_name);
@@ -520,6 +563,7 @@ SWITCH_STANDARD_APP(valet_parking_function)
 		}
 
 		if (!token || !in) {
+			switch_caller_profile_t *caller_profile = switch_channel_get_caller_profile(channel);
 
 			if (!token) {
 				switch_mutex_lock(lot->mutex);
@@ -576,6 +620,8 @@ SWITCH_STANDARD_APP(valet_parking_function)
 			switch_set_string(token->uuid, switch_core_session_get_uuid(session));
 			switch_set_string(token->ext, ext);
 			token->start_time = switch_epoch_time_now(NULL);
+			switch_set_string(token->cid_name, caller_profile->caller_id_name);
+			switch_set_string(token->cid_number, caller_profile->caller_id_number);
 			switch_mutex_lock(lot->mutex);
 			switch_core_hash_insert(lot->hash, ext, token);
 			switch_mutex_unlock(lot->mutex);
@@ -786,8 +832,9 @@ static void pres_event_handler(switch_event_t *event)
 	char *dup_to = NULL, *lot_name, *dup_lot_name = NULL, *domain_name;
 	valet_lot_t *lot;
 	int found = 0;
+	switch_bool_t park_proto = SWITCH_TRUE;
 	
-	if (!to || strncasecmp(to, "park+", 5) || !strchr(to, '@')) {
+	if (!to || ((strncasecmp(to, "park+", 5) && (strncasecmp(to, "orbit+", 6)))) || !strchr(to, '@')) {
 		return;
 	}
 
@@ -795,7 +842,12 @@ static void pres_event_handler(switch_event_t *event)
 		return;
 	}
 
-	lot_name = dup_to + 5;
+	if (!strncasecmp(to, "orbit+", 6)) {
+		park_proto = SWITCH_FALSE;
+		lot_name = dup_to + 6;
+	} else {
+		lot_name = dup_to + 5;
+	}
 
 	if ((domain_name = strchr(lot_name, '@'))) {
 		*domain_name++ = '\0';
@@ -803,112 +855,153 @@ static void pres_event_handler(switch_event_t *event)
 
 	dup_lot_name = switch_mprintf("%q@%q", lot_name, domain_name);
 
-	if ((lot = valet_find_lot(lot_name, SWITCH_FALSE)) || (dup_lot_name && (lot = valet_find_lot(dup_lot_name, SWITCH_FALSE)))) {
-		int count = valet_lot_count(lot);
+	if (park_proto == SWITCH_TRUE) {
+		if ((lot = valet_find_lot(lot_name, SWITCH_FALSE)) || (dup_lot_name && (lot = valet_find_lot(dup_lot_name, SWITCH_FALSE)))) {
+			int count = valet_lot_count(lot);
 
-		if (count) {
-			if (switch_event_create(&event, SWITCH_EVENT_PRESENCE_IN) == SWITCH_STATUS_SUCCESS) {
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "proto", VALET_PROTO);
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "login", lot_name);
-				switch_event_add_header(event, SWITCH_STACK_BOTTOM, "from", "%s@%s", lot_name, domain_name);
+			if (count) {
+				if (switch_event_create(&event, SWITCH_EVENT_PRESENCE_IN) == SWITCH_STATUS_SUCCESS) {
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "proto", VALET_PROTO);
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "login", lot_name);
+					switch_event_add_header(event, SWITCH_STACK_BOTTOM, "from", "%s@%s", lot_name, domain_name);
 
-				switch_event_add_header(event, SWITCH_STACK_BOTTOM, "force-status", "Active (%d caller%s)", count, count == 1 ? "" : "s");
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "rpid", "active");
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "event_type", "presence");
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "alt_event_type", "dialog");
-				switch_event_add_header(event, SWITCH_STACK_BOTTOM, "event_count", "%d", EC++);
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "unique-id", lot_name);
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "channel-state", "CS_ROUTING");
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "answer-state", "confirmed");
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "presence-call-direction", "inbound");
-				switch_event_fire(&event);
+					switch_event_add_header(event, SWITCH_STACK_BOTTOM, "force-status", "Active (%d caller%s)", count, count == 1 ? "" : "s");
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "rpid", "active");
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "event_type", "presence");
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "alt_event_type", "dialog");
+					switch_event_add_header(event, SWITCH_STACK_BOTTOM, "event_count", "%d", EC++);
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "unique-id", lot_name);
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "channel-state", "CS_ROUTING");
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "answer-state", "confirmed");
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "presence-call-direction", "inbound");
+					switch_event_fire(&event);
+				}
+				found++;
+			} else {
+				if (switch_event_create(&event, SWITCH_EVENT_PRESENCE_IN) == SWITCH_STATUS_SUCCESS) {
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "proto", VALET_PROTO);
+					switch_event_add_header(event, SWITCH_STACK_BOTTOM, "from", "%s@%s", lot_name, domain_name);
+
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "force-status", "Empty");
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "rpid", "unknown");
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "event_type", "presence");
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "alt_event_type", "dialog");
+					switch_event_add_header(event, SWITCH_STACK_BOTTOM, "event_count", "%d", EC++);
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "unique-id", lot_name);
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "channel-state", "CS_HANGUP");
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "answer-state", "terminated");
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "presence-call-direction", "inbound");
+					switch_event_fire(&event);
+				}		
 			}
-			found++;
 		} else {
-			if (switch_event_create(&event, SWITCH_EVENT_PRESENCE_IN) == SWITCH_STATUS_SUCCESS) {
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "proto", VALET_PROTO);
-				switch_event_add_header(event, SWITCH_STACK_BOTTOM, "from", "%s@%s", lot_name, domain_name);
+			switch_console_callback_match_t *matches = NULL;
+			switch_console_callback_match_node_t *m;
+			switch_hash_index_t *hi;
+			const void *var;
+			void *val;
+			const char *nvar;
 
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "force-status", "Empty");
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "rpid", "unknown");
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "event_type", "presence");
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "alt_event_type", "dialog");
-				switch_event_add_header(event, SWITCH_STACK_BOTTOM, "event_count", "%d", EC++);
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "unique-id", lot_name);
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "channel-state", "CS_HANGUP");
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "answer-state", "terminated");
-				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "presence-call-direction", "inbound");
-				switch_event_fire(&event);
-			}		
-		}
-	} else {
-		switch_console_callback_match_t *matches = NULL;
-		switch_console_callback_match_node_t *m;
-		switch_hash_index_t *hi;
-		const void *var;
-		void *val;
-		const char *nvar;
+			switch_mutex_lock(globals.mutex);
+			for (hi = switch_core_hash_first(globals.hash); hi; hi = switch_core_hash_next(&hi)) {
+				switch_core_hash_this(hi, &var, NULL, &val);
+				nvar = (const char *) var;
 
-		switch_mutex_lock(globals.mutex);
-		for (hi = switch_core_hash_first(globals.hash); hi; hi = switch_core_hash_next(&hi)) {
-			switch_core_hash_this(hi, &var, NULL, &val);
-			nvar = (const char *) var;
+				if (!strchr(nvar, '@') || switch_stristr(domain_name, nvar)) {
+					switch_console_push_match(&matches, nvar);
+				}
+			}
+			switch_mutex_unlock(globals.mutex);		
+			
+			if (matches) {
+				valet_token_t *token;
+				
+				for (m = matches->head; !found && m; m = m->next) {
+					lot = valet_find_lot(m->val, SWITCH_FALSE);
+					switch_mutex_lock(lot->mutex);
 
-			if (!strchr(nvar, '@') || switch_stristr(domain_name, nvar)) {
-				switch_console_push_match(&matches, nvar);
+					if ((token = (valet_token_t *) switch_core_hash_find(lot->hash, lot_name)) && !token->timeout) {
+						found++;
+						
+						if (switch_event_create(&event, SWITCH_EVENT_PRESENCE_IN) == SWITCH_STATUS_SUCCESS) {
+							switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "proto", VALET_PROTO);
+							switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "login", lot_name);
+							switch_event_add_header(event, SWITCH_STACK_BOTTOM, "from", "%s@%s", lot_name, domain_name);
+
+							switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "force-status", token->bridged == 0 ? "Holding" : "Active");
+							switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "event_type", "presence");
+							switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "alt_event_type", "dialog");
+							switch_event_add_header(event, SWITCH_STACK_BOTTOM, "event_count", "%d", EC++);
+							switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "unique-id", lot_name);
+							switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "channel-state", "CS_ROUTING");
+							switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "answer-state", "confirmed");
+							switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "presence-call-direction", token->bridged == 0 ? "outbound" : "inbound");
+							switch_event_fire(&event);
+						}
+					}
+
+					switch_mutex_unlock(lot->mutex);
+				}
+				switch_console_free_matches(&matches);
 			}
 		}
-		switch_mutex_unlock(globals.mutex);		
-		
-		if (matches) {
-			valet_token_t *token;
-			
-			for (m = matches->head; !found && m; m = m->next) {
-				lot = valet_find_lot(m->val, SWITCH_FALSE);
-				switch_mutex_lock(lot->mutex);
 
-				if ((token = (valet_token_t *) switch_core_hash_find(lot->hash, lot_name)) && !token->timeout) {
-					found++;
-					
+		if (!found && switch_event_create(&event, SWITCH_EVENT_PRESENCE_IN) == SWITCH_STATUS_SUCCESS) {
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "proto", VALET_PROTO);
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "login", lot_name);
+			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "from", "%s@%s", lot_name, domain_name);
+
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "force-status", "Empty");
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "rpid", "unknown");
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "event_type", "presence");
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "alt_event_type", "dialog");
+			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "event_count", "%d", EC++);
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "unique-id", lot_name);
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "channel-state", "CS_HANGUP");
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "answer-state", "terminated");
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "presence-call-direction", "inbound");
+			switch_event_fire(&event);
+		}
+
+	} else {
+		switch_mutex_lock(globals.mutex);
+		if ((lot = valet_find_lot(lot_name, SWITCH_FALSE)) || (dup_lot_name && (lot = valet_find_lot(dup_lot_name, SWITCH_FALSE)))) {
+			switch_hash_index_t *i_hi;
+			const void *i_var;
+			void *i_val;
+
+			switch_mutex_lock(lot->mutex);
+			for (i_hi = switch_core_hash_first(lot->hash); i_hi; i_hi = switch_core_hash_next(&i_hi)) {
+				valet_token_t *token;
+
+				switch_core_hash_this(i_hi, &i_var, NULL, &i_val);
+				token = (valet_token_t *) i_val;
+
+				if (!token->timeout) {
 					if (switch_event_create(&event, SWITCH_EVENT_PRESENCE_IN) == SWITCH_STATUS_SUCCESS) {
-						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "proto", VALET_PROTO);
+						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "proto", ORBIT_PROTO);
 						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "login", lot_name);
 						switch_event_add_header(event, SWITCH_STACK_BOTTOM, "from", "%s@%s", lot_name, domain_name);
-
 						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "force-status", token->bridged == 0 ? "Holding" : "Active");
 						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "event_type", "presence");
 						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "alt_event_type", "dialog");
-						switch_event_add_header(event, SWITCH_STACK_BOTTOM, "event_count", "%d", EC++);
+						switch_event_add_header(event, SWITCH_STACK_BOTTOM, "event_count", "%d", EC);
 						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "unique-id", lot_name);
 						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "channel-state", "CS_ROUTING");
-						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "answer-state", "confirmed");
+						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "answer-state", "early");
 						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "presence-call-direction", token->bridged == 0 ? "outbound" : "inbound");
+						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "cid-ext", token->ext);
+						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "cid-name", token->cid_name);
+						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "cid-number", token->cid_number);
 						switch_event_fire(&event);
 					}
 				}
-
-				switch_mutex_unlock(lot->mutex);
 			}
-			switch_console_free_matches(&matches);
+			switch_mutex_unlock(lot->mutex);
+
 		}
-	}
+		switch_mutex_unlock(globals.mutex);
 
-
-	if (!found && switch_event_create(&event, SWITCH_EVENT_PRESENCE_IN) == SWITCH_STATUS_SUCCESS) {
-		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "proto", VALET_PROTO);
-		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "login", lot_name);
-		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "from", "%s@%s", lot_name, domain_name);
-
-		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "force-status", "Empty");
-		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "rpid", "unknown");
-		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "event_type", "presence");
-		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "alt_event_type", "dialog");
-		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "event_count", "%d", EC++);
-		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "unique-id", lot_name);
-		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "channel-state", "CS_HANGUP");
-		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "answer-state", "terminated");
-		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "presence-call-direction", "inbound");
-		switch_event_fire(&event);
 	}
 
 	switch_safe_free(dup_to);
