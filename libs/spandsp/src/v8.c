@@ -32,6 +32,7 @@
 #include <inttypes.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <memory.h>
 #if defined(HAVE_TGMATH_H)
 #include <tgmath.h>
