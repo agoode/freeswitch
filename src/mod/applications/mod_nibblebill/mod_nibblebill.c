@@ -457,7 +457,7 @@ static switch_status_t do_billing(switch_core_session_t *session)
 	double lowbal_amt = globals.lowbal_amt;
 	double balance;
 	double minimum_charge = 0;
-	double rounding_factor = 1;
+	double rounding_factor = 0;
 	double excess = 0;
 	double rounded_billed = 0;
 	int billsecs = 0;
@@ -605,7 +605,7 @@ static switch_status_t do_billing(switch_core_session_t *session)
 		}
 
 		/* Do Rounding and minimum charge during hangup */
-		if (switch_channel_get_state(channel) == CS_HANGUP) {
+		if (switch_channel_get_state(channel) == CS_HANGUP && rounding_factor > 0) {
 			/* we're going to make an assumption that final billing is done here. So we'll see how this goes. */
 			/* round total billed up as required */
 
