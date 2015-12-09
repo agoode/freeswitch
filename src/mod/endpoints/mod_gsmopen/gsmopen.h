@@ -140,22 +140,23 @@ typedef enum {
 #define GSMOPEN_CONTROL_BUSY		4
 
 /*********************************/
-#define		GSMOPEN_STATE_IDLE				0
-#define		GSMOPEN_STATE_DOWN				1
-#define		GSMOPEN_STATE_RING				2
+#define		GSMOPEN_STATE_IDLE					0
+#define		GSMOPEN_STATE_DOWN					1
+#define		GSMOPEN_STATE_RING					2
 #define		GSMOPEN_STATE_DIALING				3
-#define		GSMOPEN_STATE_BUSY				4
-#define		GSMOPEN_STATE_UP				5
+#define		GSMOPEN_STATE_BUSY					4
+#define		GSMOPEN_STATE_UP					5
 #define		GSMOPEN_STATE_RINGING				6
 #define		GSMOPEN_STATE_PRERING				7
-#define		GSMOPEN_STATE_ERROR_DOUBLE_CALL			8
+#define		GSMOPEN_STATE_ERROR_DOUBLE_CALL		8
 #define		GSMOPEN_STATE_SELECTED				9
-#define 	GSMOPEN_STATE_HANGUP_REQUESTED			10
+#define 	GSMOPEN_STATE_HANGUP_REQUESTED		10
 #define		GSMOPEN_STATE_PREANSWER				11
+#define		GSMOPEN_STATE_DISCONNECTED			12
 /*********************************/
 /* call flow from the device */
-#define 	CALLFLOW_CALL_IDLE				0
-#define 	CALLFLOW_CALL_DOWN				1
+#define 	CALLFLOW_CALL_IDLE					0
+#define 	CALLFLOW_CALL_DOWN					1
 #define 	CALLFLOW_INCOMING_RING				2
 #define 	CALLFLOW_CALL_DIALING				3
 #define 	CALLFLOW_CALL_LINEBUSY				4
@@ -167,7 +168,7 @@ typedef enum {
 #define 	CALLFLOW_CALL_INCOMING				10
 #define 	CALLFLOW_CALL_FAILED				11
 #define 	CALLFLOW_CALL_NOSERVICE				12
-#define 	CALLFLOW_CALL_OUTGOINGRESTRICTED		13
+#define 	CALLFLOW_CALL_OUTGOINGRESTRICTED	13
 #define 	CALLFLOW_CALL_SECURITYFAIL			14
 #define 	CALLFLOW_CALL_NOANSWER				15
 #define 	CALLFLOW_STATUS_FINISHED			16
@@ -182,7 +183,7 @@ typedef enum {
 #define 	CALLFLOW_INCOMING_CALLID			25
 #define 	CALLFLOW_STATUS_REMOTEHOLD			26
 #define 	CALLFLOW_CALL_REMOTEANSWER			27
-#define 	CALLFLOW_CALL_HANGUP_REQUESTED			28
+#define 	CALLFLOW_CALL_HANGUP_REQUESTED		28
 
 /*********************************/
 
@@ -292,6 +293,8 @@ struct private_object {
 	switch_thread_t *tcp_cli_thread;
 	switch_thread_t *gsmopen_signaling_thread;
 	switch_thread_t *gsmopen_api_thread;
+	switch_thread_t *gsmopen_discovery_thread;      /*!< \brief  this thread runs to discover disconnected devices */
+	time_t    gsmopen_discovery_timestamp;  
 	int gsmopen_dir_entry_extension_prefix;
 	char gsmopen_user[256];
 	char gsmopen_password[256];
@@ -311,6 +314,9 @@ struct private_object {
 	int controldevprotocol;		/*!< \brief which protocol is used for serial control of this interface */
 	char controldevprotocolname[50];	/*!< \brief name of the serial device controlling protocol, one of "at" "fbus2" "no_serial" "alsa_voicemodem" */
 	int controldevfd;			/*!< \brief serial controlling file descriptor for this interface */
+	int unload_flag;           /*         To unload Module easyly */
+	int  stop_discovery;           /*     stop_discovery     */
+	int  initialized;				/*      If Device Not Initialized Correctly initialize again   */
 #ifdef WIN32
 	int controldevice_speed;
 #else
@@ -388,7 +394,7 @@ struct private_object {
 	char at_cmgw[16];
 	int no_ucs2;
 	time_t gsmopen_serial_sync_period;
-
+	time_t gsmopen_discovery_period;   /*!< \brief default is "30" second you can set this in gsmopen.conf.xml for evry device seprately */ 
 	time_t gsmopen_serial_synced_timestamp;
 	struct s_result line_array;
 
@@ -496,6 +502,10 @@ void *SWITCH_THREAD_FUNC gsmopen_do_tcp_cli_thread(switch_thread_t *thread, void
 
 void *gsmopen_do_gsmopenapi_thread_func(void *obj);
 void *SWITCH_THREAD_FUNC gsmopen_do_gsmopenapi_thread(switch_thread_t *thread, void *obj);
+
+void *gsmopen_do_discovery_thread_func(void *obj);
+void *SWITCH_THREAD_FUNC gsmopen_do_discovery_thread(switch_thread_t *thread, void *obj);
+
 int dtmf_received(private_t *tech_pvt, char *value);
 int start_audio_threads(private_t *tech_pvt);
 int new_inbound_channel(private_t *tech_pvt);
@@ -570,6 +580,7 @@ int gsmopen_ring(private_t *tech_pvt);
 int iso_8859_1_to_utf8(private_t *tech_pvt, char *iso_8859_1_in, char *utf8_out, size_t outbytesleft);
 int gsmopen_serial_getstatus_AT(private_t *tech_pvt);
 
+
 int dump_event(private_t *tech_pvt);
 int alarm_event(private_t *tech_pvt, int alarm_code, const char *alarm_message);
 int dump_event_full(private_t *tech_pvt, int is_alarm, int alarm_code, const char *alarm_message);
@@ -582,3 +593,5 @@ void find_ttyusb_devices(private_t *tech_pvt, const char *dirname);
 #endif// WIN32
 int gsmopen_ussd(private_t *tech_pvt, char *ussd, int waittime);
 int ussd_incoming(private_t *tech_pvt);
+void pvt_start_interface(private_t *tech_pvt);  //  
+void pvt_disconnect_dongle(private_t  * tech_pvt);  // 
