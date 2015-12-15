@@ -779,6 +779,7 @@ case "$host" in
 		AC_SUBST(bindir_expanded)
 		AC_CONFIG_FILES([build/install_systemd.sh], [chmod +x build/install_systemd.sh])
 		AC_CONFIG_FILES([build/freeswitch.service.make])
+		AC_CONFIG_FILES([build/freeswitch.tmpfile])
 	fi
 	AM_CONDITIONAL([SYSTEMD_INIT], [test x$systemdinit = xtrue])
     ;;

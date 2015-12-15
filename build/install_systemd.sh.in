@@ -22,7 +22,7 @@ echo
 echo "This will do several things on your $DISTRO installation:"
 echo "- Create user freeswitch and add it to group freeswitch"
 FSPATH=@prefix@
-if [[ $FSPATH == *"freeswitch"* ]]
+if [[ $FSPATH == "/usr/local/freeswitch" ]]
 then
 	echo "- Set permissions on @prefix@ and files in @bindir_expanded@"
 fi
@@ -34,11 +34,18 @@ then
 	echo
 	echo "Installing..."
 	$SUDO useradd -d @confdir@ -r -U -s /bin/false -c "FreeSWITCH open source softswitch" freeswitch
-	if [[ $FSPATH == *"freeswitch"* ]]
-	then
+	if [[ $FSPATH == "/usr/local/freeswitch" ]];  then
 		$SUDO chown -R freeswitch:freeswitch @prefix@
 		$SUDO chmod -R ug=rwX,o= @prefix@
 		$SUDO chmod -R u=rwx,g=rx @bindir_expanded@/*
+		STATUS="may"
+	else
+		echo
+		echo "Freeswitch will run as user freeswitch."
+		echo "You probably need to change the ownership and permissions of some of the directories and files to user and group freeswitch to make Freeswitch run"
+		echo "A least the whole config directory (@confdir@) and the DB directory (@dbdir@) should be owned by user and group freeswitch."
+		echo "Also, the logdir (@logfiledir@) should have sufficient permissions for the user freeswitch to create logfiles."
+		STATUS="should fix the permissions, then you can"
 	fi
 	$SUDO cp build/freeswitch.service.make /etc/systemd/system/freeswitch.service
 	$SUDO cp build/freeswitch.tmpfile /etc/tmpfiles.d/freeswitch.conf
@@ -51,9 +58,9 @@ then
 	$SUDO systemctl daemon-reload
 	echo
 	if [ -f @confdir@/vars.xml ] ; then
-		echo "You may now start Freeswitch using 'systemctl start freeswitch'"
+		echo "You $STATUS start Freeswitch using 'systemctl start freeswitch'"
 	else
-		echo "Make sure your config files are in place in @confdir@, if they are you can start Freeswitch using 'systemctl start freeswitch'"
+		echo "Make sure your config files are in place in @confdir@, if they are you $STATUS start Freeswitch using 'systemctl start freeswitch'"
 	fi
 	echo "Then start fs_cli by running @bindir_expanded@/fs_cli"
 fi
