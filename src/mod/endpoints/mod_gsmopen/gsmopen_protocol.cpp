@@ -195,7 +195,7 @@ int gsmopen_serial_config_AT(private_t *tech_pvt)
 	char at_command[5];
 	int i;
 
-	if (!tech_pvt || tech_pvt->unload_flag == 1){  //  if unload_flag is 1 then we are unloading
+	if ( !running || !tech_pvt || tech_pvt->unload_flag == 1){  //  if unload_flag is 1 then we are unloading
 		return 0;
 	}
 /* initial_pause? */
@@ -651,7 +651,7 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 	PUSHA_UNLOCKA(tech_pvt->controldev_lock);
 	LOKKA(tech_pvt->controldev_lock);
 
-	while ((!tech_pvt->controldev_dead) && msecs_passed <= timeout_in_msec) {
+	while ( running && (tech_pvt->interface_state != GSMOPEN_STATE_DISCONNECTED || tech_pvt->initializing ) && msecs_passed <= timeout_in_msec) {
 		char *token_ptr;
 		timeout.tv_sec = timeout_sec;	//reset the timeout, linux modify it
 		timeout.tv_usec = timeout_usec;	//reset the timeout, linux modify it
@@ -3075,6 +3075,7 @@ int gsmopen_ussd(private_t *tech_pvt, char *ussd, int waittime)
 {
 	int res = 0;
 	DEBUGA_GSMOPEN("gsmopen_ussd: %s\n", GSMOPEN_P_LOG, ussd);
+	if (tech_pvt->interface_state != GSMOPEN_STATE_DISCONNECTED){
 	if (tech_pvt->controldevprotocol == PROTOCOL_AT) {
 		char at_command[1024];
 
@@ -3118,6 +3119,9 @@ int gsmopen_ussd(private_t *tech_pvt, char *ussd, int waittime)
 		}
 		if (waittime > 0)
 			res = gsmopen_serial_read_AT(tech_pvt, 1, 0, waittime, "+CUSD", 1);
+	}
+	}else{
+	WARNINGA("interface_name :=%s   IS  NOT  Connected\n", GSMOPEN_P_LOG, tech_pvt->name);
 	}
 	return res;
 }
@@ -3194,7 +3198,8 @@ int gsmopen_serial_getstatus_AT(private_t *tech_pvt)
 	LOKKA(p->controldev_lock);
 	res = gsmopen_serial_write_AT_ack(p, "AT");
 	if (res) {
-		ERRORA("AT was not acknowledged, continuing but maybe there is a problem\n", GSMOPEN_P_LOG);
+	ERRORA("     AT was not acknowledged, probably  there is a problem  ,  Returning    \n", GSMOPEN_P_LOG);
+	return -1;  // MAY be AT was not acknowledged Due To Dongle Unplugged
 	}
 	gsmopen_sleep(1000);
 

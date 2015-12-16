@@ -317,6 +317,7 @@ struct private_object {
 	int unload_flag;           /*         To unload Module easyly */
 	int  stop_discovery;           /*     stop_discovery     */
 	int  initialized;				/*      If Device Not Initialized Correctly initialize again   */
+	int  initializing;				/*      To Initialized Correctly    */
 #ifdef WIN32
 	int controldevice_speed;
 #else
