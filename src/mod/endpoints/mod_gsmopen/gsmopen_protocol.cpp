@@ -407,7 +407,8 @@ int gsmopen_serial_config_AT(private_t *tech_pvt)
 		tech_pvt->requesting_imei = 0;
 		if (res) {
 			DEBUGA_GSMOPEN("AT+CGSN failed\n", GSMOPEN_P_LOG);
-		}
+			return -1;
+			}
 	}
 	/* IMSI */
 	tech_pvt->requesting_imsi = 1;
@@ -415,7 +416,8 @@ int gsmopen_serial_config_AT(private_t *tech_pvt)
 	tech_pvt->requesting_imsi = 0;
 	if (res) {
 		DEBUGA_GSMOPEN("AT+CIMI failed\n", GSMOPEN_P_LOG);
-	}
+		return -1;
+		}
 
 	/* signal incoming SMS with a +CMTI unsolicited msg */
 	res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+CNMI=2,1,0,0,0");
@@ -466,13 +468,15 @@ int gsmopen_serial_config_AT(private_t *tech_pvt)
 	res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+CSMP=17,167,0,8");	//unicode, 16 bit message
 	if (res) {
 		WARNINGA("AT+CSMP didn't get OK from the phone, continuing\n", GSMOPEN_P_LOG);
-	}
+		return -1;
+		}
 
 	/* what is the Charset of SMSs? */
 	res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+CSCS?");
 	if (res) {
 		DEBUGA_GSMOPEN("AT+CSCS? failed, continue\n", GSMOPEN_P_LOG);
-	}
+		return -1;
+		}
 
 	tech_pvt->no_ucs2 = 0;
 	res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+CSCS=\"UCS2\"");
@@ -488,7 +492,8 @@ int gsmopen_serial_config_AT(private_t *tech_pvt)
 		res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+CSMP=17,167,0,0");	//normal, 7 bit message
 		if (res) {
 			WARNINGA("AT+CSMP didn't get OK from the phone, continuing\n", GSMOPEN_P_LOG);
-		}
+			return -1;
+			}
 	}
 
 	res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+CMGF=0");
@@ -501,13 +506,15 @@ int gsmopen_serial_config_AT(private_t *tech_pvt)
 	/* is the unsolicited reporting of mobile equipment event supported? */
 	res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+CMER=?");
 	if (res) {
-		DEBUGA_GSMOPEN("AT+CMER=? failed, continue\n", GSMOPEN_P_LOG);
-	}
+		DEBUGA_GSMOPEN("AT+CMER=? failed, return -1;\n", GSMOPEN_P_LOG);
+		return -1;
+		}
 	/* request unsolicited reporting of mobile equipment indicators' events, to be screened by categories reported by +CIND=? */
 	res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+CMER=3,0,0,1");
 	if (res) {
-		DEBUGA_GSMOPEN("AT+CMER=? failed, continue\n", GSMOPEN_P_LOG);
-	}
+		DEBUGA_GSMOPEN("AT+CMER=? failed, return -1\n", GSMOPEN_P_LOG);
+		return -1;
+		}
 
 	/* is the solicited reporting of mobile equipment indications supported? */
 
@@ -587,6 +594,7 @@ int gsmopen_serial_config_AT(private_t *tech_pvt)
 			res = gsmopen_serial_write_AT_expect(tech_pvt, tech_pvt->at_postinit_4, tech_pvt->at_postinit_4_expect);
 			if (res) {
 				DEBUGA_GSMOPEN("%s didn't get %s from the phone. Continuing.\n", GSMOPEN_P_LOG, tech_pvt->at_postinit_4, tech_pvt->at_postinit_4_expect);
+
 			}
 		} else {
 			break;
@@ -596,7 +604,8 @@ int gsmopen_serial_config_AT(private_t *tech_pvt)
 			res = gsmopen_serial_write_AT_expect(tech_pvt, tech_pvt->at_postinit_5, tech_pvt->at_postinit_5_expect);
 			if (res) {
 				DEBUGA_GSMOPEN("%s didn't get %s from the phone. Continuing.\n", GSMOPEN_P_LOG, tech_pvt->at_postinit_5, tech_pvt->at_postinit_5_expect);
-			}
+
+				}
 		} else {
 			break;
 		}
@@ -923,24 +932,28 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 				}
 			}
 			if ((strcmp(tech_pvt->line_array.result[i], "NO CARRIER") == 0)) {
-				tech_pvt->phone_callflow = CALLFLOW_CALL_NOCARRIER;
-				if (option_debug > 1)
+				if (option_debug > 1)  
 					DEBUGA_GSMOPEN("|%s| CALLFLOW_CALL_NOCARRIER\n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
-				if (tech_pvt->interface_state != GSMOPEN_STATE_DOWN) {
+					DEBUGA_GSMOPEN("|%s| CALLFLOW_CALL_NOCARRIER\n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
 					switch_core_session_t *session = NULL;
 					switch_channel_t *channel = NULL;
-
-					tech_pvt->interface_state = GSMOPEN_STATE_DOWN;
-
 					session = switch_core_session_locate(tech_pvt->session_uuid_str);
 					if (session) {
+						WARNINGA("|%s|    Hanging Up Channels \n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
+						tech_pvt->phone_callflow = CALLFLOW_CALL_NOCARRIER;
 						channel = switch_core_session_get_channel(session);
 						switch_core_session_rwunlock(session);
 						switch_channel_hangup(channel, SWITCH_CAUSE_NONE);
+					}else{
+						DEBUGA_GSMOPEN("|%s|    if There is No Session Then WHY NO CARRIER ? \n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
 					}
+				if (tech_pvt->interface_state != GSMOPEN_STATE_DOWN) {
+					tech_pvt->interface_state = GSMOPEN_STATE_DOWN;	
 				} else {
-					ERRORA("Why NO CARRIER now?\n", GSMOPEN_P_LOG);
+					ERRORA("   Why NO CARRIER now?\n", GSMOPEN_P_LOG);
 				}
+			
+			
 			}
 
 			if ((strncmp(tech_pvt->line_array.result[i], "+CBC:", 5) == 0)) {
@@ -1113,7 +1126,31 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 				}
 
 			}
-
+			
+			/*   parse signal like cell phone  */
+			if ((strncmp(tech_pvt->line_array.result[i], "+CIND:", 6) == 0)) {
+				/*   +CIND: 5,3,1,0,0,0,1,0
+				 * parse +CIND: battchg,signal,service,call,roam,smsfull,GPRS coverage,callsetup,
+				*/
+				int aa,signall,bb,cc,dd,ee,ff,gg,err;
+			err = sscanf(tech_pvt->line_array.result[i], "+CIND:%d,%d,%d,%d,%d,%d,%d,%d", &aa, &signall, &bb, &cc, &dd, &ee, &ff, &gg);
+			if(err){
+				tech_pvt->signal_bar = signall;
+			DEBUGA_GSMOPEN("  interface_name: %s    Got Signal:'%d'   \n", GSMOPEN_P_LOG, tech_pvt->name, tech_pvt->signal_bar);	
+			}else{
+				tech_pvt->signal_bar = 0;
+			DEBUGA_GSMOPEN("ERROR  interface_name: %s    Reading   +CIND:   failed   err:'%d'\n", GSMOPEN_P_LOG, tech_pvt->name, err);				
+			}
+			
+			}
+			
+			
+			
+			//  Modem Sends A response  ^SMMEMFULL: When sms storage full     Now We Will Handle It 
+			if ((strncmp(tech_pvt->line_array.result[i], "^SMMEMFULL:", 11) == 0)) {
+					WARNINGA("  interface_name: %s   SMS STORAGE IS FULL  More Messages Are Waiting,  To delete all messages  isuue This command 'gsmopen %s AT+CMGD=1,4'\n", GSMOPEN_P_LOG, tech_pvt->name, tech_pvt->name);
+			}
+			
 			if ((strncmp(tech_pvt->line_array.result[i], "^CEND:1", 7) == 0)) {
 					int call_index = 0;
 					int duration   = 0;
@@ -1127,8 +1164,6 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 
 
 			sscanf (tech_pvt->line_array.result[i], "^CEND:%d,%d,%d,%d", &call_index, &duration, &end_status, &hup_cause);
-				tech_pvt->phone_callflow = CALLFLOW_CALL_NOCARRIER;
-								DEBUGA_GSMOPEN("|%s| CALLFLOW_CALL_NOCARRIER\n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
 				
 				if (tech_pvt->interface_state != GSMOPEN_STATE_DOWN) {
 					switch_core_session_t *session = NULL;
@@ -1137,7 +1172,6 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 					if (session) {
 						channel = switch_core_session_get_channel(session);
 						switch_core_session_rwunlock(session);
-						NOTICA (" Performing   Condetiions     \n", GSMOPEN_P_LOG);
 						
 						
 							if (hup_cause == 17){
@@ -1176,7 +1210,7 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 									}
 					}
 						if (option_debug > 1)
-						DEBUGA_GSMOPEN("|%s| CALLFLOW_CALL_IDLE\n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
+						DEBUGA_GSMOPEN("  Event  Received  |%s| \n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
 					if (tech_pvt->interface_state != GSMOPEN_STATE_DOWN && tech_pvt->owner) {
 						DEBUGA_GSMOPEN("just received a remote HANGUP\n", GSMOPEN_P_LOG);
 						tech_pvt->owner->hangupcause = GSMOPEN_CAUSE_NORMAL;
@@ -1184,7 +1218,7 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 						DEBUGA_GSMOPEN("just sent GSMOPEN_CONTROL_HANGUP\n", GSMOPEN_P_LOG);
 					}
 				} else {
-					ERRORA("Why NO CARRIER now?\n", GSMOPEN_P_LOG);
+					ERRORA("  Why    :CEND      NOW?\n", GSMOPEN_P_LOG);
 				}
 			}   
 
@@ -2351,7 +2385,7 @@ int gsmopen_serial_write_AT_expect1(private_t *tech_pvt, const char *data, const
 	PUSHA_UNLOCKA(tech_pvt->controldev_lock);
 	LOKKA(tech_pvt->controldev_lock);
 	if (option_debug > 1)
-		DEBUGA_GSMOPEN("sending: %s, expecting: %s\n", GSMOPEN_P_LOG, data, expected_string);
+		DEBUGA_GSMOPEN("sending: %s   expecting: %s\n", GSMOPEN_P_LOG, data, expected_string);
 	if (gsmopen_serial_write_AT(tech_pvt, data) != (int) strlen(data)) {
 		DEBUGA_GSMOPEN("Error sending data... (%s) \n", GSMOPEN_P_LOG, strerror(errno));
 		UNLOCKA(tech_pvt->controldev_lock);
@@ -3226,6 +3260,16 @@ int gsmopen_serial_getstatus_AT(private_t *tech_pvt)
 		}
 		gsmopen_sleep(1000);
 	}
+	
+	//   check signal_bar  like cell phone 
+	res = gsmopen_serial_write_AT_ack(p, "AT+CIND?");
+		if (res) {
+			WARNINGA("%s didn't get %s from the phone. Continuing.\n", GSMOPEN_P_LOG, "AT+CIND?", "OK");
+		}
+		gsmopen_sleep(1000);
+	
+	
+	
 	//FIXME all the following commands in config!
 
 	if (p->sms_cnmi_not_supported) {
@@ -3278,6 +3322,7 @@ int gsmopen_serial_getstatus_AT(private_t *tech_pvt)
 	POPPA_UNLOCKA(p->controldev_lock);
 	return 0;
 }
+
 
 int gsmopen_serial_init_audio_port(private_t *tech_pvt, int controldevice_audio_speed)
 {

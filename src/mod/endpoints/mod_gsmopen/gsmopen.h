@@ -293,8 +293,6 @@ struct private_object {
 	switch_thread_t *tcp_cli_thread;
 	switch_thread_t *gsmopen_signaling_thread;
 	switch_thread_t *gsmopen_api_thread;
-	switch_thread_t *gsmopen_discovery_thread;      /*!< \brief  this thread runs to discover disconnected devices */
-	time_t    gsmopen_discovery_timestamp;  
 	int gsmopen_dir_entry_extension_prefix;
 	char gsmopen_user[256];
 	char gsmopen_password[256];
@@ -395,7 +393,6 @@ struct private_object {
 	char at_cmgw[16];
 	int no_ucs2;
 	time_t gsmopen_serial_sync_period;
-	time_t gsmopen_discovery_period;   /*!< \brief default is "30" second you can set this in gsmopen.conf.xml for evry device seprately */ 
 	time_t gsmopen_serial_synced_timestamp;
 	struct s_result line_array;
 
@@ -453,6 +450,7 @@ struct private_object {
 	int not_registered;
 	int got_signal;
 	int signal_strength;
+	int signal_bar;   // to show signal  between (0-5)
 	char imei[128];
 	int requesting_imei;
 	char imsi[128];
@@ -481,11 +479,12 @@ struct private_object {
 
 	char buffer2[320];
 	int buffer2_full;
-	int serialPort_serial_audio_opened;
-
-};
+	int serialPort_serial_audio_opened;	
+	};
 
 typedef struct private_object private_t;
+
+
 
 void *SWITCH_THREAD_FUNC gsmopen_api_thread_func(switch_thread_t *thread, void *obj);
 int gsmopen_audio_read(private_t *tech_pvt);
@@ -503,10 +502,6 @@ void *SWITCH_THREAD_FUNC gsmopen_do_tcp_cli_thread(switch_thread_t *thread, void
 
 void *gsmopen_do_gsmopenapi_thread_func(void *obj);
 void *SWITCH_THREAD_FUNC gsmopen_do_gsmopenapi_thread(switch_thread_t *thread, void *obj);
-
-void *gsmopen_do_discovery_thread_func(void *obj);
-void *SWITCH_THREAD_FUNC gsmopen_do_discovery_thread(switch_thread_t *thread, void *obj);
-
 int dtmf_received(private_t *tech_pvt, char *value);
 int start_audio_threads(private_t *tech_pvt);
 int new_inbound_channel(private_t *tech_pvt);
@@ -590,9 +585,15 @@ int gsmopen_serial_init_audio_port(private_t *tech_pvt, int controldevice_audio_
 int serial_audio_init(private_t *tech_pvt);
 int serial_audio_shutdown(private_t *tech_pvt);
 #ifndef WIN32
+void *SWITCH_THREAD_FUNC gsmopen_do_discovery_thread(switch_thread_t *thread, void *obj);
+void *gsmopen_do_discovery_thread_func(void *obj);
 void find_ttyusb_devices(private_t *tech_pvt, const char *dirname);
+void search_ttyusb_device(private_t *tech_pvt, const char *dirname);
+void pvt_start_interface(private_t *tech_pvt);  //  
+void remove_lock(private_t *tech_pvt );  //  remove lock file from dir   /usr/local/freeswitch/lock/
+void  make_lock(private_t *tech_pvt);  //  make lock file from dir		/usr/local/freeswitch/lock/
+int check_lock(private_t *tech_pvt, char * name);  //  to check lock file in dir   /usr/local/freeswitch/lock/
 #endif// WIN32
 int gsmopen_ussd(private_t *tech_pvt, char *ussd, int waittime);
 int ussd_incoming(private_t *tech_pvt);
-void pvt_start_interface(private_t *tech_pvt);  //  
 void pvt_disconnect_dongle(private_t  * tech_pvt);  // 
