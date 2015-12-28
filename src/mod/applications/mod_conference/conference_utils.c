@@ -140,6 +140,8 @@ void conference_utils_set_mflags(const char *flags, member_flag_t *f)
 				f[MFLAG_GHOST] = 1;
 			} else if (!strcasecmp(argv[i], "join-only")) {
 				f[MFLAG_JOIN_ONLY] = 1;
+			} else if (!strcasecmp(argv[i], "onlyspeakto")) {
+				f[MFLAG_ONLYSPEAKTO] = 1;
 			} else if (!strcasecmp(argv[i], "flip-video")) {
 				f[MFLAG_FLIP_VIDEO] = 1;
 			} else if (!strcasecmp(argv[i], "positional")) {

@@ -1313,6 +1313,19 @@ switch_status_t conference_member_del(conference_obj_t *conference, conference_m
 		switch_core_media_hard_mute(member->session, SWITCH_FALSE);
 	}
 
+	/* See if any of the remaining members has leaving member as "onlyspeakto"
+	* parameter, and if yes - clear this flag and mute him
+	*
+	* NOTE! At this time member has already been deleted from the link list!
+	*/
+	for (imember = conference->members; imember; imember = imember->next) {
+		if (imember->onlyspeakto == member->id) {
+			conference_utils_member_clear_flag_locked(imember, MFLAG_ONLYSPEAKTO);
+			conference_utils_member_clear_flag_locked(imember, MFLAG_CAN_SPEAK);
+			conference_utils_member_clear_flag_locked(imember, MFLAG_TALKING);
+		}
+	}
+
 	switch_mutex_unlock(conference->mutex);
 	status = SWITCH_STATUS_SUCCESS;
 

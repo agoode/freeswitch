@@ -83,7 +83,7 @@ api_command_t conference_api_sub_commands[] = {
 	{"deaf", (void_fn_t) & conference_api_sub_deaf, CONF_API_SUB_MEMBER_TARGET, "deaf", "<[member_id|all]|last|non_moderator>"},
 	{"undeaf", (void_fn_t) & conference_api_sub_undeaf, CONF_API_SUB_MEMBER_TARGET, "undeaf", "<[member_id|all]|last|non_moderator>"},
 	{"vid-filter", (void_fn_t) & conference_api_sub_video_filter, CONF_API_SUB_MEMBER_TARGET, "vid-filter", "<[member_id|all]|last|non_moderator> <string>"},
-	{"relate", (void_fn_t) & conference_api_sub_relate, CONF_API_SUB_ARGS_SPLIT, "relate", "<member_id>[,<member_id>] <other_member_id>[,<other_member_id>] [nospeak|nohear|clear]"},
+	{"relate", (void_fn_t) & conference_api_sub_relate, CONF_API_SUB_ARGS_SPLIT, "relate", "<member_id>[,<member_id>] <other_member_id>[,<other_member_id>] [nospeak|nohear|onlyspeakto|clear]"},
 	{"lock", (void_fn_t) & conference_api_sub_lock, CONF_API_SUB_ARGS_SPLIT, "lock", ""},
 	{"unlock", (void_fn_t) & conference_api_sub_unlock, CONF_API_SUB_ARGS_SPLIT, "unlock", ""},
 	{"dial", (void_fn_t) & conference_api_sub_dial, CONF_API_SUB_ARGS_SPLIT, "dial", "<endpoint_module_name>/<destination> <callerid number> <callerid name>"},
@@ -2904,27 +2904,50 @@ void _conference_api_sub_relate_clear_member_relationship(conference_obj_t *conf
 {
 	conference_member_t *member = NULL, *other_member = NULL;
 	if ((member = conference_member_get(conference, id))) {
-		conference_member_del_relationship(member, oid);
-		other_member = conference_member_get(conference, oid);
+		if (conference_utils_member_test_flag(member, MFLAG_ONLYSPEAKTO) && (oid == member->onlyspeakto)) {
+			conference_member_t *imember;
+			conference_relationship_t *rel = NULL;
 
-		if (other_member) {
-			if (conference_utils_member_test_flag(other_member, MFLAG_RECEIVING_VIDEO)) {
-				conference_utils_member_clear_flag(other_member, MFLAG_RECEIVING_VIDEO);
-				if (conference->floor_holder) {
-					switch_core_session_request_video_refresh(conference->floor_holder->session);
+			for (imember = conference->members; imember; imember = imember->next) {
+				if ((imember->id != oid) && (member->id != imember->id)) {
+					rel = conference_member_get_relationship(member, imember);
+					switch_assert(rel != NULL);
+
+					if (!switch_test_flag(rel, RFLAG_CAN_HEAR)) {
+						switch_set_flag(rel, RFLAG_CAN_SPEAK);
+					} else {
+						conference_member_del_relationship(member, imember->id);
+						stream->write_function(stream, "relationship %u->%u cleared.\n", member->id, imember->id);
+					}
 				}
-			}
-			switch_thread_rwlock_unlock(other_member->rwlock);
+			}  
+         
+			conference_utils_member_clear_flag(member, MFLAG_ONLYSPEAKTO);
+			member->onlyspeakto = 0;
 		}
+		else {
+			conference_member_del_relationship(member, oid);
+			other_member = conference_member_get(conference, oid);
 
-		stream->write_function(stream, "+OK relationship %u->%u cleared.\n", id, oid);
+			if (other_member) {
+				if (conference_utils_member_test_flag(other_member, MFLAG_RECEIVING_VIDEO)) {
+					conference_utils_member_clear_flag(other_member, MFLAG_RECEIVING_VIDEO);
+					if (conference->floor_holder) {
+						switch_core_session_request_video_refresh(conference->floor_holder->session);
+					}
+				}
+				switch_thread_rwlock_unlock(other_member->rwlock);
+			}
+
+			stream->write_function(stream, "+OK relationship %u->%u cleared.\n", id, oid);
+		}
 		switch_thread_rwlock_unlock(member->rwlock);
 	} else {
 		stream->write_function(stream, "-ERR relationship %u->%u not found.\n", id, oid);
 	}
 }
 
-void _conference_api_sub_relate_set_member_relationship(conference_obj_t *conference, switch_stream_handle_t *stream, uint32_t id, uint32_t oid, uint8_t nospeak, uint8_t nohear, uint8_t sendvideo, char *action)
+void _conference_api_sub_relate_set_member_relationship(conference_obj_t *conference, switch_stream_handle_t *stream, uint32_t id, uint32_t oid, uint8_t nospeak, uint8_t nohear, uint8_t sendvideo, uint8_t onlyspeakto, char *action)
 {
 
 	conference_member_t *member = NULL, *other_member = NULL;
@@ -2941,32 +2964,76 @@ void _conference_api_sub_relate_set_member_relationship(conference_obj_t *confer
 			goto skip;
 		}
 
-		if ((rel = conference_member_get_relationship(member, other_member))) {
-			rel->flags = 0;
-		} else {
-			rel = conference_member_add_relationship(member, oid);
+		if (onlyspeakto) {
+			if (id != oid) { // no sense of only speaking to itself
+				conference_member_t *imember;
+
+				for (imember = conference->members; imember; imember = imember->next) {
+					if ((imember->id != oid) && (member->id != imember->id)) {
+						rel = conference_member_get_relationship(member, imember);
+
+						if (!rel) {
+							rel = conference_member_add_relationship(member, imember->id);
+
+							if (rel) {
+								switch_set_flag(rel, RFLAG_CAN_SPEAK | RFLAG_CAN_HEAR);
+							}
+						}
+
+						switch_clear_flag(rel, RFLAG_CAN_SPEAK);
+					}
+				}
+
+				conference_utils_member_set_flag(member, MFLAG_ONLYSPEAKTO);
+				member->onlyspeakto = oid;
+
+				// and make sure source member is not muted any more (just in case he was)
+				conference_utils_member_set_flag_locked(member, MFLAG_CAN_SPEAK);
+				stream->write_function(stream, "created %u->%u onlyspeakto relationship.\n", id, oid);
+			} else {
+				stream->write_function(stream, "can't create onlyspeakto relationship to himself.\n");
+			}
 		}
-
-		if (rel) {
-			switch_set_flag(rel, RFLAG_CAN_SPEAK | RFLAG_CAN_HEAR);
-			if (nospeak) {
-				switch_clear_flag(rel, RFLAG_CAN_SPEAK);
-				conference_utils_member_clear_flag_locked(member, MFLAG_TALKING);
-			}
-			if (nohear) {
-				switch_clear_flag(rel, RFLAG_CAN_HEAR);
-			}
-			if (sendvideo) {
-				switch_set_flag(rel, RFLAG_CAN_SEND_VIDEO);
-				conference_utils_member_set_flag(other_member, MFLAG_RECEIVING_VIDEO);
-				switch_core_session_request_video_refresh(member->session);
+      else {
+			if (sendvideo && conference_utils_member_test_flag(other_member, MFLAG_RECEIVING_VIDEO) && (! (nospeak || nohear))) {
+				stream->write_function(stream, "member %d already receiving video", oid);
+				goto skip;
 			}
 
-			stream->write_function(stream, "+OK %u->%u %s set\n", id, oid, action);
-		} else {
-			stream->write_function(stream, "-ERR error!\n");
+			if ((rel = conference_member_get_relationship(member, other_member))) {
+				rel->flags = 0;
+			} else {
+				rel = conference_member_add_relationship(member, oid);
+			}
+
+            if (rel) {
+                switch_set_flag(rel, RFLAG_CAN_SPEAK | RFLAG_CAN_HEAR);
+                if (nospeak) {
+                    switch_clear_flag(rel, RFLAG_CAN_SPEAK);
+                    conference_utils_member_clear_flag_locked(member, MFLAG_TALKING);
+                }
+                if (nohear) {
+                    switch_clear_flag(rel, RFLAG_CAN_HEAR);
+                }
+                if (sendvideo) {
+                    switch_set_flag(rel, RFLAG_CAN_SEND_VIDEO);
+                    conference_utils_member_set_flag(other_member, MFLAG_RECEIVING_VIDEO);
+                    switch_core_session_request_video_refresh(member->session);
+                }
+
+                stream->write_function(stream, "+OK %u->%u %s set\n", id, oid, action);
+            } else {
+                stream->write_function(stream, "-ERR error!\n");
+            }
 		}
 	} else {
+        if (member && !other_member) {
+            if (onlyspeakto) {
+                conference_utils_member_clear_flag_locked(member, MFLAG_CAN_SPEAK);
+                conference_utils_member_clear_flag_locked(member, MFLAG_TALKING);
+                stream->write_function(stream, "muting meber %u.\n", member->id);
+            }
+        }
 		stream->write_function(stream, "-ERR relationship %u->%u not found.\n", id, oid);
 	}
 
@@ -2982,7 +3049,7 @@ skip:
 
 switch_status_t conference_api_sub_relate(conference_obj_t *conference, switch_stream_handle_t *stream, int argc, char **argv)
 {
-	uint8_t nospeak = 0, nohear = 0, sendvideo = 0, clear = 0;
+	uint8_t nospeak = 0, nohear = 0, sendvideo = 0, clear = 0, onlyspeakto = 0;
 	int members = 0;
 	int other_members = 0;
 	char *members_array[100] = { 0 };
@@ -3018,18 +3085,22 @@ switch_status_t conference_api_sub_relate(conference_obj_t *conference, switch_s
 		return SWITCH_STATUS_SUCCESS;
 	}
 
-	if (argc <= 4)
+	if (argc <= 4) {
+		stream->write_function(stream, "-ERR: not enough parameters.\n");
 		return SWITCH_STATUS_GENERR;
+	}
 
 	nospeak = strstr(argv[4], "nospeak") ? 1 : 0;
 	nohear = strstr(argv[4], "nohear") ? 1 : 0;
 	sendvideo = strstr(argv[4], "sendvideo") ? 1 : 0;
+	onlyspeakto = strstr(argv[4], "onlyspeakto") ? 1 : 0;
 
 	if (!strcasecmp(argv[4], "clear")) {
 		clear = 1;
 	}
 
-	if (!(clear || nospeak || nohear || sendvideo)) {
+	if (!(clear || nospeak || nohear || sendvideo || onlyspeakto)) {
+		stream->write_function(stream, "-ERR: no valid parameter: clear/nospeak/nohear/onlyspeakto.\n");
 		return SWITCH_STATUS_GENERR;
 	}
 
@@ -3048,8 +3119,8 @@ switch_status_t conference_api_sub_relate(conference_obj_t *conference, switch_s
 				if (clear) {
 					_conference_api_sub_relate_clear_member_relationship(conference, stream, member_id, other_member_id);
 				}
-				if (nospeak || nohear || sendvideo) {
-					_conference_api_sub_relate_set_member_relationship(conference, stream, member_id, other_member_id, nospeak, nohear, sendvideo, action);
+				if (nospeak || nohear || sendvideo || onlyspeakto) {
+					_conference_api_sub_relate_set_member_relationship(conference, stream, member_id, other_member_id, nospeak, nohear, sendvideo, onlyspeakto, action);
 				}
 			}
 		}

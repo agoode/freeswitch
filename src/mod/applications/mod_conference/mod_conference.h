@@ -211,6 +211,7 @@ typedef enum {
 	MFLAG_CAN_BE_SEEN,
 	MFLAG_SECOND_SCREEN,
 	MFLAG_SILENT,
+	MFLAG_ONLYSPEAKTO,
 	MFLAG_FLIP_VIDEO,
 	MFLAG_ROTATE_VIDEO,
 	MFLAG_INDICATE_DEAF,
@@ -886,6 +887,7 @@ struct conference_member {
 	int max_bw_in;
 	int force_bw_in;
 	int max_bw_out;
+	uint8_t onlyspeakto;
 	int reset_media;
 	int flip;
 	int flip_count;
