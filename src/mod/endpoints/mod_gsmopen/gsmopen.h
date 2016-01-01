@@ -49,6 +49,12 @@
 #define ALARM_NETWORK_NO_SERVICE 3
 #define ALARM_NETWORK_NO_SIGNAL 4
 #define ALARM_NETWORK_LOW_SIGNAL 5
+#define ALARM_DISCONNECTED_INTERFACE 6
+#define ALARM_CONNECTED_INTERFACE 7
+#define ALARM_INTERFACE_STATE_UP	8
+#define ALARM_INTERFACE_STATE_FREE	9
+#define ALARM_INTERFACE_SHUTDOWN	10
+
 
 #undef GIOVA48
 
@@ -450,7 +456,6 @@ struct private_object {
 	int not_registered;
 	int got_signal;
 	int signal_strength;
-	int signal_bar;   // to show signal  between (0-5)
 	char imei[128];
 	int requesting_imei;
 	char imsi[128];

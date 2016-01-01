@@ -195,9 +195,9 @@ int gsmopen_serial_config_AT(private_t *tech_pvt)
 	char at_command[5];
 	int i;
 
-	if ( !running || !tech_pvt || tech_pvt->unload_flag == 1){  //  if unload_flag is 1 then we are unloading
+	if (!tech_pvt)
 		return 0;
-	}
+
 /* initial_pause? */
 	if (tech_pvt->at_initial_pause) {
 		DEBUGA_GSMOPEN("sleeping for %u usec\n", GSMOPEN_P_LOG, tech_pvt->at_initial_pause);
@@ -283,7 +283,7 @@ int gsmopen_serial_config_AT(private_t *tech_pvt)
 		return -1;
 	}
 
-/*	 for motorola, bring it back to "normal" mode if it happens to be in another mode */   
+	/* for motorola, bring it back to "normal" mode if it happens to be in another mode */
 	res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+mode=0");
 	if (res) {
 		DEBUGA_GSMOPEN("AT+mode=0 didn't get OK from the phone. If it is NOT Motorola," " no problem.\n", GSMOPEN_P_LOG);
@@ -318,15 +318,6 @@ int gsmopen_serial_config_AT(private_t *tech_pvt)
 	if (res) {
 		DEBUGA_GSMOPEN("AT+CMEE failed\n", GSMOPEN_P_LOG);
 	}
-
-
-	/* enable Display Operater Name In alphanumeric Mode Instead Numeric  */
-	res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+COPS=3,0");
-	if (res) {
-		DEBUGA_GSMOPEN("AT+CMEE failed\n", GSMOPEN_P_LOG);
-	}
-
-
 
 	/* various phone manufacturer identifier */
 	for (i = 0; i < 10; i++) {
@@ -379,7 +370,12 @@ int gsmopen_serial_config_AT(private_t *tech_pvt)
 	if (res) {
 		DEBUGA_GSMOPEN("AT+CSQ failed\n", GSMOPEN_P_LOG);
 	}
-
+	
+	/* enable Display Operater Name In alphanumeric Mode Instead Numeric  */
+	res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+COPS=3,0");
+	if (res) {
+		DEBUGA_GSMOPEN("AT+COPS=3,0  failed\n", GSMOPEN_P_LOG);
+	}
 	/* operator name */
 	tech_pvt->requesting_operator_name = 1;
 	res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+COPS?");
@@ -407,8 +403,7 @@ int gsmopen_serial_config_AT(private_t *tech_pvt)
 		tech_pvt->requesting_imei = 0;
 		if (res) {
 			DEBUGA_GSMOPEN("AT+CGSN failed\n", GSMOPEN_P_LOG);
-			return -1;
-			}
+		}
 	}
 	/* IMSI */
 	tech_pvt->requesting_imsi = 1;
@@ -416,8 +411,7 @@ int gsmopen_serial_config_AT(private_t *tech_pvt)
 	tech_pvt->requesting_imsi = 0;
 	if (res) {
 		DEBUGA_GSMOPEN("AT+CIMI failed\n", GSMOPEN_P_LOG);
-		return -1;
-		}
+	}
 
 	/* signal incoming SMS with a +CMTI unsolicited msg */
 	res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+CNMI=2,1,0,0,0");
@@ -468,15 +462,13 @@ int gsmopen_serial_config_AT(private_t *tech_pvt)
 	res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+CSMP=17,167,0,8");	//unicode, 16 bit message
 	if (res) {
 		WARNINGA("AT+CSMP didn't get OK from the phone, continuing\n", GSMOPEN_P_LOG);
-		return -1;
-		}
+	}
 
 	/* what is the Charset of SMSs? */
 	res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+CSCS?");
 	if (res) {
 		DEBUGA_GSMOPEN("AT+CSCS? failed, continue\n", GSMOPEN_P_LOG);
-		return -1;
-		}
+	}
 
 	tech_pvt->no_ucs2 = 0;
 	res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+CSCS=\"UCS2\"");
@@ -492,8 +484,7 @@ int gsmopen_serial_config_AT(private_t *tech_pvt)
 		res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+CSMP=17,167,0,0");	//normal, 7 bit message
 		if (res) {
 			WARNINGA("AT+CSMP didn't get OK from the phone, continuing\n", GSMOPEN_P_LOG);
-			return -1;
-			}
+		}
 	}
 
 	res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+CMGF=0");
@@ -506,15 +497,13 @@ int gsmopen_serial_config_AT(private_t *tech_pvt)
 	/* is the unsolicited reporting of mobile equipment event supported? */
 	res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+CMER=?");
 	if (res) {
-		DEBUGA_GSMOPEN("AT+CMER=? failed, return -1;\n", GSMOPEN_P_LOG);
-		return -1;
-		}
+		DEBUGA_GSMOPEN("AT+CMER=? failed, continue\n", GSMOPEN_P_LOG);
+	}
 	/* request unsolicited reporting of mobile equipment indicators' events, to be screened by categories reported by +CIND=? */
 	res = gsmopen_serial_write_AT_ack(tech_pvt, "AT+CMER=3,0,0,1");
 	if (res) {
-		DEBUGA_GSMOPEN("AT+CMER=? failed, return -1\n", GSMOPEN_P_LOG);
-		return -1;
-		}
+		DEBUGA_GSMOPEN("AT+CMER=? failed, continue\n", GSMOPEN_P_LOG);
+	}
 
 	/* is the solicited reporting of mobile equipment indications supported? */
 
@@ -594,7 +583,6 @@ int gsmopen_serial_config_AT(private_t *tech_pvt)
 			res = gsmopen_serial_write_AT_expect(tech_pvt, tech_pvt->at_postinit_4, tech_pvt->at_postinit_4_expect);
 			if (res) {
 				DEBUGA_GSMOPEN("%s didn't get %s from the phone. Continuing.\n", GSMOPEN_P_LOG, tech_pvt->at_postinit_4, tech_pvt->at_postinit_4_expect);
-
 			}
 		} else {
 			break;
@@ -604,8 +592,7 @@ int gsmopen_serial_config_AT(private_t *tech_pvt)
 			res = gsmopen_serial_write_AT_expect(tech_pvt, tech_pvt->at_postinit_5, tech_pvt->at_postinit_5_expect);
 			if (res) {
 				DEBUGA_GSMOPEN("%s didn't get %s from the phone. Continuing.\n", GSMOPEN_P_LOG, tech_pvt->at_postinit_5, tech_pvt->at_postinit_5_expect);
-
-				}
+			}
 		} else {
 			break;
 		}
@@ -645,9 +632,9 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 	if (timeout_in_msec != 100)
 		DEBUGA_GSMOPEN("TIMEOUT=%d\n", GSMOPEN_P_LOG, timeout_in_msec);
 
-	if ( !tech_pvt || tech_pvt->unload_flag == 1 ) {   // 	
-    DEBUGA_GSMOPEN("       !tech_pvt || tech_pvt->unload_flag == 1   ", GSMOPEN_P_LOG );
-	return -1;
+	if (!running || !tech_pvt || !tech_pvt->running) {
+				ERRORA("  Exiting From  gsmopen_serial_read_AT    running:[%d]     tech_pvt->running :[%d]    tech_pvt->initialized:[%d]      tech_pvt->initializing:[%d] \n", GSMOPEN_P_LOG, running , tech_pvt->running , tech_pvt->initialized , tech_pvt-> initializing );
+		return -1;
 	}
 
 	tmp_answer_ptr = tmp_answer;
@@ -660,7 +647,7 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 	PUSHA_UNLOCKA(tech_pvt->controldev_lock);
 	LOKKA(tech_pvt->controldev_lock);
 
-	while ( running && (tech_pvt->interface_state != GSMOPEN_STATE_DISCONNECTED || tech_pvt->initializing ) && msecs_passed <= timeout_in_msec) {
+	while ((!tech_pvt->controldev_dead) && msecs_passed <= timeout_in_msec) {
 		char *token_ptr;
 		timeout.tv_sec = timeout_sec;	//reset the timeout, linux modify it
 		timeout.tv_usec = timeout_usec;	//reset the timeout, linux modify it
@@ -668,7 +655,6 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 	  read:
 		switch_sleep(20000);
 		msecs_passed += 20;
-
 		if (timeout_in_msec != 100) {
 			//ERRORA("TIMEOUT=%d, PASSED=%d\n", GSMOPEN_P_LOG, timeout_in_msec, msecs_passed);
 		}
@@ -683,13 +669,15 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 		}
 		if (read_count == -1) {
 			ERRORA
-				("read -1 bytes!!! Nenormalno! Marking this gsmopen_serial_device %s as Disconnected, andif it is owned by a channel, hanging up. Maybe the phone is stuck, switched off, power down or battery exhausted\n",
+				("read -1 bytes!!! Nenormalno! Marking this gsmopen_serial_device %s as dead, andif it is owned by a channel, hanging up. Maybe the phone is stuck, switched off, power down or battery exhausted\n",
 				 GSMOPEN_P_LOG, tech_pvt->controldevice_name);
-		//	tech_pvt->controldev_dead = 1;
-			ERRORA("gsmopen_serial_monitor failed, declaring %s Disconnected\n", GSMOPEN_P_LOG, tech_pvt->controldevice_name);
+			tech_pvt->controldev_dead = 1;
+			ERRORA("gsmopen_serial_monitor failed, declaring %s dead\n", GSMOPEN_P_LOG, tech_pvt->controldevice_name);
 			tech_pvt->running = 0;
-			alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_monitor failed, declaring interface Disconnected");
-			tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED ;    //       mark device as Disconnected instead of removing from interface
+			alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_monitor failed, declaring interface dead");
+			tech_pvt->active = 0;
+			tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED ;//mark device as Disconnected instead of removing from interface
+
 			UNLOCKA(tech_pvt->controldev_lock);
 			if (tech_pvt->owner) {
 				tech_pvt->owner->hangupcause = GSMOPEN_CAUSE_FAILURE;
@@ -932,28 +920,24 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 				}
 			}
 			if ((strcmp(tech_pvt->line_array.result[i], "NO CARRIER") == 0)) {
-				if (option_debug > 1)  
+				tech_pvt->phone_callflow = CALLFLOW_CALL_NOCARRIER;
+				if (option_debug > 1)
 					DEBUGA_GSMOPEN("|%s| CALLFLOW_CALL_NOCARRIER\n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
-					DEBUGA_GSMOPEN("|%s| CALLFLOW_CALL_NOCARRIER\n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
+				if (tech_pvt->interface_state != GSMOPEN_STATE_DOWN) {
 					switch_core_session_t *session = NULL;
 					switch_channel_t *channel = NULL;
+
+					tech_pvt->interface_state = GSMOPEN_STATE_DOWN;
+
 					session = switch_core_session_locate(tech_pvt->session_uuid_str);
 					if (session) {
-						WARNINGA("|%s|    Hanging Up Channels \n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
-						tech_pvt->phone_callflow = CALLFLOW_CALL_NOCARRIER;
 						channel = switch_core_session_get_channel(session);
 						switch_core_session_rwunlock(session);
 						switch_channel_hangup(channel, SWITCH_CAUSE_NONE);
-					}else{
-						DEBUGA_GSMOPEN("|%s|    if There is No Session Then WHY NO CARRIER ? \n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
 					}
-				if (tech_pvt->interface_state != GSMOPEN_STATE_DOWN) {
-					tech_pvt->interface_state = GSMOPEN_STATE_DOWN;	
 				} else {
-					ERRORA("   Why NO CARRIER now?\n", GSMOPEN_P_LOG);
+					ERRORA("Why NO CARRIER now?\n", GSMOPEN_P_LOG);
 				}
-			
-			
 			}
 
 			if ((strncmp(tech_pvt->line_array.result[i], "+CBC:", 5) == 0)) {
@@ -1008,14 +992,19 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 							("|%s| CELLPHONE GETS ALMOST NO SIGNAL, consider to move it or use additional antenna\n",
 							 GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
 						tech_pvt->got_signal = 0;
-						tech_pvt->initialized =0;  // mark device  as  Not initialized  To Try again Later 
 						alarm_event(tech_pvt, ALARM_NETWORK_NO_SIGNAL, "CELLPHONE GETS ALMOST NO SIGNAL, consider to move it or use additional antenna");
 					} else if (signal_quality < 11) {
 						WARNINGA("|%s| CELLPHONE GETS SIGNAL LOW\n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
 						tech_pvt->got_signal = 1;
 						alarm_event(tech_pvt, ALARM_NETWORK_LOW_SIGNAL, "CELLPHONE GETS SIGNAL LOW");
-					} else {
+					} else if (signal_quality < 17){
 						tech_pvt->got_signal = 2;
+					}else if (signal_quality < 22){
+						tech_pvt->got_signal = 3;
+					}else if (signal_quality < 27){
+						tech_pvt->got_signal = 4;
+					}else if (signal_quality < 35){
+						tech_pvt->got_signal = 5;
 					}
 
 					if (signal_quality == 99) {
@@ -1027,6 +1016,7 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 				}
 
 			}
+			
 			if ((strncmp(tech_pvt->line_array.result[i], "+CREG:", 6) == 0)) {
 				int n, stat, err;
 
@@ -1045,7 +1035,6 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 						tech_pvt->not_registered = 1;
 						tech_pvt->home_network_registered = 0;
 						tech_pvt->roaming_registered = 0;
-						tech_pvt->initialized =0;  // mark device  as  Not initialized  To Try again Later
 						alarm_event(tech_pvt, ALARM_NO_NETWORK_REGISTRATION,
 									"CELLPHONE is not registered to network, consider to move it or use additional antenna");
 					} else if (stat == 1) {
@@ -1115,7 +1104,12 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 					strncpy(tech_pvt->subscriber_number, number, sizeof(tech_pvt->subscriber_number));
 
 			}
-
+			
+			//  Modem Sends A response  ^SMMEMFULL: When sms storage full     Now We Will Handle It 
+			if ((strncmp(tech_pvt->line_array.result[i], "^SMMEMFULL:", 11) == 0)) {
+					WARNINGA("  interface_name: %s   SMS STORAGE IS FULL  More Messages Are Waiting,  To delete all messages  isuue This command 'gsmopen %s AT+CMGD=1,4'\n", GSMOPEN_P_LOG, tech_pvt->name, tech_pvt->name);
+			}
+			
 			if ((strncmp(tech_pvt->line_array.result[i], "+CMGW:", 6) == 0)) {
 				int err;
 
@@ -1126,91 +1120,35 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 				}
 
 			}
-			
-			/*   parse signal like cell phone  */
-			if ((strncmp(tech_pvt->line_array.result[i], "+CIND:", 6) == 0)) {
-				/*   +CIND: 5,3,1,0,0,0,1,0
-				 * parse +CIND: battchg,signal,service,call,roam,smsfull,GPRS coverage,callsetup,
-				*/
-				int aa,signall,bb,cc,dd,ee,ff,gg,err;
-			err = sscanf(tech_pvt->line_array.result[i], "+CIND:%d,%d,%d,%d,%d,%d,%d,%d", &aa, &signall, &bb, &cc, &dd, &ee, &ff, &gg);
-			if(err){
-				tech_pvt->signal_bar = signall;
-			DEBUGA_GSMOPEN("  interface_name: %s    Got Signal:'%d'   \n", GSMOPEN_P_LOG, tech_pvt->name, tech_pvt->signal_bar);	
-			}else{
-				tech_pvt->signal_bar = 0;
-			DEBUGA_GSMOPEN("ERROR  interface_name: %s    Reading   +CIND:   failed   err:'%d'\n", GSMOPEN_P_LOG, tech_pvt->name, err);				
-			}
-			
-			}
-			
-			
-			
-			//  Modem Sends A response  ^SMMEMFULL: When sms storage full     Now We Will Handle It 
-			if ((strncmp(tech_pvt->line_array.result[i], "^SMMEMFULL:", 11) == 0)) {
-					WARNINGA("  interface_name: %s   SMS STORAGE IS FULL  More Messages Are Waiting,  To delete all messages  isuue This command 'gsmopen %s AT+CMGD=1,4'\n", GSMOPEN_P_LOG, tech_pvt->name, tech_pvt->name);
-			}
-			
-			if ((strncmp(tech_pvt->line_array.result[i], "^CEND:1", 7) == 0)) {
-					int call_index = 0;
-					int duration   = 0;
-					int end_status = 0;
-					int hup_cause   = 0;
 
-				/*
+			if ((strncmp(tech_pvt->line_array.result[i], "^CEND:1", 7) == 0)) {
+				tech_pvt->phone_callflow = CALLFLOW_CALL_NOCARRIER;
+								int call_index =0;
+								int duration  = 0;
+								int end_status = 0;
+					switch_call_cause_t  hup_cause ;
+					/*
 					 * parse CEND info in the following format:
 					 * ^CEND:<call_index>,<duration>,<end_status>[,<hup_cause>]
 					 */
-
-
-			sscanf (tech_pvt->line_array.result[i], "^CEND:%d,%d,%d,%d", &call_index, &duration, &end_status, &hup_cause);
-				
+				sscanf (tech_pvt->line_array.result[i], "^CEND:%d,%d,%d,%d", &call_index, &duration, &end_status, &hup_cause);	
+				if (option_debug > 1)
+					DEBUGA_GSMOPEN("|%s| CALLFLOW_CALL_NOCARRIER\n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
 				if (tech_pvt->interface_state != GSMOPEN_STATE_DOWN) {
 					switch_core_session_t *session = NULL;
 					switch_channel_t *channel = NULL;
+
+					tech_pvt->interface_state = GSMOPEN_STATE_DOWN;
+
 					session = switch_core_session_locate(tech_pvt->session_uuid_str);
 					if (session) {
 						channel = switch_core_session_get_channel(session);
 						switch_core_session_rwunlock(session);
-						
-						
-							if (hup_cause == 17){
-									NOTICA("|%s|      USER IS BUSY   \n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);	
-									tech_pvt->phone_callflow = CALLFLOW_CALL_LINEBUSY;						
-									switch_channel_hangup(channel, SWITCH_CAUSE_USER_BUSY);
-									}else if (hup_cause == 19){
-									tech_pvt->phone_callflow = CALLFLOW_STATUS_REFUSED ;
-									NOTICA("|%s|     NO ANSWER FROM  USER    \n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);	
-									switch_channel_hangup(channel, SWITCH_CAUSE_NO_ANSWER);	
-									}else if (hup_cause == 16){
-									tech_pvt->phone_callflow = CALLFLOW_STATUS_FINISHED;
-									NOTICA("|%s|     SWITCH_CAUSE_NORMAL_CLEARING   \n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);	
-									switch_channel_hangup(channel, SWITCH_CAUSE_NORMAL_CLEARING);
-									}else if(hup_cause == 18){
-									tech_pvt->phone_callflow = CALLFLOW_CALL_IDLE;
-									NOTICA("|%s|     no user responding Or CELL PHONE IS POWERED OR PHONE IS OUT OF REACH   \n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
-									switch_channel_hangup(channel, SWITCH_CAUSE_NO_USER_RESPONSE);
-									}else if(hup_cause == 28){
-									tech_pvt->phone_callflow = CALLFLOW_CALL_HANGUP_REQUESTED;
-									NOTICA("|%s|     SWITCH_CAUSE_INVALID_NUMBER_FORMAT    \n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);	
-									switch_channel_hangup(channel, SWITCH_CAUSE_INVALID_NUMBER_FORMAT);
-									}else if(hup_cause == 20){																				
-										tech_pvt->phone_callflow = CALLFLOW_CALL_IDLE;
-									NOTICA("|%s|     SWITCH_CAUSE_SUBSCRIBER_ABSENT    \n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);	
-									switch_channel_hangup(channel, SWITCH_CAUSE_SUBSCRIBER_ABSENT);
-									}else if(hup_cause == 31){   // I Think  here gsm operater sending this cause due to insufficent CREDIT
-										tech_pvt->phone_callflow = CALLFLOW_CALL_IDLE;
-									WARNINGA("     MAY BE DONGLE SIM HAS INSUFFICENT BALANCE    \n", GSMOPEN_P_LOG);
-									NOTICA("|%s|     SWITCH_CAUSE_NORMAL_UNSPECIFIED    \n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);	
-									switch_channel_hangup(channel, SWITCH_CAUSE_NORMAL_UNSPECIFIED);
-									}else{
-									tech_pvt->phone_callflow = CALLFLOW_CALL_IDLE;
-									NOTICA("|%s|     TRYING  TO GUESS    \n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);	
-									switch_channel_hangup(channel, SWITCH_CAUSE_NONE);
-									}
+						switch_channel_hangup(channel, hup_cause);
 					}
-						if (option_debug > 1)
-						DEBUGA_GSMOPEN("  Event  Received  |%s| \n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
+					tech_pvt->phone_callflow = CALLFLOW_CALL_IDLE;
+					if (option_debug > 1)
+						DEBUGA_GSMOPEN("|%s| CALLFLOW_CALL_IDLE\n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
 					if (tech_pvt->interface_state != GSMOPEN_STATE_DOWN && tech_pvt->owner) {
 						DEBUGA_GSMOPEN("just received a remote HANGUP\n", GSMOPEN_P_LOG);
 						tech_pvt->owner->hangupcause = GSMOPEN_CAUSE_NORMAL;
@@ -1218,9 +1156,9 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 						DEBUGA_GSMOPEN("just sent GSMOPEN_CONTROL_HANGUP\n", GSMOPEN_P_LOG);
 					}
 				} else {
-					ERRORA("  Why    :CEND      NOW?\n", GSMOPEN_P_LOG);
+					ERRORA("Why NO CARRIER now?\n", GSMOPEN_P_LOG);
 				}
-			}   
+			}
 
 			/* at_call_* are unsolicited messages sent by the modem to signal us about call processing activity and events */
 			if ((strcmp(tech_pvt->line_array.result[i], tech_pvt->at_call_idle) == 0)) {
@@ -1710,13 +1648,11 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 			if ((strcmp(tech_pvt->line_array.result[i], tech_pvt->at_indicator_noservice_string) == 0)) {
 				ERRORA("|%s| at_indicator_noservice_string\n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
 				alarm_event(tech_pvt, ALARM_NETWORK_NO_SERVICE, "at_indicator_noservice_string");
-			tech_pvt->initialized =0;  // mark device  as  Not initialized  To Try again Later
 			}
 
 			if ((strcmp(tech_pvt->line_array.result[i], tech_pvt->at_indicator_nosignal_string) == 0)) {
 				ERRORA("|%s| at_indicator_nosignal_string\n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
 				alarm_event(tech_pvt, ALARM_NETWORK_NO_SIGNAL, "at_indicator_nosignal_string");
-			tech_pvt->initialized =0;  // mark device  as  Not initialized  To Try again Later
 			}
 
 			if ((strcmp(tech_pvt->line_array.result[i], tech_pvt->at_indicator_lowsignal_string) == 0)) {
@@ -1758,7 +1694,7 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 			}
 
 		}
-
+		
 		/* let's look for OK, ERROR and EXPECTED_STRING in the complete lines read so far, without re-looking at the lines that has been yet looked at */
 		for (i = la_read; i < la_counter; i++) {
 			if (expected_string) {
@@ -1918,7 +1854,7 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 
 							DEBUGA_GSMOPEN("about to decode\n", GSMOPEN_P_LOG);
 							try {
-								sms = SMSMessage::decode(tech_pvt->line_array.result[i]);	// dataCodingScheme = 8 , text=ciao 123 belè новости לק ראת ﺎﻠﺠﻤﻋﺓ 人大
+								sms = SMSMessage::decode(tech_pvt->line_array.result[i]);	// dataCodingScheme = 8 , text=ciao 123 belÃ¨ Ð½Ð¾Ð²Ð¾ÑÑ‚Ð¸ ×œ×§ ×¨××ª ïºŽï» ïº ï»¤ï»‹ïº“ äººå¤§
 							}
 							catch(...) {
 								ERRORA("GsmException\n", GSMOPEN_P_LOG);
@@ -2018,11 +1954,12 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 	POPPA_UNLOCKA(tech_pvt->controldev_lock);
 	if (select_err == -1) {
 		ERRORA("select returned -1 on %s, setting controldev_dead, error was: %s\n", GSMOPEN_P_LOG, tech_pvt->controldevice_name, strerror(errno));
-	//	tech_pvt->controldev_dead = 1;
+		tech_pvt->controldev_dead = 1;
 
 		tech_pvt->running = 0;
-		alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "select returned -1 on interface, setting controldev_dead");      
-		tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED ;    //       mark device as GSMOPEN_STATE_DISCONNECTED instead of removing from interface
+		alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "select returned -1 on interface, setting controldev_dead");
+		tech_pvt->active = 0;
+		tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED ;//mark device as Disconnected instead of removing from interface
 		if (tech_pvt->owner)
 			gsmopen_queue_control(tech_pvt->owner, GSMOPEN_CONTROL_HANGUP);
 		switch_sleep(1000000);
@@ -2105,7 +2042,7 @@ int gsmopen_serial_write_AT(private_t *tech_pvt, const char *data)
 		res = tech_pvt->serialPort_serial_control->Write(&Data[i], 1);
 
 		if (res != 1) {
-			DEBUGA_GSMOPEN(" sending (%.1s): %d (%s)   Failed\n", GSMOPEN_P_LOG, &Data[i], res, strerror(errno));
+			DEBUGA_GSMOPEN("Error sending (%.1s): %d (%s)\n", GSMOPEN_P_LOG, &Data[i], res, strerror(errno));
 			gsmopen_sleep(100000);
 			for (count = 0; count < 10; count++) {
 				res = tech_pvt->serialPort_serial_control->Write(&Data[i], 1);
@@ -2113,23 +2050,25 @@ int gsmopen_serial_write_AT(private_t *tech_pvt, const char *data)
 					DEBUGA_GSMOPEN("Successfully RE-sent (%.1s): %d %d (%s)\n", GSMOPEN_P_LOG, &Data[i], count, res, strerror(errno));
 					break;
 				} else
-					DEBUGA_GSMOPEN(" RE-sending (%.1s): %d %d (%s)   Failed\n", GSMOPEN_P_LOG, &Data[i], count, res, strerror(errno));
+					DEBUGA_GSMOPEN("Error RE-sending (%.1s): %d %d (%s)\n", GSMOPEN_P_LOG, &Data[i], count, res, strerror(errno));
 				gsmopen_sleep(100000);
 
 			}
 			if (res != 1) {
-				DEBUGA_GSMOPEN(" RE-sending (%.1s): %d %d (%s)   Failed  \n", GSMOPEN_P_LOG, &Data[i], count, res, strerror(errno));
+				ERRORA("Error RE-sending (%.1s): %d %d (%s)\n", GSMOPEN_P_LOG, &Data[i], count, res, strerror(errno));
 
 
 
-				DEBUGA_GSMOPEN	
-					("wrote -1 bytes!!!  gsmopen_serial_device %s as Disconnected, andif it is owned by a channel, hanging up. Maybe the phone is stuck, switched off, power down or battery exhausted\n",
+				ERRORA
+					("wrote -1 bytes!!! Nenormalno! Marking this gsmopen_serial_device %s as dead, andif it is owned by a channel, hanging up. Maybe the phone is stuck, switched off, power down or battery exhausted\n",
 					 GSMOPEN_P_LOG, tech_pvt->controldevice_name);
-			//	tech_pvt->controldev_dead = 1;
-				DEBUGA_GSMOPEN("gsmopen_serial_monitor failed, declaring %s Disconnected\n", GSMOPEN_P_LOG, tech_pvt->controldevice_name);
+				tech_pvt->controldev_dead = 1;
+				ERRORA("gsmopen_serial_monitor failed, declaring %s dead\n", GSMOPEN_P_LOG, tech_pvt->controldevice_name);
 				tech_pvt->running = 0;
-				alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_monitor failed, declaring interface Disconnected");
-				tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED ;    //  //       mark device as Disconnected instead of removing from interface
+				alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_monitor failed, declaring interface dead");
+				tech_pvt->active = 0;
+				tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED ;//mark device as Disconnected instead of removing from interface
+
 				UNLOCKA(tech_pvt->controldev_lock);
 				if (tech_pvt->owner) {
 					tech_pvt->owner->hangupcause = GSMOPEN_CAUSE_FAILURE;
@@ -2167,14 +2106,16 @@ int gsmopen_serial_write_AT(private_t *tech_pvt, const char *data)
 		if (res != 1) {
 			ERRORA("Error RE-sending (carriage return): %d %d (%s)\n", GSMOPEN_P_LOG, count, res, strerror(errno));
 
-			DEBUGA_GSMOPEN
-				("wrote -1 bytes!!! Nenormalno! Marking this gsmopen_serial_device %s as Disconnected, andif it is owned by a channel, hanging up. Maybe the phone is stuck, switched off, power down or battery exhausted\n",
+			ERRORA
+				("wrote -1 bytes!!! Nenormalno! Marking this gsmopen_serial_device %s as dead, andif it is owned by a channel, hanging up. Maybe the phone is stuck, switched off, power down or battery exhausted\n",
 				 GSMOPEN_P_LOG, tech_pvt->controldevice_name);
-		//	tech_pvt->controldev_dead = 1;
-			DEBUGA_GSMOPEN("gsmopen_serial_monitor failed, declaring %s Disconnected\n", GSMOPEN_P_LOG, tech_pvt->controldevice_name);
+			tech_pvt->controldev_dead = 1;
+			ERRORA("gsmopen_serial_monitor failed, declaring %s dead\n", GSMOPEN_P_LOG, tech_pvt->controldevice_name);
 			tech_pvt->running = 0;
-			alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_monitor failed, declaring interface Disconnected");
-			tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED ;    //  //       mark device as Disconnected instead of removing from interface
+			alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_monitor failed, declaring interface dead");
+			tech_pvt->active = 0;
+			tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED ;//mark device as Disconnected instead of removing from interface
+
 			UNLOCKA(tech_pvt->controldev_lock);
 			if (tech_pvt->owner) {
 				tech_pvt->owner->hangupcause = GSMOPEN_CAUSE_FAILURE;
@@ -2224,14 +2165,16 @@ int gsmopen_serial_write_AT_nocr(private_t *tech_pvt, const char *data)
 			if (res != 1) {
 				ERRORA("Error RE-sending (%.1s): %d %d (%s)\n", GSMOPEN_P_LOG, &Data[i], count, res, strerror(errno));
 
-				DEBUGA_GSMOPEN
-					("wrote -1 bytes!!! Nenormalno! Marking this gsmopen_serial_device %s as Disconnected, andif it is owned by a channel, hanging up. Maybe the phone is stuck, switched off, power down or battery exhausted\n",
+				ERRORA
+					("wrote -1 bytes!!! Nenormalno! Marking this gsmopen_serial_device %s as dead, andif it is owned by a channel, hanging up. Maybe the phone is stuck, switched off, power down or battery exhausted\n",
 					 GSMOPEN_P_LOG, tech_pvt->controldevice_name);
-			//	tech_pvt->controldev_dead = 1;
-				DEBUGA_GSMOPEN("gsmopen_serial_monitor failed, declaring %s Disconnected\n", GSMOPEN_P_LOG, tech_pvt->controldevice_name);
+				tech_pvt->controldev_dead = 1;
+				ERRORA("gsmopen_serial_monitor failed, declaring %s dead\n", GSMOPEN_P_LOG, tech_pvt->controldevice_name);
 				tech_pvt->running = 0;
-				alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_monitor failed, declaring interface Disconnected");
-				tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED ;    //  //       mark device as Disconnected instead of removing from interface
+				alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_monitor failed, declaring interface dead");
+				tech_pvt->active = 0;
+				tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED ;//mark device as Disconnected instead of removing from interface
+
 				UNLOCKA(tech_pvt->controldev_lock);
 				if (tech_pvt->owner) {
 					tech_pvt->owner->hangupcause = GSMOPEN_CAUSE_FAILURE;
@@ -2266,14 +2209,15 @@ int gsmopen_serial_write_AT_noack(private_t *tech_pvt, const char *data)
 		ERRORA("Error sending data... (%s)\n", GSMOPEN_P_LOG, strerror(errno));
 		UNLOCKA(tech_pvt->controldev_lock);
 
-		DEBUGA_GSMOPEN
-			("wrote -1 bytes!!! Nenormalno! Marking this gsmopen_serial_device %s as Disconnected, andif it is owned by a channel, hanging up. Maybe the phone is stuck, switched off, power down or battery exhausted\n",
+		ERRORA
+			("wrote -1 bytes!!! Nenormalno! Marking this gsmopen_serial_device %s as dead, andif it is owned by a channel, hanging up. Maybe the phone is stuck, switched off, power down or battery exhausted\n",
 			 GSMOPEN_P_LOG, tech_pvt->controldevice_name);
-	//	tech_pvt->controldev_dead = 1;
-		DEBUGA_GSMOPEN("gsmopen_serial_monitor failed, declaring %s Disconnected\n", GSMOPEN_P_LOG, tech_pvt->controldevice_name);
+		tech_pvt->controldev_dead = 1;
+		ERRORA("gsmopen_serial_monitor failed, declaring %s dead\n", GSMOPEN_P_LOG, tech_pvt->controldevice_name);
 		tech_pvt->running = 0;
-		alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_monitor failed, declaring interface Disconnected");
-		tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED ;    //  //       mark device as Disconnected instead of removing from interface
+		alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_monitor failed, declaring interface dead");
+		tech_pvt->active = 0;
+		tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED ;//mark device as Disconnected instead of removing from interface
 
 		UNLOCKA(tech_pvt->controldev_lock);
 		if (tech_pvt->owner) {
@@ -2306,14 +2250,16 @@ int gsmopen_serial_write_AT_ack(private_t *tech_pvt, const char *data)
 		ERRORA("Error sending data... (%s) \n", GSMOPEN_P_LOG, strerror(errno));
 		UNLOCKA(tech_pvt->controldev_lock);
 
-		DEBUGA_GSMOPEN
-			("wrote -1 bytes!!! Nenormalno! Marking this gsmopen_serial_device %s as Disconnected, and if it is owned by a channel, hanging up. Maybe the phone is stuck, switched off, powered down or battery exhausted\n",
+		ERRORA
+			("wrote -1 bytes!!! Nenormalno! Marking this gsmopen_serial_device %s as dead, and if it is owned by a channel, hanging up. Maybe the phone is stuck, switched off, powered down or battery exhausted\n",
 			 GSMOPEN_P_LOG, tech_pvt->controldevice_name);
-	//	tech_pvt->controldev_dead = 1;
-		DEBUGA_GSMOPEN("gsmopen_serial_monitor failed, declaring %s Disconnected\n", GSMOPEN_P_LOG, tech_pvt->controldevice_name);
+		tech_pvt->controldev_dead = 1;
+		ERRORA("gsmopen_serial_monitor failed, declaring %s dead\n", GSMOPEN_P_LOG, tech_pvt->controldevice_name);
 		tech_pvt->running = 0;
-		alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_monitor failed, declaring interface Disconnected");
-		tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED ;  /* mark device as Disconnected instead of removing from interface */
+		alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_monitor failed, declaring interface dead");
+		tech_pvt->active = 0;
+		tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED ;//mark device as Disconnected instead of removing from interface
+
 		UNLOCKA(tech_pvt->controldev_lock);
 		if (tech_pvt->owner) {
 			tech_pvt->owner->hangupcause = GSMOPEN_CAUSE_FAILURE;
@@ -2344,17 +2290,18 @@ int gsmopen_serial_write_AT_ack_nocr_longtime(private_t *tech_pvt, const char *d
 	if (option_debug > 1)
 		DEBUGA_GSMOPEN("sending: %s\n", GSMOPEN_P_LOG, data);
 	if (gsmopen_serial_write_AT_nocr(tech_pvt, data) != (int) strlen(data)) {
-		DEBUGA_GSMOPEN("Error sending data... (%s) \n", GSMOPEN_P_LOG, strerror(errno));
+		ERRORA("Error sending data... (%s) \n", GSMOPEN_P_LOG, strerror(errno));
 		UNLOCKA(tech_pvt->controldev_lock);
 
-		DEBUGA_GSMOPEN
-			("wrote -1 bytes!!! Nenormalno! Marking this gsmopen_serial_device %s as Disconnected, and if it is owned by a channel, hanging up. Maybe the phone is stuck, switched off, powered down or battery exhausted\n",
+		ERRORA
+			("wrote -1 bytes!!! Nenormalno! Marking this gsmopen_serial_device %s as dead, and if it is owned by a channel, hanging up. Maybe the phone is stuck, switched off, powered down or battery exhausted\n",
 			 GSMOPEN_P_LOG, tech_pvt->controldevice_name);
-	//	tech_pvt->controldev_dead = 1;
-		DEBUGA_GSMOPEN("gsmopen_serial_monitor failed, declaring %s Disconnected\n", GSMOPEN_P_LOG, tech_pvt->controldevice_name);
+		tech_pvt->controldev_dead = 1;
+		ERRORA("gsmopen_serial_monitor failed, declaring %s dead\n", GSMOPEN_P_LOG, tech_pvt->controldevice_name);
 		tech_pvt->running = 0;
-		alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_monitor failed, declaring interface Disconnected");
-		tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED ;   /*   mark device as Disconnected instead of removing from interface */
+		alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_monitor failed, declaring interface dead");
+		tech_pvt->active = 0;
+		tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED ;//mark device as Disconnected instead of removing from interface
 
 		UNLOCKA(tech_pvt->controldev_lock);
 		if (tech_pvt->owner) {
@@ -2385,19 +2332,21 @@ int gsmopen_serial_write_AT_expect1(private_t *tech_pvt, const char *data, const
 	PUSHA_UNLOCKA(tech_pvt->controldev_lock);
 	LOKKA(tech_pvt->controldev_lock);
 	if (option_debug > 1)
-		DEBUGA_GSMOPEN("sending: %s   expecting: %s\n", GSMOPEN_P_LOG, data, expected_string);
+		DEBUGA_GSMOPEN("sending: %s, expecting: %s\n", GSMOPEN_P_LOG, data, expected_string);
 	if (gsmopen_serial_write_AT(tech_pvt, data) != (int) strlen(data)) {
-		DEBUGA_GSMOPEN("Error sending data... (%s) \n", GSMOPEN_P_LOG, strerror(errno));
+		ERRORA("Error sending data... (%s) \n", GSMOPEN_P_LOG, strerror(errno));
 		UNLOCKA(tech_pvt->controldev_lock);
 
-		DEBUGA_GSMOPEN
-			("wrote -1 bytes!!! Nenormalno! Marking this gsmopen_serial_device %s as Disconnected, and if it is owned by a channel, hanging up. Maybe the phone is stuck, switched off, powered down or battery exhausted\n",
+		ERRORA
+			("wrote -1 bytes!!! Nenormalno! Marking this gsmopen_serial_device %s as dead, and if it is owned by a channel, hanging up. Maybe the phone is stuck, switched off, powered down or battery exhausted\n",
 			 GSMOPEN_P_LOG, tech_pvt->controldevice_name);
-	//	tech_pvt->controldev_dead = 1;
-		DEBUGA_GSMOPEN("gsmopen_serial_monitor failed, declaring %s Disconnected\n", GSMOPEN_P_LOG, tech_pvt->controldevice_name);
+		tech_pvt->controldev_dead = 1;
+		ERRORA("gsmopen_serial_monitor failed, declaring %s dead\n", GSMOPEN_P_LOG, tech_pvt->controldevice_name);
 		tech_pvt->running = 0;
-		alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_monitor failed, declaring interface Disconnected");
-		tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED ;   /*   mark device as Disconnected instead of removing from interface */
+		alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_monitor failed, declaring interface dead");
+		tech_pvt->active = 0;
+		tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED ;//mark device as Disconnected instead of removing from interface
+
 		UNLOCKA(tech_pvt->controldev_lock);
 		if (tech_pvt->owner) {
 			tech_pvt->owner->hangupcause = GSMOPEN_CAUSE_FAILURE;
@@ -2499,7 +2448,7 @@ int gsmopen_serial_hangup_AT(private_t *tech_pvt)
 	if (!tech_pvt)
 		return -1;
 
-	if (tech_pvt->interface_state != GSMOPEN_STATE_DOWN  && tech_pvt->interface_state != GSMOPEN_STATE_DISCONNECTED) {
+	if (tech_pvt->interface_state != GSMOPEN_STATE_DOWN) {
 		res = gsmopen_serial_write_AT_expect(tech_pvt, tech_pvt->at_hangup, tech_pvt->at_hangup_expect);
 		if (res) {
 			DEBUGA_GSMOPEN("at_hangup command failed, command used: %s, trying to use AT+CKPD=\"EEE\"\n", GSMOPEN_P_LOG, tech_pvt->at_hangup);
@@ -2517,8 +2466,7 @@ int gsmopen_serial_hangup_AT(private_t *tech_pvt)
 		}
 
 	}
-	
-	if (tech_pvt->interface_state != GSMOPEN_STATE_DISCONNECTED) tech_pvt->interface_state = GSMOPEN_STATE_DOWN;
+	tech_pvt->interface_state = GSMOPEN_STATE_DOWN;
 	tech_pvt->phone_callflow = CALLFLOW_CALL_IDLE;
 	return 0;
 }
@@ -2843,7 +2791,7 @@ int gsmopen_hangup(private_t *tech_pvt)
 	DEBUGA_GSMOPEN("ENTERING FUNC\n", GSMOPEN_P_LOG);
 
 	if (tech_pvt->controldevprotocol != PROTOCOL_NO_SERIAL) {
-		if (tech_pvt->interface_state != GSMOPEN_STATE_DOWN  && tech_pvt->interface_state != GSMOPEN_STATE_DISCONNECTED) { // 
+		if (tech_pvt->interface_state != GSMOPEN_STATE_DOWN) {
 			/* actually hangup through the serial port */
 			if (tech_pvt->controldevprotocol != PROTOCOL_NO_SERIAL) {
 				int res;
@@ -2857,10 +2805,10 @@ int gsmopen_hangup(private_t *tech_pvt)
 				}
 			}
 
-			while (tech_pvt->interface_state != GSMOPEN_STATE_DOWN ) {
+			while (tech_pvt->interface_state != GSMOPEN_STATE_DOWN) {
 				gsmopen_sleep(10000);	//10msec
 			}
-			if (tech_pvt->interface_state != GSMOPEN_STATE_DOWN ) {
+			if (tech_pvt->interface_state != GSMOPEN_STATE_DOWN) {
 				ERRORA("call hangup failed\n", GSMOPEN_P_LOG);
 				return -1;
 			} else {
@@ -2868,8 +2816,7 @@ int gsmopen_hangup(private_t *tech_pvt)
 			}
 		}
 	} else {
-		
-		if ( tech_pvt->interface_state != GSMOPEN_STATE_DISCONNECTED) tech_pvt->interface_state = GSMOPEN_STATE_DOWN; //  
+		tech_pvt->interface_state = GSMOPEN_STATE_DOWN;
 		tech_pvt->phone_callflow = CALLFLOW_CALL_IDLE;
 	}
 
@@ -2927,7 +2874,7 @@ int gsmopen_sendsms(private_t *tech_pvt, char *dest, char *text)
 		ERRORA(", GSMOPEN_P_LOGGSMopenSendsms supports only AT command cellphones at the moment :-( !\n", GSMOPEN_P_LOG);
 		return RESULT_FAILURE;
 	}
-
+	if (tech_pvt->interface_state != GSMOPEN_STATE_DISCONNECTED){
 	if (tech_pvt->controldevprotocol == PROTOCOL_AT) {
 		char smscommand[16000];
 		memset(smscommand, '\0', sizeof(smscommand));
@@ -2944,8 +2891,8 @@ int gsmopen_sendsms(private_t *tech_pvt, char *dest, char *text)
 				int bad_8859 = 0;
 
 				memset(mesg_test, '\0', sizeof(mesg_test));
-				sprintf(mesg_test, ":) ciao belè новости לק ראת ﺎﻠﺠﻤﻋﺓ 人大aèéàòçù");	//let's test the beauty of utf8
-				//sprintf(mesg_test,":) ciao belè èéàòìù");
+				sprintf(mesg_test, ":) ciao belÃ¨ Ð½Ð¾Ð²Ð¾ÑÑ‚Ð¸ ×œ×§ ×¨××ª ïºŽï» ïº ï»¤ï»‹ïº“ äººå¤§aÃ¨Ã©Ã Ã²Ã§Ã¹");	//let's test the beauty of utf8
+				//sprintf(mesg_test,":) ciao belÃ¨ Ã¨Ã©Ã Ã²Ã¬Ã¹");
 				//text=mesg_test;
 
 				bad_8859 = utf8_to_iso_8859_1(tech_pvt, text, strlen(text), smscommand, sizeof(smscommand));
@@ -3038,7 +2985,7 @@ int gsmopen_sendsms(private_t *tech_pvt, char *dest, char *text)
 			sprintf(smscommand, "%s", pdu2);
 		} else {
 			memset(mesg_test, '\0', sizeof(mesg_test));
-			sprintf(mesg_test, ":) ciao belè новости לק ראת ﺎﻠﺠﻤﻋﺓ 人大aèéàòçù");	//let's test the beauty of utf8
+			sprintf(mesg_test, ":) ciao belÃ¨ Ð½Ð¾Ð²Ð¾ÑÑ‚Ð¸ ×œ×§ ×¨××ª ïºŽï» ïº ï»¤ï»‹ïº“ äººå¤§aÃ¨Ã©Ã Ã²Ã§Ã¹");	//let's test the beauty of utf8
 			//text=mesg_test;
 
 			memset(smscommand, '\0', sizeof(smscommand));
@@ -3099,6 +3046,9 @@ int gsmopen_sendsms(private_t *tech_pvt, char *dest, char *text)
 	}
 
 	DEBUGA_GSMOPEN("FINISH\n", GSMOPEN_P_LOG);
+}else{
+	ERRORA("  interface_name:[%s]  Is  Not  Connected    \n", GSMOPEN_P_LOG, tech_pvt->name);
+}
 	if (failed)
 		return -1;
 	else
@@ -3154,9 +3104,9 @@ int gsmopen_ussd(private_t *tech_pvt, char *ussd, int waittime)
 		if (waittime > 0)
 			res = gsmopen_serial_read_AT(tech_pvt, 1, 0, waittime, "+CUSD", 1);
 	}
-	}else{
-	WARNINGA("interface_name :=%s   IS  NOT  Connected\n", GSMOPEN_P_LOG, tech_pvt->name);
-	}
+}else{
+	ERRORA("  interface_name:[%s]  Is  Not  Connected    \n", GSMOPEN_P_LOG, tech_pvt->name);
+}
 	return res;
 }
 
@@ -3232,9 +3182,9 @@ int gsmopen_serial_getstatus_AT(private_t *tech_pvt)
 	LOKKA(p->controldev_lock);
 	res = gsmopen_serial_write_AT_ack(p, "AT");
 	if (res) {
-	ERRORA("     AT was not acknowledged, probably  there is a problem  ,  Returning    \n", GSMOPEN_P_LOG);
-	return -1;  // MAY be AT was not acknowledged Due To Dongle Unplugged
-	}
+			ERRORA("     AT was not acknowledged, probably  there is a problem  ,  Returning    \n", GSMOPEN_P_LOG);
+			return -1;  // MAY be AT was not acknowledged Due To Dongle Unplugged
+		}
 	gsmopen_sleep(1000);
 
 	if (strlen(p->at_query_battchg)) {
@@ -3260,15 +3210,6 @@ int gsmopen_serial_getstatus_AT(private_t *tech_pvt)
 		}
 		gsmopen_sleep(1000);
 	}
-	
-	//   check signal_bar  like cell phone 
-	res = gsmopen_serial_write_AT_ack(p, "AT+CIND?");
-		if (res) {
-			WARNINGA("%s didn't get %s from the phone. Continuing.\n", GSMOPEN_P_LOG, "AT+CIND?", "OK");
-		}
-		gsmopen_sleep(1000);
-	
-	
 	
 	//FIXME all the following commands in config!
 
@@ -3322,7 +3263,6 @@ int gsmopen_serial_getstatus_AT(private_t *tech_pvt)
 	POPPA_UNLOCKA(p->controldev_lock);
 	return 0;
 }
-
 
 int gsmopen_serial_init_audio_port(private_t *tech_pvt, int controldevice_audio_speed)
 {
