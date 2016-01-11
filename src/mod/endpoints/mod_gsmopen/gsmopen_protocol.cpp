@@ -1122,7 +1122,7 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 			}
 
 			if ((strncmp(tech_pvt->line_array.result[i], "^CEND:1", 7) == 0)) {
-				tech_pvt->phone_callflow = CALLFLOW_CALL_NOCARRIER;
+			//	tech_pvt->phone_callflow = CALLFLOW_CALL_NOCARRIER;
 								int call_index =0;
 								int duration  = 0;
 								int end_status = 0;
@@ -1138,7 +1138,7 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 					switch_core_session_t *session = NULL;
 					switch_channel_t *channel = NULL;
 
-					tech_pvt->interface_state = GSMOPEN_STATE_DOWN;
+				//	tech_pvt->interface_state = GSMOPEN_STATE_DOWN;
 
 					session = switch_core_session_locate(tech_pvt->session_uuid_str);
 					if (session) {
@@ -1146,7 +1146,7 @@ int gsmopen_serial_read_AT(private_t *tech_pvt, int look_for_ack, int timeout_us
 						switch_core_session_rwunlock(session);
 						switch_channel_hangup(channel, hup_cause);
 					}
-					tech_pvt->phone_callflow = CALLFLOW_CALL_IDLE;
+				//	tech_pvt->phone_callflow = CALLFLOW_CALL_IDLE;
 					if (option_debug > 1)
 						DEBUGA_GSMOPEN("|%s| CALLFLOW_CALL_IDLE\n", GSMOPEN_P_LOG, tech_pvt->line_array.result[i]);
 					if (tech_pvt->interface_state != GSMOPEN_STATE_DOWN && tech_pvt->owner) {
