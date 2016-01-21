@@ -1,0 +1,14 @@
+<configuration name="usrloc.conf" description="User Location module for integration with Kamailio">
+  <settings>
+    <param name="odbc-dsn" value="freeswitch:freeswitch:freeswitch"/>
+    <!-- default values below -->
+    <!--
+    <param name="use_proxy" value="true"/>
+    <param name="table_name" value="location"/>
+    <param name="user_column" value="username"/>
+    <param name="domain_column" value="domain"/>
+    <param name="received_column" value="received"/>
+    <param name="socket_column" value="socket"/>
+    -->
+  </settings>
+</configuration>
