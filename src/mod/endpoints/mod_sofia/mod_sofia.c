@@ -3746,13 +3746,13 @@ static void select_from_profile(sofia_profile_t *profile,
 		sql = switch_mprintf("select contact, profile_name, '%q' "
 							 "from sip_registrations where profile_name='%q' "
 							 "and upper(sip_user)=upper('%q') " 
-							 "and (sip_host='%q' or presence_hosts like '%%%q%%') "
+							 "and (upper(sip_host)=upper('%q') or upper(presence_hosts) like upper('%%%q%%')) "
 							 "and contact not like '%%%s%%'", (concat != NULL) ? concat : "", profile->name, user, domain, domain, exclude_contact);
 	} else {
 		sql = switch_mprintf("select contact, profile_name, '%q' "
 							 "from sip_registrations where profile_name='%q' "
 							 "and upper(sip_user)=upper('%q') "
-							 "and (sip_host='%q' or presence_hosts like '%%%q%%')",
+							 "and (upper(sip_host)=upper('%q') or upper(presence_hosts) like upper('%%%q%%'))",
 							 (concat != NULL) ? concat : "", profile->name, user, domain, domain);
 	}
 
