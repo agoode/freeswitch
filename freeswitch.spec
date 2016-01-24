@@ -1004,6 +1004,7 @@ Summary:	Erlang Event Module for the FreeSWITCH open source telephony platform
 Group:		System/Libraries
 Requires:	 %{name} = %{version}-%{release}
 Requires:	erlang
+Requires:	erlang-erts
 BuildRequires:	erlang
 
 %description event-erlang-event
@@ -1016,16 +1017,6 @@ Requires:        %{name} = %{version}-%{release}
 
 %description event-format-cdr
 JSON and XML Logger for the FreeSWITCH open source telephony platform
-
-%package kazoo
-Summary:	Kazoo Module for the FreeSWITCH open source telephony platform
-Group:		System/Libraries
-Requires:	 %{name} = %{version}-%{release}
-Requires:	erlang
-BuildRequires:	erlang
-
-%description kazoo
-Kazoo Module for FreeSWITCH.
 
 %package event-multicast
 Summary:	Multicast Event System for the FreeSWITCH open source telephony platform
@@ -1079,6 +1070,17 @@ BuildRequires:	net-snmp-devel
 
 %description event-snmp
 SNMP stats reporter for the FreeSWITCH open source telephony platform
+
+%package kazoo
+Summary:	Kazoo Module for the FreeSWITCH open source telephony platform
+Group:		System/Libraries
+Requires:	 %{name} = %{version}-%{release}
+Requires:	erlang
+Requires:	erlang-erts
+BuildRequires:	erlang
+
+%description kazoo
+Kazoo Module for FreeSWITCH.
 
 ######################################################################################################################
 #				FreeSWITCH Logger Modules
@@ -2298,9 +2300,6 @@ fi
 %files event-json-cdr
 %{MODINSTDIR}/mod_json_cdr.so*
 
-%files kazoo
-%{MODINSTDIR}/mod_kazoo.so*
-
 %files event-radius-cdr
 %{MODINSTDIR}/mod_radius_cdr.so*
 
@@ -2311,6 +2310,9 @@ fi
 
 %files event-snmp
 %{MODINSTDIR}/mod_snmp.so*
+
+%files kazoo
+%{MODINSTDIR}/mod_kazoo.so*
 
 ######################################################################################################################
 #
@@ -2505,6 +2507,8 @@ fi
 #
 ######################################################################################################################
 %changelog
+* Sun Jun 24 2016 - Sergey Safarov <s.safarov@gmail.com>
+- Added dependency of erlang-erts for packages event-erlang-event and kazoo (FS-8772). Declaration of package kazoo placed in alphabetical order
 * Thu Jul 09 2015 - Artur Zaprzała
 - add systemd service file for CentOS 7
 * Thu Jun 25 2015 - s.safarov@gmail.com
