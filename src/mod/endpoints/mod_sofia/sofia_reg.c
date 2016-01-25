@@ -1339,12 +1339,16 @@ uint8_t sofia_reg_handle_register_token(nua_t *nua, sofia_profile_t *profile, nu
 
 	if (from) {
 		from_user = from->a_url->url_user;
+		switch_tolower_max((char*) from_user);
 		from_host = from->a_url->url_host;
+		switch_tolower_max((char*) from_host);
 	}
 
 	if (to) {
 		to_user = to->a_url->url_user;
+		switch_tolower_max((char*) to_user);
 		to_host = to->a_url->url_host;
+		switch_tolower_max((char*) to_host);
 	}
 
 	if (!to_user) {
@@ -1514,7 +1518,9 @@ uint8_t sofia_reg_handle_register_token(nua_t *nua, sofia_profile_t *profile, nu
 
 			switch_split_user_domain(token_val, &sw_to_user, &sw_reg_host);
 			to_user = sw_to_user;
+			switch_tolower_max((char*) to_user);
 			reg_host = sw_reg_host;
+			switch_tolower_max((char*) reg_host);
 		}
 		goto reg;
 	}
