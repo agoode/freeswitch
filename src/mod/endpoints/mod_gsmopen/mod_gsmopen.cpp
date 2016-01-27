@@ -2534,9 +2534,9 @@ void pvt_disconnect_dongle(private_t  * tech_pvt) {
 			tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED;    // mark interface  state Disconnected
 			tech_pvt->phone_callflow = 0;
 			alarm_event(tech_pvt, ALARM_DISCONNECTED_INTERFACE, "Disconnected");
-				WARNINGA("   Dongle  Disconnected   Interface_id:[%s]     interface_name[%s]  ", GSMOPEN_P_LOG, tech_pvt->id, tech_pvt->name);
+				WARNINGA("   Dongle  Disconnected   Interface_id:[%s]     interface_name[%s]  \n", GSMOPEN_P_LOG, tech_pvt->id, tech_pvt->name);
 			}else{
-				WARNINGA("  Unable to stop Dongle   No  tech_pvt  ",GSMOPEN_P_LOG);
+				WARNINGA("  Unable to stop Dongle   No  tech_pvt  \n",GSMOPEN_P_LOG);
 			}
 
 		}
@@ -2700,7 +2700,9 @@ SWITCH_STANDARD_API(gsmopen_function)
 
 		for (i = 0; !found && i < GSMOPEN_MAX_INTERFACES; i++) {
 			/* we've been asked for a normal interface name, or we have not found idle interfaces to serve as the "ANY" interface */
-			if (strlen(globals.GSMOPEN_INTERFACES[i].name)
+		
+			if (globals.GSMOPEN_INTERFACES[i].interface_state != GSMOPEN_STATE_DISCONNECTED){
+		if (strlen(globals.GSMOPEN_INTERFACES[i].name)
 				&& (strncmp(globals.GSMOPEN_INTERFACES[i].name, argv[0], strlen(globals.GSMOPEN_INTERFACES[i].name)) == 0)) {
 				// incase we entered a name gsm and there are gsm01 gsm02 then it will match gsm01 after this fix you need to type complete name
 				tech_pvt = &globals.GSMOPEN_INTERFACES[i];
@@ -2708,6 +2710,10 @@ SWITCH_STANDARD_API(gsmopen_function)
 				found = 1;
 				break;
 			}
+					}else{
+					stream->write_function(stream, "    ERROR       interface  With  Name   '%s'  Is   Not   Connected   \n", argv[0] );
+				break;
+					}
 
 		}
 		if (!found) {
@@ -3001,7 +3007,10 @@ void *gsmopen_do_gsmopenapi_thread_func(void *obj)
 
 		if ((now_timestamp - tech_pvt->gsmopen_serial_synced_timestamp) > tech_pvt->gsmopen_serial_sync_period) {	//TODO find a sensible period. 5min? in config?
 			gsmopen_serial_sync(tech_pvt);
-			gsmopen_serial_getstatus_AT(tech_pvt);
+		res = gsmopen_serial_getstatus_AT(tech_pvt);
+			if (res == -1 && tech_pvt->interface_state != GSMOPEN_STATE_DISCONNECTED) {		//manage the graceful interface Disconnect
+				pvt_disconnect_dongle(tech_pvt);
+			}
 		}
 	}
 #ifndef WIN32
