@@ -2134,7 +2134,7 @@ void *gsmopen_do_discovery_thread_func(void *obj)
 		int k = 0;
 		for (k = 0; k < GSMOPEN_MAX_INTERFACES; k++) {
 
-		if ( globals.searching_devices == 0 && strlen(globals.GSMOPEN_INTERFACES[k].name) && !globals.GSMOPEN_INTERFACES[k].stop_discovery ){
+		if ( strlen(globals.GSMOPEN_INTERFACES[k].name) && globals.GSMOPEN_INTERFACES[k].interface_state == GSMOPEN_STATE_DISCONNECTED ){
 
 
 		DEBUGA_GSMOPEN("      Trying To Discover Ports  For Device :%s    IMEI:%s  \n",GSMOPEN_P_LOG, globals.GSMOPEN_INTERFACES[k].name, globals.GSMOPEN_INTERFACES[k].imei);
@@ -2533,6 +2533,7 @@ void pvt_disconnect_dongle(private_t  * tech_pvt) {
 			tech_pvt->ob_failed_calls = 0;
 			tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED;    // mark interface  state Disconnected
 			tech_pvt->phone_callflow = 0;
+			remove_lock(tech_pvt);   //  remove lock so discovery thread  rediscover this device again
 			alarm_event(tech_pvt, ALARM_DISCONNECTED_INTERFACE, "Disconnected");
 				WARNINGA("   Dongle  Disconnected   Interface_id:[%s]     interface_name[%s]  \n", GSMOPEN_P_LOG, tech_pvt->id, tech_pvt->name);
 			}else{

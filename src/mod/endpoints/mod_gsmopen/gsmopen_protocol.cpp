@@ -3198,7 +3198,8 @@ int gsmopen_serial_getstatus_AT(private_t *tech_pvt)
 	if (strlen(p->at_query_signal)) {
 		res = gsmopen_serial_write_AT_expect(p, p->at_query_signal, p->at_query_signal_expect);
 		if (res) {
-			WARNINGA("%s didn't get %s from the phone. Continuing.\n", GSMOPEN_P_LOG, p->at_query_signal, p->at_query_signal_expect);
+			WARNINGA("%s didn't get %s from the phone. Returning.\n", GSMOPEN_P_LOG, p->at_query_signal, p->at_query_signal_expect);
+		return -1;  // MAY be AT was not acknowledged Due To Dongle Unplugged or something else
 		}
 		gsmopen_sleep(1000);
 	}
