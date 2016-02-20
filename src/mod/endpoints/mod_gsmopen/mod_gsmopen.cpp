@@ -2127,9 +2127,8 @@ void *gsmopen_do_discovery_thread_func(void *obj)
 		
 	while ( running ) {
 		int res;
-		switch_sleep(10000);		//give other threads a chance
+		switch_yield(100000); //  sleep 1 secoond		
 		time(&now_timestamp);
-
 		if ((now_timestamp - globals.discovery_timestamp) > globals.discovery_period) {	//TODO find a sensible period. 30 Second  ? in config?
 		int k = 0;
 		for (k = 0; k < GSMOPEN_MAX_INTERFACES; k++) {
@@ -2154,7 +2153,7 @@ void *gsmopen_do_discovery_thread_func(void *obj)
 		}
 	
 	}
-	DEBUGA_GSMOPEN("  Discovery Thread    EXITED   \n", GSMOPEN_P_LOG, tech_pvt->name);
+	DEBUGA_GSMOPEN("  Discovery Thread    EXITED   \n", GSMOPEN_P_LOG);
 	return NULL;
 }
 
@@ -2476,7 +2475,9 @@ void pvt_start_interface(private_t  * tech_pvt) {
 						tech_pvt->stop_discovery = 0; //globals.GSMOPEN_INTERFACES[interface_id].name[0] = '\0';
                         tech_pvt->initializing = 0;
 						 remove_lock(tech_pvt);   //  remove lock so discovery thread  rediscover this device again
-						return ;					
+						memset(tech_pvt->controldevice_name, 0, sizeof(tech_pvt->controldevice_name));
+						memset(tech_pvt->controldevice_audio_name, 0, sizeof(tech_pvt->controldevice_audio_name));
+						 return ;					
 				}			
 			
 			
@@ -2524,6 +2525,9 @@ void pvt_disconnect_dongle(private_t  * tech_pvt) {
 			memset(tech_pvt->device_firmware, 0, sizeof(tech_pvt->device_firmware));
 			memset(tech_pvt->operator_name, 0, sizeof(tech_pvt->operator_name));
 			memset(tech_pvt->imsi, 0, sizeof(tech_pvt->imsi));
+#ifndef WIN32
+			remove_lock( tech_pvt);  //  remove lock so discovery thread  rediscover this device again
+#endif  // win32
 			memset(tech_pvt->controldevice_name, 0, sizeof(tech_pvt->controldevice_name));
 			memset(tech_pvt->controldevice_audio_name, 0, sizeof(tech_pvt->controldevice_audio_name));
             memset(tech_pvt->session_uuid_str, 0, sizeof(tech_pvt->session_uuid_str));			
@@ -2533,7 +2537,7 @@ void pvt_disconnect_dongle(private_t  * tech_pvt) {
 			tech_pvt->ob_failed_calls = 0;
 			tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED;    // mark interface  state Disconnected
 			tech_pvt->phone_callflow = 0;
-			remove_lock(tech_pvt);   //  remove lock so discovery thread  rediscover this device again
+
 			alarm_event(tech_pvt, ALARM_DISCONNECTED_INTERFACE, "Disconnected");
 				WARNINGA("   Dongle  Disconnected   Interface_id:[%s]     interface_name[%s]  \n", GSMOPEN_P_LOG, tech_pvt->id, tech_pvt->name);
 			}else{
@@ -3009,19 +3013,13 @@ void *gsmopen_do_gsmopenapi_thread_func(void *obj)
 		if ((now_timestamp - tech_pvt->gsmopen_serial_synced_timestamp) > tech_pvt->gsmopen_serial_sync_period) {	//TODO find a sensible period. 5min? in config?
 			gsmopen_serial_sync(tech_pvt);
 		res = gsmopen_serial_getstatus_AT(tech_pvt);
-			if (res == -1 && tech_pvt->interface_state != GSMOPEN_STATE_DISCONNECTED) {		//manage the graceful interface Disconnect
+		DEBUGA_GSMOPEN("    gsmopen_serial_getstatus_AT(%s)   res:'%d'\n", GSMOPEN_P_LOG, tech_pvt->name, res);
+			if ( res == -1 ) {		//manage the graceful interface Disconnect
 				pvt_disconnect_dongle(tech_pvt);
 			}
 		}
 	}
-#ifndef WIN32
-			remove_lock( tech_pvt);  //  remove lock  for this device
-#endif  // win32
-		if (!tech_pvt->unload_flag  && running ){  //  Start Discovery Thread if Not Unloading  Module
-				pvt_disconnect_dongle(tech_pvt);
-				tech_pvt->active = 0;
-				tech_pvt->stop_discovery = 0;
-		}
+
 
 	DEBUGA_GSMOPEN(".......gsmopen_do_gsmopenapi_thread_func... For  Device :%s........EXITED............\n", GSMOPEN_P_LOG, tech_pvt->name);
 	return NULL;
@@ -3909,9 +3907,9 @@ void search_ttyusb_device(private_t *tech_pvt, const char *dirname)
 												strcpy(tech_pvt->controldevice_name, f.tty_data_device);
 												DEBUGA_GSMOPEN("name = |%s|, controldevice_audio_name = |%s|, controldevice_name = |%s|\n", GSMOPEN_P_LOG, tech_pvt->name, tech_pvt->controldevice_audio_name, tech_pvt->controldevice_name);
 												tech_pvt->stop_discovery = 1;
-												DEBUGA_GSMOPEN("     Matched   interface :%s       ",GSMOPEN_P_LOG, tech_pvt->name);
+												DEBUGA_GSMOPEN("     Matched   interface :%s       \n",GSMOPEN_P_LOG, tech_pvt->name);
 												          make_lock(tech_pvt);  //  make lock to protect this device during serial config
-												break;
+												return;
 											}else{
 																					ERRORA(" Error  IMSI  Not Matched  Skipping Device  Searching  tech_pvt->imsi:[%s]    Found f.imsi:[%s] \n ",GSMOPEN_P_LOG, tech_pvt->imsi , f.imsi);	
 											}
