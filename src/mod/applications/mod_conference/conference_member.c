@@ -764,6 +764,9 @@ switch_status_t conference_member_add(conference_obj_t *conference, conference_m
 			if ((var = switch_channel_get_variable_dup(member->channel, "video_mute_png", SWITCH_FALSE, -1))) {
 				member->video_mute_png = switch_core_strdup(member->pool, var);
 				member->video_mute_img = switch_img_read_png(member->video_mute_png, SWITCH_IMG_FMT_I420);
+                if (member->video_mute_img == NULL) {
+					member->video_mute_png = NULL;
+                }
 			}
 
 			if ((var = switch_channel_get_variable_dup(member->channel, "video_reservation_id", SWITCH_FALSE, -1))) {
