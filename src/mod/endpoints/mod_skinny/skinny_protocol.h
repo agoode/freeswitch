@@ -975,7 +975,7 @@ switch_status_t skinny_read_packet(listener_t *listener, skinny_message_t **req)
 
 switch_status_t skinny_device_event(listener_t *listener, switch_event_t **ev, switch_event_types_t event_id, const char *subclass_name);
 
-switch_status_t skinny_session_walk_lines(skinny_profile_t *profile, char *channel_uuid, switch_core_db_callback_func_t callback, void *data);
+switch_status_t skinny_session_walk_lines(skinny_profile_t *profile, const char *channel_uuid, switch_core_db_callback_func_t callback, void *data);
 
 void skinny_line_get(listener_t *listener, uint32_t instance, struct line_stat_res_message **button);
 void skinny_speed_dial_get(listener_t *listener, uint32_t instance, struct speed_dial_stat_res_message **button);
