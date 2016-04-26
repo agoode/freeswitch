@@ -2461,7 +2461,8 @@ void *SWITCH_THREAD_FUNC att_thread_run(switch_thread_t *thread, void *obj)
 	switch_channel_t *channel = switch_core_session_get_channel(session), *peer_channel = NULL;
 	const char *bond = NULL;
 	switch_core_session_t *b_session = NULL;
-	switch_bool_t follow_recording = switch_true(switch_channel_get_variable(channel, "recording_follow_attxfer"));
+	switch_bool_t follow_recording = switch_true(switch_channel_get_variable(channel, "recording_follow_attxfer")) ||
+		switch_true(switch_channel_get_variable(channel, "recording_follow_transfer"));
 
 	att->running = 1;
 
