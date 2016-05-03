@@ -8394,21 +8394,23 @@ SWITCH_DECLARE(void) switch_core_media_gen_local_sdp(switch_core_session_t *sess
 				
 					if (pass_fmtp) {
 						switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf), "a=fmtp:%d %s\r\n", v_engine->cur_payload_map->pt, pass_fmtp);
-					}
-
-
-					if (switch_media_handle_test_media_flag(smh, SCMF_MULTI_ANSWER_VIDEO)) {
+					} else if (switch_media_handle_test_media_flag(smh, SCMF_MULTI_ANSWER_VIDEO)) {
 						switch_mutex_lock(smh->sdp_mutex);
 						for (pmap = v_engine->cur_payload_map; pmap && pmap->allocated; pmap = pmap->next) {
 							if (pmap->pt != v_engine->cur_payload_map->pt && pmap->negotiated) {
 								switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf), "a=rtpmap:%d %s/%ld\r\n",
-												pmap->pt, pmap->iananame, pmap->rate);
-							
+									pmap->pt, pmap->iananame, pmap->rate);
+								if (!switch_channel_get_variable(session->channel, "bypass_media") || pmap->pt > 95) {
+									switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf), "a=fmtp:%d %s\r\n",
+										pmap->pt, pmap->rm_fmtp);
+								}
 							}
 						}
 						switch_mutex_unlock(smh->sdp_mutex);
+					} else if (!switch_channel_get_variable(session->channel, "bypass_media") || pmap->pt > 95) {
+						switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf), "a=fmtp:%d %s\r\n",
+							v_engine->cur_payload_map->pt, v_engine->cur_payload_map->rm_fmtp);
 					}
-
 
 					if (append_video) {
 						switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf), "%s%s", append_video, end_of(append_video) == '\n' ? "" : "\r\n");
