@@ -1304,6 +1304,10 @@ PKG_CHECK_MODULES([MPG123], [libmpg123 >= 1.16.0],[
   AM_CONDITIONAL([HAVE_MPG123],[true])],[
   AC_MSG_RESULT([no]); AM_CONDITIONAL([HAVE_MPG123],[false])])
 
+PKG_CHECK_MODULES([TWOLAME], [twolame >= 0.3.13],[
+  AM_CONDITIONAL([HAVE_TWOLAME],[true])],[
+  AC_MSG_RESULT([no]); AM_CONDITIONAL([HAVE_TWOLAME],[false])])
+
 PKG_CHECK_MODULES([SHOUT], [shout >= 2.2.2],[
   AM_CONDITIONAL([HAVE_SHOUT],[true])],[
   AC_MSG_RESULT([no]); AM_CONDITIONAL([HAVE_SHOUT],[false])])
@@ -1774,6 +1778,7 @@ AC_CONFIG_FILES([Makefile
 		src/mod/codecs/mod_ilbc/Makefile
 		src/mod/codecs/mod_isac/Makefile
 		src/mod/codecs/mod_mp4v/Makefile
+		src/mod/codecs/mod_mpa/Makefile
 		src/mod/codecs/mod_opus/Makefile
 		src/mod/codecs/mod_openh264/Makefile
 		src/mod/codecs/mod_sangoma_codec/Makefile

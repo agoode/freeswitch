@@ -299,6 +299,9 @@ static int get_channels(const char *name, int dft)
 	if (!zstr(name) && !switch_true(switch_core_get_variable("NDLB_broken_opus_sdp")) && !strcasecmp(name, "opus")) {
 		return 2; /* IKR???*/
 	}
+	if(!zstr(name) && !strcasecmp(name,"mpa")) {
+		return 1;
+	}
 
 	return dft ? dft : 1;
 }
@@ -2704,11 +2707,6 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_write_frame(switch_core_sessio
 		return SWITCH_STATUS_GENERR;
 	}
 
-
-	if (!engine->read_codec.implementation || !switch_core_codec_ready(&engine->read_codec)) {
-		return SWITCH_STATUS_FALSE;
-	}
-
 	if (!switch_test_flag(frame, SFF_CNG) && !switch_test_flag(frame, SFF_PROXY_PACKET)) {
 		if (engine->read_impl.encoded_bytes_per_packet) {
 			bytes = engine->read_impl.encoded_bytes_per_packet;
@@ -4532,6 +4530,9 @@ SWITCH_DECLARE(uint8_t) switch_core_media_negotiate_sdp(switch_core_session_t *s
 						} else {
 							pmap->channels = 1;
 						}
+					} else if (!strcasecmp((char *) mmap->rm_encoding, "mpa")) {
+						pmap->channels = 2;
+						pmap->adv_channels = 1;
 					} else {
 						pmap->adv_channels = pmap->channels;
 					}
