@@ -532,7 +532,7 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 		/* come up with a way to specify these */
 		int bitrate_bps = OPUS_AUTO;
 		int use_vbr = opus_codec_settings.cbr==OPUS_TRISTATE_YES ? OPUS_TRISTATE_NO : opus_codec_settings.cbr==OPUS_TRISTATE_NO ? OPUS_TRISTATE_YES : 
-						OPS_TRISTATE_UNDEFINED;
+						OPUS_TRISTATE_UNDEFINED;
 		int complexity = opus_prefs.complexity;
 		int plpct = opus_prefs.plpct;
 		int err;
@@ -626,7 +626,7 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 		}
 
 		if (opus_codec_settings.usedtx != OPUS_TRISTATE_UNDEFINED) {
-			opus_encoder_ctl(context->encoder_object, OPUS_SET_DTX(opus_codec_settings.usedtx==OPUS_TRISTATE_TRUE));
+			opus_encoder_ctl(context->encoder_object, OPUS_SET_DTX(opus_codec_settings.usedtx==OPUS_TRISTATE_YES));
 		}
 	}
 
@@ -1312,7 +1312,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_opus_load)
 		settings.useinbandfec = opus_prefs.fec_decode;
 	}
 
-	f (opus_prefs.use_vbr == OPUS_TRISTATE_YES) {
+	if (opus_prefs.use_vbr == OPUS_TRISTATE_YES) {
 		settings.cbr = OPUS_TRISTATE_NO;
 	} else 	if (opus_prefs.use_vbr == OPUS_TRISTATE_NO) {
 		settings.cbr = OPUS_TRISTATE_YES;
