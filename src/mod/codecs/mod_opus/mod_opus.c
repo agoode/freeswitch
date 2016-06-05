@@ -609,7 +609,7 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 			/* FEC on the encoder: start the call with a preconfigured packet loss percentage */
 			int fec_bitrate = opus_codec_settings.maxaveragebitrate;
 			int loss_percent = opus_prefs.plpct ; 
-			opus_encoder_ctl(context->encoder_object, OPUS_SET_INBAND_FEC(TRUE));
+			opus_encoder_ctl(context->encoder_object, OPUS_SET_INBAND_FEC(1));
 			opus_encoder_ctl(context->encoder_object, OPUS_SET_PACKET_LOSS_PERC(loss_percent));
 			if (opus_prefs.keep_fec) {  
 				fec_bitrate = switch_opus_get_fec_bitrate(enc_samplerate,loss_percent); 
@@ -622,7 +622,7 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 			}
 		}
 		else if (opus_codec_settings.useinbandfec == OPUS_TRISTATE_NO) {
-			opus_encoder_ctl(context->encoder_object, OPUS_SET_INBAND_FEC(FALSE));
+			opus_encoder_ctl(context->encoder_object, OPUS_SET_INBAND_FEC(0));
 		}
 
 		if (opus_codec_settings.usedtx != OPUS_TRISTATE_UNDEFINED) {
@@ -1224,8 +1224,10 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_opus_load)
 		settings.useinbandfec = opus_prefs.fec_decode;
 	}
 
-	if (opus_prefs.use_vbr != OPUS_TRISTATE_UNDEFINED) {
-		settings.cbr = !opus_prefs.use_vbr;
+	if (opus_prefs.use_vbr == OPUS_TRISTATE_YES) {
+		settings.cbr = OPUS_TRISTATE_NO;
+	} else 	if (opus_prefs.use_vbr == OPUS_TRISTATE_NO) {
+		settings.cbr = OPUS_TRISTATE_YES;
 	}
 
 	if (opus_prefs.use_dtx != OPUS_TRISTATE_UNDEFINED) {
@@ -1310,8 +1312,10 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_opus_load)
 		settings.useinbandfec = opus_prefs.fec_decode;
 	}
 
-	if (opus_prefs.use_vbr != OPUS_TRISTATE_UNDEFINED) {
-		settings.cbr = !opus_prefs.use_vbr;
+	f (opus_prefs.use_vbr == OPUS_TRISTATE_YES) {
+		settings.cbr = OPUS_TRISTATE_NO;
+	} else 	if (opus_prefs.use_vbr == OPUS_TRISTATE_NO) {
+		settings.cbr = OPUS_TRISTATE_YES;
 	}
 
 	if (opus_prefs.use_dtx != OPUS_TRISTATE_UNDEFINED) {
