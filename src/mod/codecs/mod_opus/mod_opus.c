@@ -523,6 +523,16 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 		opus_codec_settings.sprop_maxcapturerate = opus_prefs.sprop_maxcapturerate;
 	}
 
+	if (opus_prefs.fec_decode != OPUS_VAL_UNDEFINED)
+		opus_codec_settings.useinbandfec = opus_prefs.fec_decode;
+
+	if (opus_prefs.use_vbr != OPUS_VAL_UNDEFINED)
+		opus_codec_settings.cbr = !opus_prefs.use_vbr;
+
+	if (opus_prefs.use_dtx != OPUS_VAL_UNDEFINED)
+		opus_codec_settings.usedtx = opus_prefs.use_dtx;
+
+	
  	codec->fmtp_out = gen_fmtp(&opus_codec_settings, codec->memory_pool);
 
 	if (encoding) {
