@@ -1034,7 +1034,8 @@ static switch_status_t switch_opus_keep_fec_enabled(switch_codec_t *codec)
 	opus_encoder_ctl(context->encoder_object, OPUS_GET_PACKET_LOSS_PERC(&current_loss));
 
 	if (current_loss == 0) {
-		opus_encoder_ctl(context->encoder_object, OPUS_SET_BITRATE(opus_prefs.maxaveragebitrate));
+		if (opus_prefs.maxaveragebitrate != OPUS_VAL_UNDEFINED)
+			opus_encoder_ctl(context->encoder_object, OPUS_SET_BITRATE(opus_prefs.maxaveragebitrate));
 
 		return SWITCH_STATUS_SUCCESS;
 	}
@@ -1135,21 +1136,23 @@ static switch_status_t switch_opus_control(switch_codec_t *codec,
 				plpct = 100;
 			}
 
-			if (opus_prefs.keep_fec) {
-				opus_encoder_ctl(context->encoder_object, OPUS_SET_PACKET_LOSS_PERC(plpct));
+			if (opus_prefs.keep_fec == OPUS_VAL_TRUE) {
+				if (plpct != OPUS_VAL_UNDEFINED)
+					opus_encoder_ctl(context->encoder_object, OPUS_SET_PACKET_LOSS_PERC(plpct));
 			} else {
 				calc = plpct % 10;
 				plpct = plpct - calc + ( calc ? 10 : 0);
 			}
 			if (plpct != context->old_plpct) {
-				if (opus_prefs.keep_fec) {
-					if (plpct > 10) {
+				if (opus_prefs.keep_fec == OPUS_VAL_TRUE) {
+					if (plpct != OPUS_VAL_UNDEFINED && plpct > 10) {
 					/* this will increase bitrate a little bit, just to keep FEC enabled */
 						switch_opus_keep_fec_enabled(codec);
 					}
 				} else {
 					/* this can have no effect because FEC is F(bitrate,packetloss), let the codec decide if FEC is to be used or not */
-					opus_encoder_ctl(context->encoder_object, OPUS_SET_PACKET_LOSS_PERC(plpct));
+					if (plpct != OPUS_VAL_UNDEFINED)
+						opus_encoder_ctl(context->encoder_object, OPUS_SET_PACKET_LOSS_PERC(plpct));
 				}
 
 				if (globals.debug || context->debug) {
@@ -1316,13 +1319,13 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_opus_load)
 		settings.usedtx = opus_prefs.use_dtx;
 	}
 
-	if (opus_prefs.maxaveragebitrate) {
+	if (opus_prefs.maxaveragebitrate != OPUS_PREFS_UNDEFINED) {
 		settings.maxaveragebitrate = opus_prefs.maxaveragebitrate;
 	}
-	if (opus_prefs.maxplaybackrate) {
+	if (opus_prefs.maxplaybackrate != OPUS_PREFS_UNDEFINED) {
 		settings.maxplaybackrate = opus_prefs.maxplaybackrate;
 	}
-	if (opus_prefs.sprop_maxcapturerate) {
+	if (opus_prefs.sprop_maxcapturerate != OPUS_PREFS_UNDEFINED) {
 		settings.sprop_maxcapturerate = opus_prefs.sprop_maxcapturerate;
 	}
 
