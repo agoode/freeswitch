@@ -37,16 +37,25 @@
 SWITCH_MODULE_LOAD_FUNCTION(mod_opus_load);
 SWITCH_MODULE_DEFINITION(mod_opus, mod_opus_load, NULL, NULL);
 
+enum opus_tristate {
+	OPUS_TRISTATE_UNDEFINED = 0,
+	OPUS_TRISTATE_NO,
+	OPUS_TRISTATE_YES
+};
+typedef enum opus_tristate opus_tristate_t;
+
+#define bool2tristate(arg) ((arg)?OPUS_TRISTATE_YES:OPUS_TRISTATE_NO)
+
 /*! \brief Various codec settings */
 struct opus_codec_settings {
-	int useinbandfec;
-	int usedtx;
+	opus_tristate_t useinbandfec;
+	opus_tristate_t usedtx;
 	int maxaveragebitrate;
 	int maxplaybackrate;
-	int stereo;
-	int cbr;
+	opus_tristate_t stereo;
+	opus_tristate_t cbr;
 	int sprop_maxcapturerate;
-	int sprop_stereo;
+	opus_tristate_t sprop_stereo;
 	int maxptime;
 	int minptime;
 	int ptime;
@@ -54,55 +63,36 @@ struct opus_codec_settings {
 };
 typedef struct opus_codec_settings opus_codec_settings_t;
 
-#define OPUS_VAL_FALSE 0
-#define OPUS_VAL_TRUE  1
-#define OPUS_VAL_UNDEFINED -1
-
-#define opus_true(arg) (switch_true(arg) ? OPUS_VAL_TRUE : OPUS_VAL_FALSE)
+#define opus_switch_true(arg) (switch_true(arg) ? OPUS_TRISTATE_YES : OPUS_TRISTATE_NO)
 
 static opus_codec_settings_t default_codec_settings = {
-	/*.useinbandfec */ OPUS_VAL_TRUE,
-	/*.usedtx */ OPUS_VAL_TRUE,
+	/*.useinbandfec */ OPUS_TRISTATE_YES,
+	/*.usedtx */ OPUS_TRISTATE_YES,
 	/*.maxaveragebitrate */ 30000,
 	/*.maxplaybackrate */ 48000,
-	/*.stereo*/ OPUS_VAL_FALSE,
-	/*.cbr*/ OPUS_VAL_FALSE,
-	/*.sprop_maxcapturerate*/ OPUS_VAL_UNDEFINED,
-	/*.sprop_stereo*/ OPUS_VAL_UNDEFINED,
+	/*.stereo*/ OPUS_TRISTATE_NO,
+	/*.cbr*/ OPUS_TRISTATE_NO,
+	/*.sprop_maxcapturerate*/ 0,
+	/*.sprop_stereo*/ OPUS_TRISTATE_NO,
 	/*.maxptime*/ 40,
 	/*.minptime*/ 10,
-	/*.ptime*/ OPUS_VAL_UNDEFINED,
-	/*.samplerate*/ OPUS_VAL_UNDEFINED
+	/*.ptime*/ 0,
+	/*.samplerate*/ 0,
 };
 
 static opus_codec_settings_t default_codec_settings_8k = {
-	/*.useinbandfec */ OPUS_VAL_TRUE,
-	/*.usedtx */ OPUS_VAL_TRUE,
+	/*.useinbandfec */ OPUS_TRISTATE_YES,
+	/*.usedtx */ OPUS_TRISTATE_YES,
 	/*.maxaveragebitrate */ 14000,
 	/*.maxplaybackrate */ 8000,
-	/*.stereo*/ OPUS_VAL_FALSE,
-	/*.cbr*/ OPUS_VAL_FALSE,
+	/*.stereo*/ OPUS_TRISTATE_NO,
+	/*.cbr*/ OPUS_TRISTATE_NO,
 	/*.sprop_maxcapturerate*/ 8000,
-	/*.sprop_stereo*/ OPUS_VAL_FALSE,
+	/*.sprop_stereo*/ OPUS_TRISTATE_NO,
 	/*.maxptime*/ 120,
 	/*.minptime*/ 10,
-	/*.ptime*/ OPUS_VAL_UNDEFINED,
-	/*.samplerate*/ OPUS_VAL_UNDEFINED
-};
-
-static opus_codec_settings_t codec_settings_undefined = {
-	/*.useinbandfec */ OPUS_VAL_UNDEFINED,
-	/*.usedtx */ OPUS_VAL_UNDEFINED,
-	/*.maxaveragebitrate */ OPUS_VAL_UNDEFINED,
-	/*.maxplaybackrate */ OPUS_VAL_UNDEFINED,
-	/*.stereo*/ OPUS_VAL_UNDEFINED,
-	/*.cbr*/ OPUS_VAL_UNDEFINED,
-	/*.sprop_maxcapturerate*/ OPUS_VAL_UNDEFINED,
-	/*.sprop_stereo*/ OPUS_VAL_UNDEFINED,
-	/*.maxptime*/ OPUS_VAL_UNDEFINED,
-	/*.minptime*/ OPUS_VAL_UNDEFINED,
-	/*.ptime*/ OPUS_VAL_UNDEFINED,
-	/*.samplerate*/ OPUS_VAL_UNDEFINED
+	/*.ptime*/ 0,
+	/*.samplerate*/ 0
 };
 
 struct dec_stats {
@@ -127,8 +117,8 @@ struct opus_context {
 };
 
 struct {
-	int use_vbr;
-	int use_dtx;
+	opus_tristate_t use_vbr;
+	opus_tristate_t use_dtx;
 	int complexity;
 	int maxaveragebitrate;
 	int maxplaybackrate;
@@ -208,7 +198,7 @@ static switch_bool_t switch_opus_show_audio_bandwidth(int audiobandwidth,char *a
 static switch_status_t switch_opus_fmtp_parse(const char *fmtp, switch_codec_fmtp_t *codec_fmtp)
 {
 	if (codec_fmtp) {
-		opus_codec_settings_t local_settings = codec_settings_undefined;
+		opus_codec_settings_t local_settings = { 0 };
 		opus_codec_settings_t *codec_settings = &local_settings;
 
 		if (codec_fmtp->private_info) {
@@ -239,15 +229,15 @@ static switch_status_t switch_opus_fmtp_parse(const char *fmtp, switch_codec_fmt
 
 					if (codec_settings) {
 						if (!strcasecmp(data, "useinbandfec")) {
-							codec_settings->useinbandfec = opus_true(arg);
+							codec_settings->useinbandfec = bool2tristate(switch_true(arg));
 						}
 
 						if (!strcasecmp(data, "usedtx")) {
-							codec_settings->usedtx = opus_true(arg);
+							codec_settings->usedtx = bool2tristate(switch_true(arg));
 						}
 
 						if (!strcasecmp(data, "cbr")) {
-							codec_settings->cbr = opus_true(arg);
+							codec_settings->cbr = bool2tristate(switch_true(arg));
 						}
 
 						if (!strcasecmp(data, "maxptime")) {
@@ -264,31 +254,31 @@ static switch_status_t switch_opus_fmtp_parse(const char *fmtp, switch_codec_fmt
 						}
 
 						if (!strcasecmp(data, "stereo")) {
-							codec_settings->stereo = atoi(arg);
-							codec_fmtp->stereo = codec_settings->stereo;
+							codec_fmtp->stereo = switch_true(arg);
+							codec_settings->stereo = bool2tristate(codec_fmtp->stereo);
 						}
 
 						if (!strcasecmp(data, "sprop-stereo")) {
-							codec_settings->sprop_stereo = atoi(arg);
+							codec_settings->sprop_stereo = bool2tristate(switch_true(arg));
 						}
 
 						if (!strcasecmp(data, "maxaveragebitrate")) {
 							codec_settings->maxaveragebitrate = atoi(arg);
 							if (codec_settings->maxaveragebitrate < 6000 || codec_settings->maxaveragebitrate > 510000) {
-								codec_settings->maxaveragebitrate = OPUS_VAL_UNDEFINED; /* values outside the range between 6000 and 510000 SHOULD be ignored */
+								codec_settings->maxaveragebitrate = 0; /* values outside the range between 6000 and 510000 SHOULD be ignored */
 							}
 						}
 
 						if (!strcasecmp(data, "maxplaybackrate")) {
 							codec_settings->maxplaybackrate = atoi(arg);
 							if (!switch_opus_acceptable_rate(codec_settings->maxplaybackrate)) {
-								codec_settings->maxplaybackrate = OPUS_VAL_UNDEFINED; /* value not supported */
+								codec_settings->maxplaybackrate = 0; /* value not supported */
 							}
 						}
 						if (!strcasecmp(data, "sprop-maxcapturerate")) {
 							codec_settings->sprop_maxcapturerate = atoi(arg);
 							if (!switch_opus_acceptable_rate(codec_settings->sprop_maxcapturerate)) {
-								codec_settings->sprop_maxcapturerate = OPUS_VAL_UNDEFINED; /* value not supported */
+								codec_settings->sprop_maxcapturerate = 0; /* value not supported */
 							}
 						}
 					}
@@ -305,46 +295,53 @@ static char *gen_fmtp(opus_codec_settings_t *settings, switch_memory_pool_t *poo
 {
 	char buf[256] = { 0 };
 
-	if(settings->useinbandfec != OPUS_VAL_UNDEFINED)
-		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "useinbandfec=%d; ", settings->useinbandfec);
+	if (settings->useinbandfec == OPUS_TRISTATE_YES) {
+		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "useinbandfec=1; ");
+	} else if (settings->useinbandfec == OPUS_TRISTATE_YES) {
+		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "useinbandfec=0; ");
+	}
 
-	if (settings->usedtx != OPUS_VAL_UNDEFINED) {
+	if (settings->usedtx == OPUS_TRISTATE_YES) {
 		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "usedtx=1; ");
+	} else if (settings->usedtx == OPUS_TRISTATE_NO) {
+		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "usedtx=0; ");
 	}
 
-	if (settings->cbr != OPUS_VAL_UNDEFINED) {
+	if (settings->cbr == OPUS_TRISTATE_YES) {
 		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "cbr=1; ");
+	} else 	if (settings->cbr == OPUS_TRISTATE_YES) {
+		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "cbr=0; ");
 	}
 
-	if (settings->maxaveragebitrate != OPUS_VAL_UNDEFINED) {
+	if (settings->maxaveragebitrate) {
 		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "maxaveragebitrate=%d; ", settings->maxaveragebitrate);
 	}
 
-	if (settings->maxplaybackrate != OPUS_VAL_UNDEFINED) {
+	if (settings->maxplaybackrate != OPUS_TRISTATE_UNDEFINED) {
 		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "maxplaybackrate=%d; ", settings->maxplaybackrate);
 	}
 
-	if (settings->sprop_maxcapturerate != OPUS_VAL_UNDEFINED) {
+	if (settings->sprop_maxcapturerate) {
 		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "sprop-maxcapturerate=%d; ", settings->sprop_maxcapturerate);
 	}
 
-	if (settings->ptime != OPUS_VAL_UNDEFINED) {
+	if (settings->ptime) {
 		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "ptime=%d; ", settings->ptime);
 	}
 
-	if (settings->minptime != OPUS_VAL_UNDEFINED) {
+	if (settings->minptime) {
 		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "minptime=%d; ", settings->minptime);
 	}
 
-	if (settings->maxptime != OPUS_VAL_UNDEFINED) {
+	if (settings->maxptime) {
 		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "maxptime=%d; ", settings->maxptime);
 	}
 
-	if (settings->stereo != OPUS_VAL_UNDEFINED) {
+	if (settings->stereo) {
 		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "stereo=%d; ", settings->stereo);
 	}
 
-	if (settings->sprop_stereo != OPUS_VAL_UNDEFINED) {
+	if (settings->sprop_stereo) {
 		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "sprop-stereo=%d; ", settings->sprop_stereo);
 	}
 
@@ -484,8 +481,8 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 	int encoding = (flags & SWITCH_CODEC_FLAG_ENCODE);
 	int decoding = (flags & SWITCH_CODEC_FLAG_DECODE);
 	switch_codec_fmtp_t codec_fmtp, codec_fmtp_only_remote = { 0 };
-	opus_codec_settings_t opus_codec_settings = codec_settings_undefined;
-	opus_codec_settings_t opus_codec_settings_remote = codec_settings_undefined;
+	opus_codec_settings_t opus_codec_settings = { 0 };
+	opus_codec_settings_t opus_codec_settings_remote = { 0 };
 
 	if (!(encoding || decoding) || (!(context = switch_core_alloc(codec->memory_pool, sizeof(*context))))) {
 		return SWITCH_STATUS_FALSE;
@@ -496,7 +493,7 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 	memset(&codec_fmtp, '\0', sizeof(struct switch_codec_fmtp));
 	codec_fmtp.private_info = &opus_codec_settings;
 	switch_opus_fmtp_parse(codec->fmtp_in, &codec_fmtp);
-	if (opus_prefs.asymmetric_samplerates != OPUS_VAL_UNDEFINED) {
+	if (opus_prefs.asymmetric_samplerates) {
 		/* save the remote fmtp values, before processing */
 		codec_fmtp_only_remote.private_info = &opus_codec_settings_remote;
 		switch_opus_fmtp_parse(codec->fmtp_in, &codec_fmtp_only_remote);
@@ -504,53 +501,55 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 	context->codec_settings = opus_codec_settings;
 
 	/* Verify if the local or remote configuration are lowering maxaveragebitrate and/or maxplaybackrate */
-	if (opus_prefs.maxaveragebitrate != OPUS_VAL_UNDEFINED &&
+	if (opus_prefs.maxaveragebitrate &&
 		 (opus_prefs.maxaveragebitrate < opus_codec_settings_remote.maxaveragebitrate || !opus_codec_settings_remote.maxaveragebitrate)) {
 		opus_codec_settings.maxaveragebitrate = opus_prefs.maxaveragebitrate;
 	} else {
 		opus_codec_settings.maxaveragebitrate = opus_codec_settings_remote.maxaveragebitrate;
 	}
 
-	if (opus_prefs.maxplaybackrate != OPUS_VAL_UNDEFINED &&
+	if (opus_prefs.maxplaybackrate &&
 		 (opus_prefs.maxplaybackrate < opus_codec_settings_remote.maxplaybackrate || !opus_codec_settings_remote.maxplaybackrate)) {
 		opus_codec_settings.maxplaybackrate = opus_prefs.maxplaybackrate;
 	} else {
 		opus_codec_settings.maxplaybackrate = opus_codec_settings_remote.maxplaybackrate;
 	}
 
-	if (opus_prefs.sprop_maxcapturerate != OPUS_VAL_UNDEFINED &&
+	if (opus_prefs.sprop_maxcapturerate &&
 		 (opus_prefs.sprop_maxcapturerate < opus_codec_settings_remote.sprop_maxcapturerate || !opus_codec_settings_remote.sprop_maxcapturerate)) {
 		opus_codec_settings.sprop_maxcapturerate = opus_prefs.sprop_maxcapturerate;
 	}
 
-	if (opus_prefs.fec_decode != OPUS_VAL_UNDEFINED)
+	if (opus_prefs.fec_decode != OPUS_TRISTATE_UNDEFINED) {
 		opus_codec_settings.useinbandfec = opus_prefs.fec_decode;
+	}
 
-	if (opus_prefs.use_vbr != OPUS_VAL_UNDEFINED)
-		opus_codec_settings.cbr = !opus_prefs.use_vbr;
+	if (opus_prefs.use_vbr != OPUS_TRISTATE_UNDEFINED) {
+		opus_codec_settings.cbr = opus_prefs.use_vbr==OPUS_TRISTATE_YES ? OPUS_TRISTATE_NO : OPUS_TRISTATE_YES;
+	}
 
-	if (opus_prefs.use_dtx != OPUS_VAL_UNDEFINED)
+	if (opus_prefs.use_dtx != OPUS_TRISTATE_UNDEFINED) {
 		opus_codec_settings.usedtx = opus_prefs.use_dtx;
+	}
 
-	
  	codec->fmtp_out = gen_fmtp(&opus_codec_settings, codec->memory_pool);
 
 	if (encoding) {
 		/* come up with a way to specify these */
 		int bitrate_bps = OPUS_AUTO;
-		int use_vbr = opus_prefs.use_vbr == UNDEFINED ? !opus_codec_settings.cbr : opus_prefs.use_vbr;
+		int use_vbr = opus_codec_settings.cbr;
 		int complexity = opus_prefs.complexity;
 		int plpct = opus_prefs.plpct;
 		int err;
 		int enc_samplerate = opus_codec_settings.samplerate ? opus_codec_settings.samplerate : codec->implementation->actual_samples_per_second;
 
-		if (opus_prefs.asymmetric_samplerates != OPUS_VAL_UNDEFINED) {
+		if (opus_prefs.asymmetric_samplerates) {
 		 /* If an entity receives an fmtp: maxplaybackrate=R1,sprop-maxcapturerate=R2 and sends an fmtp with:
 		 * maxplaybackrate=R3,sprop-maxcapturerate=R4
 		 * then it should start the encoder at sample rate: min(R1, R4) and the decoder at sample rate: min(R3, R2)*/
 			if (codec_fmtp.private_info) {
 				opus_codec_settings_t *settings = codec_fmtp_only_remote.private_info;
-				if (opus_codec_settings.sprop_maxcapturerate != OPUS_VAL_UNDEFINED || settings->maxplaybackrate != OPUS_VAL_UNDEFINED) {
+				if (opus_codec_settings.sprop_maxcapturerate || settings->maxplaybackrate) {
 					enc_samplerate = opus_codec_settings.sprop_maxcapturerate; /*R4*/
 					if (settings->maxplaybackrate < enc_samplerate && settings->maxplaybackrate) {
 						enc_samplerate = settings->maxplaybackrate; /*R1*/
@@ -573,7 +572,7 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 		}
 
 		/* https://tools.ietf.org/html/rfc7587  */
-		if (opus_codec_settings.maxaveragebitrate != OPUS_VAL_UNDEFINED) { 
+		if (opus_codec_settings.maxaveragebitrate) { 
 			opus_encoder_ctl(context->encoder_object, OPUS_SET_BITRATE(opus_codec_settings.maxaveragebitrate));
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Opus encoder: set bitrate based on maxaveragebitrate value found in SDP or local config [%dbps]\n", opus_codec_settings.maxaveragebitrate);
 		} else {
@@ -583,7 +582,7 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Opus encoder: set bitrate to local settings [%dbps]\n", bitrate_bps);
 		}
 		/* Another fmtp setting from https://tools.ietf.org/html/rfc7587 - "RTP Payload Format for the Opus Speech and Audio Codec" */
-		if (opus_codec_settings.maxplaybackrate != OPUS_VAL_UNDEFINED) {
+		if (opus_codec_settings.maxplaybackrate) {
 			opus_int32 audiobandwidth; 
 			char audiobandwidth_str[32] = {0};
 
@@ -595,25 +594,21 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Opus encoder: set audio bandwidth to [%s] based on maxplaybackrate value found in SDP or local config [%dHz]\n",audiobandwidth_str,opus_codec_settings.maxplaybackrate);
 		}
 
-		if (use_vbr != OPUS_VAL_UNDEFINED) {
+		if (use_vbr != OPUS_TRISTATE_UNDEFINED) {
 			opus_encoder_ctl(context->encoder_object, OPUS_SET_VBR(use_vbr));
 		}
 
-		if (complexity != OPUS_VAL_UNDEFINED) {
-			opus_encoder_ctl(context->encoder_object, OPUS_SET_COMPLEXITY(complexity));
-		}
+		opus_encoder_ctl(context->encoder_object, OPUS_SET_COMPLEXITY(complexity));
 
-		if (plpct != OPUS_VAL_UNDEFINED) {
-			opus_encoder_ctl(context->encoder_object, OPUS_SET_PACKET_LOSS_PERC(plpct));
-		}
+		opus_encoder_ctl(context->encoder_object, OPUS_SET_PACKET_LOSS_PERC(plpct));
 
-		if (opus_codec_settings.useinbandfec == OPUS_VAL_TRUE) {
+		if (opus_codec_settings.useinbandfec == OPUS_TRISTATE_YES) {
 			/* FEC on the encoder: start the call with a preconfigured packet loss percentage */
 			int fec_bitrate = opus_codec_settings.maxaveragebitrate;
 			int loss_percent = opus_prefs.plpct ; 
 			opus_encoder_ctl(context->encoder_object, OPUS_SET_INBAND_FEC(opus_codec_settings.useinbandfec));
 			opus_encoder_ctl(context->encoder_object, OPUS_SET_PACKET_LOSS_PERC(loss_percent));
-			if (opus_prefs.keep_fec == OPUS_VAL_TRUE){  
+			if (opus_prefs.keep_fec == OPUS_TRISTATE_YES){  
 				fec_bitrate = switch_opus_get_fec_bitrate(enc_samplerate,loss_percent); 
 				 /* keep a bitrate for which the encoder will always add FEC */
 				if (fec_bitrate != SWITCH_STATUS_FALSE) {
@@ -624,7 +619,7 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 			}
 		}
 
-		if (opus_codec_settings.usedtx != OPUS_VAL_UNDEFINED) {
+		if (opus_codec_settings.usedtx != OPUS_TRISTATE_UNDEFINED) {
 			opus_encoder_ctl(context->encoder_object, OPUS_SET_DTX(opus_codec_settings.usedtx));
 		}
 	}
@@ -633,12 +628,12 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 		int err;
 		int dec_samplerate = codec->implementation->actual_samples_per_second;
 
-		if (opus_prefs.asymmetric_samplerates != OPUS_VAL_UNDEFINED) {
+		if (opus_prefs.asymmetric_samplerates) {
 			if (codec_fmtp.private_info) {
 				opus_codec_settings_t *settings = codec_fmtp_only_remote.private_info;
-				if (opus_codec_settings.maxplaybackrate != OPUS_VAL_UNDEFINED || settings->sprop_maxcapturerate != OPUS_VAL_UNDEFINED) {
+				if (opus_codec_settings.maxplaybackrate || settings->sprop_maxcapturerate) {
 					dec_samplerate = opus_codec_settings.maxplaybackrate; /* R3 */
-					if (dec_samplerate > settings->sprop_maxcapturerate && settings->sprop_maxcapturerate != OPUS_VAL_UNDEFINED) {
+					if (dec_samplerate > settings->sprop_maxcapturerate && settings->sprop_maxcapturerate) {
 						dec_samplerate = settings->sprop_maxcapturerate; /* R2 */
 						context->dec_frame_size = dec_samplerate*(codec->implementation->microseconds_per_packet / 1000) / 1000;
 						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Opus decoder will be created at sample rate %d hz\n",dec_samplerate);
@@ -649,7 +644,7 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 			}
 		}
 
-		context->decoder_object = opus_decoder_create(dec_samplerate, (context->codec_settings.sprop_stereo != OPUS_VAL_TRUE) ? codec->implementation->number_of_channels : 2, &err);
+		context->decoder_object = opus_decoder_create(dec_samplerate, (context->codec_settings.sprop_stereo != OPUS_TRISTATE_YES) ? codec->implementation->number_of_channels : 2, &err);
 
 		switch_set_flag(codec, SWITCH_CODEC_FLAG_HAS_PLC);
 
@@ -747,7 +742,7 @@ static switch_status_t switch_opus_decode(switch_codec_t *codec,
 		return SWITCH_STATUS_FALSE;
 	}
 
-	frame_samples = *decoded_data_len / 2 / (context->codec_settings.sprop_stereo != OPUS_VAL_TRUE? codec->implementation->number_of_channels : 2);
+	frame_samples = *decoded_data_len / 2 / (context->codec_settings.sprop_stereo != OPUS_TRISTATE_YES? codec->implementation->number_of_channels : 2);
 	frame_size = frame_samples - (frame_samples % (codec->implementation->actual_samples_per_second / 400));
 
 	if (*flag & SFF_PLC) {
@@ -758,8 +753,8 @@ static switch_status_t switch_opus_decode(switch_codec_t *codec,
 
 		encoded_data = NULL;
 
-		if ((opus_prefs.use_jb_lookahead == OPUS_VAL_TRUE || context->use_jb_lookahead == OPUS_VAL_TRUE) 
-		 && context->codec_settings.useinbandfec == OPUS_VAL_TRUE && session) {
+		if ((opus_prefs.use_jb_lookahead || context->use_jb_lookahead) 
+		 && context->codec_settings.useinbandfec == OPUS_TRISTATE_YES && session) {
 			switch_channel_t *channel = switch_core_session_get_channel(session);
 
 			if (!context->look_check) {
@@ -815,7 +810,7 @@ static switch_status_t switch_opus_decode(switch_codec_t *codec,
 		if (last_frame_size) frame_size = last_frame_size;
 		
 		if (globals.debug || context->debug) {
-			if (opus_prefs.use_jb_lookahead == OPUS_VAL_TRUE || context->use_jb_lookahead == OPUS_VAL_TRUE) {
+			if (opus_prefs.use_jb_lookahead || context->use_jb_lookahead) {
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "MISSING FRAME: %s\n", fec ? "Look-ahead FEC" : "PLC");
 			} else {
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "MISSING FRAME: OPUS_PLC\n");
@@ -849,7 +844,7 @@ static switch_status_t switch_opus_decode(switch_codec_t *codec,
 		return SWITCH_STATUS_GENERR;
 	}
 
-	*decoded_data_len = samples * 2 * (context->codec_settings.sprop_stereo == OPUS_VAL_TRUE ? codec->implementation->number_of_channels : 2);
+	*decoded_data_len = samples * 2 * (context->codec_settings.sprop_stereo == OPUS_TRISTATE_YES ? codec->implementation->number_of_channels : 2);
 
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -878,7 +873,7 @@ static switch_status_t switch_opus_encode_repacketize(switch_codec_t *codec,
 		switch_goto_status(SWITCH_STATUS_FALSE, end);
 	}
 	opus_encoder_ctl(context->encoder_object, OPUS_GET_INBAND_FEC(&want_fec));
-	if (want_fec && context->codec_settings.useinbandfec == OPUS_VAL_TRUE) {
+	if (want_fec && context->codec_settings.useinbandfec == OPUS_TRISTATE_YES) {
 		/* if FEC might be used , pack only 2 frames like: 80 ms = 2 x 40 ms , 120 ms = 2 x 60 ms  */
 		/* the first frame in the resulting payload must have FEC, the other must not ( avoid redundant FEC payload ) */
 		nb_frames = 2;
@@ -965,12 +960,12 @@ static switch_status_t opus_load_config(switch_bool_t reload)
 	}
 
 	memset(&opus_prefs, 0, sizeof(opus_prefs));
-	opus_prefs.use_jb_lookahead = OPUS_PREFS_UNDEFINED;
-	opus_prefs.keep_fec = OPUS_PREFS_UNDEFINED;
-	opus_prefs.use_dtx = OPUS_PREFS_UNDEFINED;
+	opus_prefs.use_jb_lookahead = 1;
+	opus_prefs.keep_fec = 1;
+	opus_prefs.use_dtx = OPUS_TRISTATE_UNDEFINED;
 	opus_prefs.plpct = 20;
-	opus_prefs.use_vbr = OPUS_PREFS_UNDEFINED;
-	opus_prefs.fec_decode = OPUS_PREFS_UNDEFINED;
+	opus_prefs.use_vbr = OPUS_TRISTATE_UNDEFINED;
+	opus_prefs.fec_decode = 1;
 
 	if ((settings = switch_xml_child(cfg, "settings"))) {
 		for (param = switch_xml_child(settings, "param"); param; param = param->next) {
@@ -978,9 +973,9 @@ static switch_status_t opus_load_config(switch_bool_t reload)
 			char *val = (char *) switch_xml_attr_soft(param, "value");
 
 			if (!strcasecmp(key, "use-vbr") && !zstr(val)) {
-				opus_prefs.use_vbr = atoi(val);
+				opus_prefs.use_vbr = atoi(val)?OPUS_TRISTATE_YES:OPUS_TRISTATE_NO;
 			} else if (!strcasecmp(key, "use-dtx")) {
-				opus_prefs.use_dtx = atoi(val);
+				opus_prefs.use_dtx = atoi(val)?OPUS_TRISTATE_YES:OPUS_TRISTATE_NO;
 			} else if (!strcasecmp(key, "complexity")) {
 				opus_prefs.complexity = atoi(val);
 			} else if (!strcasecmp(key, "packet-loss-percent")) {
@@ -988,7 +983,7 @@ static switch_status_t opus_load_config(switch_bool_t reload)
 			} else if (!strcasecmp(key, "asymmetric-sample-rates")) {
 				opus_prefs.asymmetric_samplerates = atoi(val);
 			} else if (!strcasecmp(key, "use-jb-lookahead")) {
-				opus_prefs.use_jb_lookahead = opus_true(val);
+				opus_prefs.use_jb_lookahead = switch_true(val);
 			} else if (!strcasecmp(key, "keep-fec-enabled")) { /* encoder */
 				opus_prefs.keep_fec = atoi(val);
 			} else if (!strcasecmp(key, "advertise-useinbandfec")) { /*decoder, has meaning only for FMTP: useinbandfec=1 by default */
@@ -996,17 +991,17 @@ static switch_status_t opus_load_config(switch_bool_t reload)
 			} else if (!strcasecmp(key, "maxaveragebitrate")) {
 				opus_prefs.maxaveragebitrate = atoi(val);
 				if (opus_prefs.maxaveragebitrate < 6000 || opus_prefs.maxaveragebitrate > 510000) {
-					opus_prefs.maxaveragebitrate = OPUS_VAL_UNDEFINED; /* values outside the range between 6000 and 510000 SHOULD be ignored */
+					opus_prefs.maxaveragebitrate = 0; /* values outside the range between 6000 and 510000 SHOULD be ignored */
 				}
 			} else if (!strcasecmp(key, "maxplaybackrate")) {
 				opus_prefs.maxplaybackrate = atoi(val);
 				if (!switch_opus_acceptable_rate(opus_prefs.maxplaybackrate)) {
-					opus_prefs.maxplaybackrate = OPUS_VAL_UNDEFINED; /* value not supported */
+					opus_prefs.maxplaybackrate = 0; /* value not supported */
 				}
 			} else if (!strcasecmp(key, "sprop-maxcapturerate")) {
 				opus_prefs.sprop_maxcapturerate = atoi(val);
 				if (!switch_opus_acceptable_rate(opus_prefs.sprop_maxcapturerate)) {
-					opus_prefs.sprop_maxcapturerate = OPUS_VAL_UNDEFINED; /* value not supported */
+					opus_prefs.sprop_maxcapturerate = 0; /* value not supported */
 				}
 			}
 		}
@@ -1034,7 +1029,7 @@ static switch_status_t switch_opus_keep_fec_enabled(switch_codec_t *codec)
 	opus_encoder_ctl(context->encoder_object, OPUS_GET_PACKET_LOSS_PERC(&current_loss));
 
 	if (current_loss == 0) {
-		if (opus_prefs.maxaveragebitrate != OPUS_VAL_UNDEFINED)
+		if (opus_prefs.maxaveragebitrate)
 			opus_encoder_ctl(context->encoder_object, OPUS_SET_BITRATE(opus_prefs.maxaveragebitrate));
 
 		return SWITCH_STATUS_SUCCESS;
@@ -1105,7 +1100,7 @@ static switch_status_t switch_opus_control(switch_codec_t *codec,
 			if (!zstr(command)) {
 				if (!strcasecmp(command, "jb_lookahead")) {
 					if (!zstr(arg)) {
-						context->use_jb_lookahead = opus_true(arg);
+						context->use_jb_lookahead = switch_true(arg);
 					}
 					reply = context->use_jb_lookahead ? "LOOKAHEAD ON" : "LOOKAHEAD OFF";
 				}
@@ -1136,23 +1131,21 @@ static switch_status_t switch_opus_control(switch_codec_t *codec,
 				plpct = 100;
 			}
 
-			if (opus_prefs.keep_fec == OPUS_VAL_TRUE) {
-				if (plpct != OPUS_VAL_UNDEFINED)
-					opus_encoder_ctl(context->encoder_object, OPUS_SET_PACKET_LOSS_PERC(plpct));
+			if (opus_prefs.keep_fec) {
+				opus_encoder_ctl(context->encoder_object, OPUS_SET_PACKET_LOSS_PERC(plpct));
 			} else {
 				calc = plpct % 10;
 				plpct = plpct - calc + ( calc ? 10 : 0);
 			}
 			if (plpct != context->old_plpct) {
-				if (opus_prefs.keep_fec == OPUS_VAL_TRUE) {
-					if (plpct != OPUS_VAL_UNDEFINED && plpct > 10) {
+				if (opus_prefs.keep_fec) {
+					if (plpct > 10) {
 					/* this will increase bitrate a little bit, just to keep FEC enabled */
 						switch_opus_keep_fec_enabled(codec);
 					}
 				} else {
 					/* this can have no effect because FEC is F(bitrate,packetloss), let the codec decide if FEC is to be used or not */
-					if (plpct != OPUS_VAL_UNDEFINED)
-						opus_encoder_ctl(context->encoder_object, OPUS_SET_PACKET_LOSS_PERC(plpct));
+					opus_encoder_ctl(context->encoder_object, OPUS_SET_PACKET_LOSS_PERC(plpct));
 				}
 
 				if (globals.debug || context->debug) {
@@ -1202,7 +1195,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_opus_load)
 	int rate = 48000;
 	int bits = 0;
 	char *dft_fmtp = NULL;
-	opus_codec_settings_t settings = codec_settings_undefined;
+	opus_codec_settings_t settings = { 0 };
 	switch_status_t status = SWITCH_STATUS_SUCCESS;
 
 	if ((status = opus_load_config(SWITCH_FALSE)) != SWITCH_STATUS_SUCCESS) {
@@ -1222,27 +1215,27 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_opus_load)
 
 	settings = default_codec_settings;
 
-	if (opus_prefs.fec_decode != OPUS_VAL_UNDEFINED) {
+	if (opus_prefs.fec_decode != OPUS_TRISTATE_UNDEFINED) {
 		settings.useinbandfec = opus_prefs.fec_decode;
 	}
 
-	if (opus_prefs.use_vbr != OPUS_VAL_UNDEFINED) {
+	if (opus_prefs.use_vbr != OPUS_TRISTATE_UNDEFINED) {
 		settings.cbr = !opus_prefs.use_vbr;
 	}
 
-	if (opus_prefs.use_dtx != OPUS_VAL_UNDEFINED) {
+	if (opus_prefs.use_dtx != OPUS_TRISTATE_UNDEFINED) {
 		settings.usedtx = opus_prefs.use_dtx;
 	}
 
-	if (opus_prefs.maxaveragebitrate != OPUS_VAL_UNDEFINED) {
+	if (opus_prefs.maxaveragebitrate != OPUS_TRISTATE_UNDEFINED) {
 		settings.maxaveragebitrate = opus_prefs.maxaveragebitrate;
 	}
 
-	if (opus_prefs.maxplaybackrate != OPUS_VAL_UNDEFINED) {
+	if (opus_prefs.maxplaybackrate != OPUS_TRISTATE_UNDEFINED) {
 		settings.maxplaybackrate = opus_prefs.maxplaybackrate;
 	}
 
-	if (opus_prefs.sprop_maxcapturerate != OPUS_VAL_UNDEFINED) {
+	if (opus_prefs.sprop_maxcapturerate != OPUS_TRISTATE_UNDEFINED) {
 		settings.sprop_maxcapturerate = opus_prefs.sprop_maxcapturerate;
 	}
 
@@ -1307,25 +1300,25 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_opus_load)
 
 	settings = default_codec_settings_8k;
 
-	if (opus_prefs.fec_decode != OPUS_VAL_UNDEFINED) {
+	if (opus_prefs.fec_decode != OPUS_TRISTATE_UNDEFINED) {
 		settings.useinbandfec = opus_prefs.fec_decode;
 	}
 
-	if (opus_prefs.use_vbr != OPUS_VAL_UNDEFINED) {
+	if (opus_prefs.use_vbr != OPUS_TRISTATE_UNDEFINED) {
 		settings.cbr = !opus_prefs.use_vbr;
 	}
 
-	if (opus_prefs.use_dtx != OPUS_PREFS_UNDEFINED) {
+	if (opus_prefs.use_dtx != OPUS_TRISTATE_UNDEFINED) {
 		settings.usedtx = opus_prefs.use_dtx;
 	}
 
-	if (opus_prefs.maxaveragebitrate != OPUS_PREFS_UNDEFINED) {
+	if (opus_prefs.maxaveragebitrate) {
 		settings.maxaveragebitrate = opus_prefs.maxaveragebitrate;
 	}
-	if (opus_prefs.maxplaybackrate != OPUS_PREFS_UNDEFINED) {
+	if (opus_prefs.maxplaybackrate) {
 		settings.maxplaybackrate = opus_prefs.maxplaybackrate;
 	}
-	if (opus_prefs.sprop_maxcapturerate != OPUS_PREFS_UNDEFINED) {
+	if (opus_prefs.sprop_maxcapturerate) {
 		settings.sprop_maxcapturerate = opus_prefs.sprop_maxcapturerate;
 	}
 
@@ -1445,3 +1438,4 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_opus_load)
  * For VIM:
  * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */
+
