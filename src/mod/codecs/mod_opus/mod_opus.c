@@ -507,12 +507,16 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 	if (opus_prefs.maxaveragebitrate != OPUS_VAL_UNDEFINED &&
 		 (opus_prefs.maxaveragebitrate < opus_codec_settings_remote.maxaveragebitrate || !opus_codec_settings_remote.maxaveragebitrate)) {
 		opus_codec_settings.maxaveragebitrate = opus_prefs.maxaveragebitrate;
-	} 
+	} else {
+		opus_codec_settings.maxaveragebitrate = opus_codec_settings_remote.maxaveragebitrate;
+	}
 
 	if (opus_prefs.maxplaybackrate != OPUS_VAL_UNDEFINED &&
 		 (opus_prefs.maxplaybackrate < opus_codec_settings_remote.maxplaybackrate || !opus_codec_settings_remote.maxplaybackrate)) {
 		opus_codec_settings.maxplaybackrate = opus_prefs.maxplaybackrate;
-	} 
+	} else {
+		opus_codec_settings.maxplaybackrate = opus_codec_settings_remote.maxplaybackrate;
+	}
 
 	if (opus_prefs.sprop_maxcapturerate != OPUS_VAL_UNDEFINED &&
 		 (opus_prefs.sprop_maxcapturerate < opus_codec_settings_remote.sprop_maxcapturerate || !opus_codec_settings_remote.sprop_maxcapturerate)) {
