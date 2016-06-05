@@ -63,8 +63,6 @@ struct opus_codec_settings {
 };
 typedef struct opus_codec_settings opus_codec_settings_t;
 
-#define opus_switch_true(arg) (switch_true(arg) ? OPUS_TRISTATE_YES : OPUS_TRISTATE_NO)
-
 static opus_codec_settings_t default_codec_settings = {
 	/*.useinbandfec */ OPUS_TRISTATE_YES,
 	/*.usedtx */ OPUS_TRISTATE_YES,
@@ -126,7 +124,7 @@ struct {
 	int plpct;
 	int asymmetric_samplerates;
 	int keep_fec;
-	int fec_decode;
+	opus_tristate_t fec_decode;
 	int debuginfo;
 	uint32_t use_jb_lookahead;
 	switch_mutex_t *mutex;
@@ -297,7 +295,7 @@ static char *gen_fmtp(opus_codec_settings_t *settings, switch_memory_pool_t *poo
 
 	if (settings->useinbandfec == OPUS_TRISTATE_YES) {
 		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "useinbandfec=1; ");
-	} else if (settings->useinbandfec == OPUS_TRISTATE_YES) {
+	} else if (settings->useinbandfec == OPUS_TRISTATE_NO) {
 		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "useinbandfec=0; ");
 	}
 
@@ -309,7 +307,7 @@ static char *gen_fmtp(opus_codec_settings_t *settings, switch_memory_pool_t *poo
 
 	if (settings->cbr == OPUS_TRISTATE_YES) {
 		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "cbr=1; ");
-	} else 	if (settings->cbr == OPUS_TRISTATE_YES) {
+	} else 	if (settings->cbr == OPUS_TRISTATE_NO) {
 		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "cbr=0; ");
 	}
 
@@ -317,7 +315,7 @@ static char *gen_fmtp(opus_codec_settings_t *settings, switch_memory_pool_t *poo
 		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "maxaveragebitrate=%d; ", settings->maxaveragebitrate);
 	}
 
-	if (settings->maxplaybackrate != OPUS_TRISTATE_UNDEFINED) {
+	if (settings->maxplaybackrate) {
 		snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "maxplaybackrate=%d; ", settings->maxplaybackrate);
 	}
 
@@ -504,20 +502,22 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 	if (opus_prefs.maxaveragebitrate &&
 		 (opus_prefs.maxaveragebitrate < opus_codec_settings_remote.maxaveragebitrate || !opus_codec_settings_remote.maxaveragebitrate)) {
 		opus_codec_settings.maxaveragebitrate = opus_prefs.maxaveragebitrate;
-	} else {
+	} else if (opus_codec_settings_remote.maxaveragebitrate) {
 		opus_codec_settings.maxaveragebitrate = opus_codec_settings_remote.maxaveragebitrate;
 	}
 
 	if (opus_prefs.maxplaybackrate &&
 		 (opus_prefs.maxplaybackrate < opus_codec_settings_remote.maxplaybackrate || !opus_codec_settings_remote.maxplaybackrate)) {
 		opus_codec_settings.maxplaybackrate = opus_prefs.maxplaybackrate;
-	} else {
+	} else if (opus_codec_settings_remote.maxplaybackrate) {
 		opus_codec_settings.maxplaybackrate = opus_codec_settings_remote.maxplaybackrate;
 	}
 
 	if (opus_prefs.sprop_maxcapturerate &&
 		 (opus_prefs.sprop_maxcapturerate < opus_codec_settings_remote.sprop_maxcapturerate || !opus_codec_settings_remote.sprop_maxcapturerate)) {
 		opus_codec_settings.sprop_maxcapturerate = opus_prefs.sprop_maxcapturerate;
+	} else if (opus_codec_settings_remote.sprop_maxcapturerate) {
+		opus_codec_settings.sprop_maxcapturerate = opus_codec_settings_remote.sprop_maxcapturerate;
 	}
 
 	if (opus_prefs.fec_decode != OPUS_TRISTATE_UNDEFINED) {
@@ -532,7 +532,7 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 		opus_codec_settings.usedtx = opus_prefs.use_dtx;
 	}
 
- 	codec->fmtp_out = gen_fmtp(&opus_codec_settings, codec->memory_pool);
+	codec->fmtp_out = gen_fmtp(&opus_codec_settings, codec->memory_pool);
 
 	if (encoding) {
 		/* come up with a way to specify these */
@@ -606,7 +606,7 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 			/* FEC on the encoder: start the call with a preconfigured packet loss percentage */
 			int fec_bitrate = opus_codec_settings.maxaveragebitrate;
 			int loss_percent = opus_prefs.plpct ; 
-			opus_encoder_ctl(context->encoder_object, OPUS_SET_INBAND_FEC(opus_codec_settings.useinbandfec));
+			opus_encoder_ctl(context->encoder_object, OPUS_SET_INBAND_FEC(TRUE));
 			opus_encoder_ctl(context->encoder_object, OPUS_SET_PACKET_LOSS_PERC(loss_percent));
 			if (opus_prefs.keep_fec == OPUS_TRISTATE_YES){  
 				fec_bitrate = switch_opus_get_fec_bitrate(enc_samplerate,loss_percent); 
@@ -965,7 +965,7 @@ static switch_status_t opus_load_config(switch_bool_t reload)
 	opus_prefs.use_dtx = OPUS_TRISTATE_UNDEFINED;
 	opus_prefs.plpct = 20;
 	opus_prefs.use_vbr = OPUS_TRISTATE_UNDEFINED;
-	opus_prefs.fec_decode = 1;
+	opus_prefs.fec_decode = OPUS_TRISTATE_UNDEFINED;
 
 	if ((settings = switch_xml_child(cfg, "settings"))) {
 		for (param = switch_xml_child(settings, "param"); param; param = param->next) {
@@ -973,9 +973,9 @@ static switch_status_t opus_load_config(switch_bool_t reload)
 			char *val = (char *) switch_xml_attr_soft(param, "value");
 
 			if (!strcasecmp(key, "use-vbr") && !zstr(val)) {
-				opus_prefs.use_vbr = atoi(val)?OPUS_TRISTATE_YES:OPUS_TRISTATE_NO;
+				opus_prefs.use_vbr = bool2tristate(atoi(val));
 			} else if (!strcasecmp(key, "use-dtx")) {
-				opus_prefs.use_dtx = atoi(val)?OPUS_TRISTATE_YES:OPUS_TRISTATE_NO;
+				opus_prefs.use_dtx = bool2tristate(atoi(val));
 			} else if (!strcasecmp(key, "complexity")) {
 				opus_prefs.complexity = atoi(val);
 			} else if (!strcasecmp(key, "packet-loss-percent")) {
@@ -987,7 +987,7 @@ static switch_status_t opus_load_config(switch_bool_t reload)
 			} else if (!strcasecmp(key, "keep-fec-enabled")) { /* encoder */
 				opus_prefs.keep_fec = atoi(val);
 			} else if (!strcasecmp(key, "advertise-useinbandfec")) { /*decoder, has meaning only for FMTP: useinbandfec=1 by default */
-				opus_prefs.fec_decode = atoi(val);
+				opus_prefs.fec_decode = bool2tristate(atoi(val));
 			} else if (!strcasecmp(key, "maxaveragebitrate")) {
 				opus_prefs.maxaveragebitrate = atoi(val);
 				if (opus_prefs.maxaveragebitrate < 6000 || opus_prefs.maxaveragebitrate > 510000) {
@@ -1227,15 +1227,15 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_opus_load)
 		settings.usedtx = opus_prefs.use_dtx;
 	}
 
-	if (opus_prefs.maxaveragebitrate != OPUS_TRISTATE_UNDEFINED) {
+	if (opus_prefs.maxaveragebitrate) {
 		settings.maxaveragebitrate = opus_prefs.maxaveragebitrate;
 	}
 
-	if (opus_prefs.maxplaybackrate != OPUS_TRISTATE_UNDEFINED) {
+	if (opus_prefs.maxplaybackrate) {
 		settings.maxplaybackrate = opus_prefs.maxplaybackrate;
 	}
 
-	if (opus_prefs.sprop_maxcapturerate != OPUS_TRISTATE_UNDEFINED) {
+	if (opus_prefs.sprop_maxcapturerate) {
 		settings.sprop_maxcapturerate = opus_prefs.sprop_maxcapturerate;
 	}
 
@@ -1315,9 +1315,11 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_opus_load)
 	if (opus_prefs.maxaveragebitrate) {
 		settings.maxaveragebitrate = opus_prefs.maxaveragebitrate;
 	}
+
 	if (opus_prefs.maxplaybackrate) {
 		settings.maxplaybackrate = opus_prefs.maxplaybackrate;
 	}
+
 	if (opus_prefs.sprop_maxcapturerate) {
 		settings.sprop_maxcapturerate = opus_prefs.sprop_maxcapturerate;
 	}
