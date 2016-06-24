@@ -299,6 +299,9 @@ static int get_channels(const char *name, int dft)
 	if (!zstr(name) && !switch_true(switch_core_get_variable("NDLB_broken_opus_sdp")) && !strcasecmp(name, "opus")) {
 		return 2; /* IKR???*/
 	}
+	if(!zstr(name) && !strcasecmp(name,"mpa")) {
+		return 1;
+	}
 
 	return dft ? dft : 1;
 }
@@ -4543,6 +4546,9 @@ SWITCH_DECLARE(uint8_t) switch_core_media_negotiate_sdp(switch_core_session_t *s
 						} else {
 							pmap->channels = 1;
 						}
+					} else if (!strcasecmp((char *) mmap->rm_encoding, "mpa")) {
+						pmap->channels = 2;
+						pmap->adv_channels = 1;
 					} else {
 						pmap->adv_channels = pmap->channels;
 					}

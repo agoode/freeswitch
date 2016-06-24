@@ -2044,6 +2044,8 @@ SWITCH_DECLARE(uint32_t) switch_default_rate(const char *name, uint32_t number)
 		return 90000;
 	} else if (!strncasecmp(name, "vp", 2)) {  // vp8, vp9
 		return 90000;
+	} else if (!strcasecmp(name, "mpa")) {  // mpa
+		return 90000;
 	}
 
 	return 8000;
