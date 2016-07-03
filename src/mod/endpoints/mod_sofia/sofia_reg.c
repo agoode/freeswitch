@@ -1665,7 +1665,7 @@ uint8_t sofia_reg_handle_register_token(nua_t *nua, sofia_profile_t *profile, nu
 											contact->m_url->url_user, url_ip,
 											network_port, received_data);
 						}
-						if (switch_stristr(v_contact_str, "transport=tls")) {
+						if (switch_stristr("NDLB-tls", v_contact_str)) {
 							reg_desc = "Registered(TLSHACK)";
 						} else {
 							reg_desc = "Registered(AUTO-NAT)";
