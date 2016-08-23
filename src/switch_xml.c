@@ -1229,6 +1229,56 @@ static char *expand_vars(char *buf, char *ebuf, switch_size_t elen, switch_size_
 	return ebuf;
 }
 
+static char *expand_filename(const char *filename, char *buf, char *ebuf, switch_size_t elen, switch_size_t *newlen, const char **err)
+{
+	switch_regex_t *re = NULL;
+	int proceed = 0, ovector[30];
+	char replace[1024] = "";
+	char *var, *val;
+	char *rp = buf;
+	char *wp = ebuf;
+	char *ep = ebuf + elen - 1;
+
+	if (!(var = strstr(rp, "$#{"))) {
+		*newlen = strlen(buf);
+		return buf;
+	}
+
+	while (*rp && wp < ep) {
+
+		if (*rp == '$' && *(rp + 1) == '#' && *(rp + 2) == '{') {
+			char *e = switch_find_end_paren(rp + 2, '{', '}');
+
+			if (e) {
+				rp += 3;
+				var = rp;
+				*e++ = '\0';
+				rp = e;
+				if ((proceed = switch_regex_perform(filename, var, &re, ovector, sizeof(ovector) / sizeof(ovector[0])))) {
+					char *p = NULL;
+					switch_regex_copy_substring(filename, ovector, proceed, 1, replace, sizeof(replace));
+					val = replace;
+					for (p = val; p && *p && wp <= ep; p++) {
+						*wp++ = *p;
+					}
+				} else {
+					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Expand $#{} file Parsing Regex failed : Regex (%s) Search(%s)\n", var, filename);
+				}
+				switch_regex_safe_free(re);
+				continue;
+			} else if (err) {
+				*err = "unterminated $#{var}";
+			}
+		}
+
+		*wp++ = *rp++;
+	}
+	*wp++ = '\0';
+	*newlen = strlen(ebuf);
+
+	return ebuf;
+}
+
 static FILE *preprocess_exec(const char *cwd, const char *command, FILE *write_fd, int rlevel)
 {
 #ifdef WIN32
@@ -1340,9 +1390,13 @@ static int preprocess(const char *cwd, const char *file, FILE *write_fd, int rle
 {
 	FILE *read_fd = NULL;
 	switch_size_t cur = 0, ml = 0;
-	char *q, *cmd, *buf = NULL, *ebuf = NULL;
+	char *q, *cmd, *buf = NULL, *ebuf = NULL, *ebuf2 = NULL;
 	char *tcmd, *targ;
 	int line = 0;
+	char *val = NULL;
+	switch_regex_t *re = NULL;
+	int proceed = 0, ovector[30];
+	char *pattern = NULL;
 	switch_size_t len = 0, eblen = 0;
 
 	if (rlevel > 100) {
@@ -1355,31 +1409,85 @@ static int preprocess(const char *cwd, const char *file, FILE *write_fd, int rle
 		return -1;
 	}
 
+	/* parse the filename and attempt to extract the filename, path and extension */
+	pattern = switch_mprintf("^(.*)%s([^.]*).([^%s]*)$", SWITCH_PATH_SEPARATOR[0]=='\\'?"\\\\":SWITCH_PATH_SEPARATOR, SWITCH_PATH_SEPARATOR[0]=='\\'?"\\\\":SWITCH_PATH_SEPARATOR);
+
+	if ((proceed = switch_regex_perform(file, pattern, &re, ovector, sizeof(ovector) / sizeof(ovector[0])))) {
+		char replace[1024] = "";
+
+		if (proceed == 4) {
+			switch_core_set_variable("f_fullpath", file);
+			switch_regex_copy_substring(file, ovector, proceed, 1, replace, sizeof(replace));
+			switch_core_set_variable("f_path", replace);
+			switch_regex_copy_substring(file, ovector, proceed, 2, replace, sizeof(replace));
+			switch_core_set_variable("f_name", replace);
+			switch_regex_copy_substring(file, ovector, proceed, 3, replace, sizeof(replace));
+			switch_core_set_variable("f_ext", replace);
+			
+		}
+			
+	} else {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Auto File Parsing Regex failed : Regex (%s) Search(%s)\n", pattern, file);
+	}
+	switch_regex_safe_free(re);
+	switch_safe_free(pattern);
+
+	/* use core variable as a pattern to parse the full filename and populate core variable */
+	if ((val = switch_core_get_variable("regex_fullpath"))) {
+		if ((proceed = switch_regex_perform(file, val, &re, ovector, sizeof(ovector) / sizeof(ovector[0])))) {
+			char replace[1024] = "";
+			int at;
+			for (at = 0; at < proceed; at++) {
+				char *name = NULL;
+
+				switch_regex_copy_substring(file, ovector, proceed, at, replace, sizeof(replace));
+				name = switch_mprintf("regex_fullpath_result_%d", at);
+				switch_core_set_variable(name, replace);
+				switch_safe_free(name);
+			}
+			
+		} else {
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Core Var File Parsing Regex failed : Regex (%s) Search(%s)\n", val, file);
+		}
+		switch_regex_safe_free(re);
+	}
+
 	setvbuf(read_fd, (char *) NULL, _IOFBF, 65536);
 
 	for(;;) {
 		char *arg, *e;
 		const char *err = NULL;
-		char *bp;
-
+		char *bp = NULL;
+		char *bp2 = NULL;
 		switch_safe_free(ebuf);
+		switch_safe_free(ebuf2);
 
 		if ((cur = switch_fp_read_dline(read_fd, &buf, &len)) <= 0) {
 			break;
 		}
 
 		eblen = len * 2;
-		ebuf = switch_must_malloc(eblen);
-		memset(ebuf, 0, eblen);
+		ebuf2 = malloc(eblen);
+		memset(ebuf2, 0, eblen);
 
-		while (!(bp = expand_vars(buf, ebuf, eblen, &cur, &err))) {
+		while (!(bp2 = expand_vars(buf, ebuf2, eblen, &cur, &err))) {
 			eblen *= 2;
-			ebuf = switch_must_realloc(ebuf, eblen);
-			memset(ebuf, 0, eblen);
+
+			ebuf = realloc(ebuf2, eblen);
+			memset(ebuf2, 0, eblen);
 		}
+
+                ebuf = malloc(eblen);
+                memset(ebuf, 0, eblen);
 
 		line++;
 
+		if (err) {
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Error [%s] in file %s line %d\n", err, file, line);
+		}
+
+		err = NULL;
+		bp = expand_filename(file, bp2, ebuf, eblen, &cur, &err);
 		if (err) {
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Error [%s] in file %s line %d\n", err, file, line);
 		}
@@ -1547,6 +1655,7 @@ static int preprocess(const char *cwd, const char *file, FILE *write_fd, int rle
 
 	switch_safe_free(buf);
 	switch_safe_free(ebuf);
+	switch_safe_free(ebuf2);
 
 	fclose(read_fd);
 
