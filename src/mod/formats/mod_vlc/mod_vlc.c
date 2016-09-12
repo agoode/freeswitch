@@ -481,7 +481,7 @@ unsigned video_format_setup_callback(void **opaque, char *chroma, unsigned *widt
 					  chroma, *width, *height, *pitches, *lines);
 
 	/* You have to use YUYV here or it will crash */
-	switch_set_string(chroma, "YUYV");
+	strcpy(chroma, "YUYV");
 
 	if (context->force_width && context->force_height) { /* resize */
 		*width = context->force_width;
