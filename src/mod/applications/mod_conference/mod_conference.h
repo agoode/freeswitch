@@ -623,6 +623,8 @@ typedef struct conference_obj {
 	int pin_retries;
 	int broadcast_chat_messages;
 	int comfort_noise_level;
+	switch_bool_t suppress_ob_silence;
+	uint32_t comfort_noise_ka_interval;
 	int auto_recording;
 	int record_count;
 	uint32_t min_recording_participants;
@@ -755,6 +757,7 @@ struct conference_member {
 	cJSON *json;
 	cJSON *status_field;
 	uint8_t loop_loop;
+	uint32_t comfort_noise_ka_pkt_cnt;
 	al_handle_t *al;
 	int last_speech_channels;
 	int video_layer_id;
