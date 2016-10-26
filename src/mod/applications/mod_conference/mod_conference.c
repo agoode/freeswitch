@@ -659,19 +659,21 @@ void *SWITCH_THREAD_FUNC conference_thread_run(switch_thread_t *thread, void *ob
 					uint32_t interval;
 
 					if (omember->conference->comfort_noise_ka_interval && omember->comfort_noise_ka_pkt_cnt-- == 0) {
-						switch_core_session_get_read_impl(omember->session, &read_impl);
-						interval = read_impl.microseconds_per_packet / 1000;
+						if (omember->session) {
+							switch_core_session_get_read_impl(omember->session, &read_impl);
+							interval = read_impl.microseconds_per_packet / 1000;
 
-						switch_mutex_lock(omember->audio_out_mutex);
-						ok = switch_buffer_write(omember->mux_buffer, write_frame, bytes);
-						switch_mutex_unlock(omember->audio_out_mutex);
+							switch_mutex_lock(omember->audio_out_mutex);
+							ok = switch_buffer_write(omember->mux_buffer, write_frame, bytes);
+							switch_mutex_unlock(omember->audio_out_mutex);
 
-						if (!ok) {
-							switch_mutex_unlock(conference->mutex);
-							goto end;
+							if (!ok) {
+								switch_mutex_unlock(conference->mutex);
+								goto end;
+							}
+
+							omember->comfort_noise_ka_pkt_cnt = omember->conference->comfort_noise_ka_interval/interval;
 						}
-
-						omember->comfort_noise_ka_pkt_cnt = omember->conference->comfort_noise_ka_interval/interval;
 					}
 				}
 			}
