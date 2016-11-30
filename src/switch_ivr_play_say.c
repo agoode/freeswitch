@@ -220,7 +220,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_phrase_macro_event(switch_core_sessio
 				char *odata = NULL;
 				char *expanded = NULL;
 
-				if (strchr(pattern, '(') && strchr(adata, '$') && proceed > 0) {
+				if (pattern && strchr(pattern, '(') && strchr(adata, '$') && proceed > 0) {
 					len = (uint32_t) (strlen(data) + strlen(adata) + 10) * proceed;
 					if (!(substituted = malloc(len))) {
 						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Memory Error!\n");
@@ -314,14 +314,14 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_phrase_macro_event(switch_core_sessio
 				switch_safe_free(substituted);
 				if (done || status != SWITCH_STATUS_SUCCESS) break;
 			}
-		}
 
-		switch_regex_safe_free(re);
-		switch_safe_free(field_expanded_alloc);
+			switch_regex_safe_free(re);
+			switch_safe_free(field_expanded_alloc);
 
-		if (done || status != SWITCH_STATUS_SUCCESS
-			|| (match && do_break && switch_true(do_break))) {
-			break;
+			if (done || status != SWITCH_STATUS_SUCCESS
+					|| (match && do_break && switch_true(do_break))) {
+				break;
+			}
 		}
 
 		input = input->next;
