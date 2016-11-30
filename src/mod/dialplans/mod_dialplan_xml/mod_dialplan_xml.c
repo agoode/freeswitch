@@ -171,9 +171,12 @@ static int parse_exten(switch_core_session_t *session, switch_caller_profile_t *
 		char *regex_rule = NULL;
 		const char *field_data = NULL;
 		int ovector[30];
+		switch_bool_t condition_result = SWITCH_FALSE;
+		switch_bool_t match_condition = SWITCH_TRUE;
 		switch_bool_t anti_action = SWITCH_TRUE;
 		break_t do_break_i = BREAK_ON_FALSE;
 		int time_match;
+		const char *eq = switch_xml_attr(xcond, "eq");
 
 		check_tz();
 		time_match = switch_xml_std_datetime_check(xcond, tzoff ? &offset : NULL, tzname_);
@@ -197,7 +200,11 @@ static int parse_exten(switch_core_session_t *session, switch_caller_profile_t *
 				do_break_a = NULL;
 			}
 		}
-		
+
+		if (eq && !strcasecmp(eq, "false")) {
+			match_condition = SWITCH_FALSE;
+		}
+
 		if (time_match == 1) {
 			if ( switch_core_test_flag(SCF_DIALPLAN_TIMESTAMPS) ) {
 				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,
@@ -208,8 +215,7 @@ static int parse_exten(switch_core_session_t *session, switch_caller_profile_t *
 							  "%sDialplan: %s Date/Time Match (PASS) [%s] break=%s\n", space,
 							  switch_channel_get_name(channel), exten_name, do_break_a ? do_break_a : "on-false");
 			}
-			anti_action = SWITCH_FALSE;
-			proceed = 1;
+			condition_result = SWITCH_TRUE;
 		} else if (time_match == 0) {
 			if ( switch_core_test_flag(SCF_DIALPLAN_TIMESTAMPS) ) {
 				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,
@@ -248,6 +254,7 @@ static int parse_exten(switch_core_session_t *session, switch_caller_profile_t *
 									  "%sDialplan: %s Date/Time Match (PASS) [%s]\n", space,
 									  switch_channel_get_name(channel), exten_name);
 					}
+					condition_result = SWITCH_TRUE;
 				} else if (regex_time_match == 0) {
 					if ( switch_core_test_flag(SCF_DIALPLAN_TIMESTAMPS) ) {
 						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,
@@ -366,11 +373,11 @@ static int parse_exten(switch_core_session_t *session, switch_caller_profile_t *
 
 			if (xor) {
 				if (pass == 1) {
-					anti_action = SWITCH_FALSE;
+					condition_result = SWITCH_TRUE;
 				}
 			} else {
 				if ((all && !fail) || (!all && pass)) {
-					anti_action = SWITCH_FALSE; 
+					condition_result = SWITCH_TRUE;
 				}
 			}
 
@@ -414,7 +421,7 @@ static int parse_exten(switch_core_session_t *session, switch_caller_profile_t *
 									  "%sDialplan: %s Regex (PASS) [%s] %s(%s) =~ /%s/ break=%s\n", space,
 									  switch_channel_get_name(channel), exten_name, field, field_data, expression, do_break_a ? do_break_a : "on-false");
 					}
-					anti_action = SWITCH_FALSE;
+					condition_result = SWITCH_TRUE;
 				} else {
 					if ( switch_core_test_flag(SCF_DIALPLAN_TIMESTAMPS) ) {
 						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,
@@ -436,10 +443,19 @@ static int parse_exten(switch_core_session_t *session, switch_caller_profile_t *
 								  "%sDialplan: %s Absolute Condition [%s]\n", space,
 								  switch_channel_get_name(channel), exten_name);
 				}
-				anti_action = SWITCH_FALSE;
-				proceed = 1;
+				condition_result = SWITCH_TRUE;
 			}
 
+		}
+
+		if (match_condition == condition_result) {
+			anti_action = SWITCH_FALSE;
+		}
+
+		if (match_condition == SWITCH_FALSE) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG_CLEAN(session), SWITCH_LOG_DEBUG,
+					"Dialplan: %s Pass condition if condition result %s is equal to %s.\n",
+					switch_channel_get_name(channel), condition_result?"true":"false", match_condition?"true":"false");
 		}
 
 		if (save_re) {
