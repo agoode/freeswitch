@@ -1739,6 +1739,12 @@ SWITCH_DECLARE(switch_status_t) switch_sql_queue_manager_push(switch_sql_queue_m
 	switch_status_t status;
 	int x = 0;
 
+	if (!qm) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG1, "No query manager!! [%s]\n", sql);
+		if (!dup) free((char *)sql);
+		return SWITCH_STATUS_FALSE;
+	}
+
 	if (sql_manager.paused || qm->thread_running != 1) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG1, "DROP [%s]\n", sql);
 		if (!dup) free((char *)sql);
@@ -1777,6 +1783,11 @@ SWITCH_DECLARE(switch_status_t) switch_sql_queue_manager_push(switch_sql_queue_m
 
 SWITCH_DECLARE(switch_status_t) switch_sql_queue_manager_push_confirm(switch_sql_queue_manager_t *qm, const char *sql, uint32_t pos, switch_bool_t dup)
 {
+	if (!qm) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG1, "No query manager!! [%s]\n", sql);
+		if (!dup) free((char *)sql);
+		return SWITCH_STATUS_FALSE;
+	} else {
 #define EXEC_NOW
 #ifdef EXEC_NOW
 	switch_cache_db_handle_t *dbh;
