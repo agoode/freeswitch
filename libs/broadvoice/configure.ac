@@ -22,9 +22,13 @@
 
 AC_INIT([broadvoice],[0.1.0])
 
-CFLAGS="$CFLAGS $CONFIGURE_CFLAGS"
-CXXFLAGS="$CXXFLAGS $CONFIGURE_CXXFLAGS"
-LDFLAGS="$LDFLAGS $CONFIGURE_LDFLAGS"
+case $host in
+   *-darwin*)
+        CFLAGS="$CFLAGS $CONFIGURE_CFLAGS"
+        CXXFLAGS="$CXXFLAGS $CONFIGURE_CXXFLAGS"
+        LDFLAGS="$LDFLAGS $CONFIGURE_LDFLAGS"
+       ;;
+esac
 
 m4_include(config/ax_compiler_vendor.m4)
 m4_include(config/ax_check_real_file.m4)

@@ -20,9 +20,13 @@ sinclude(build/apr_hints.m4)
 sinclude(build/libtool.m4)
 sinclude(build/ltsugar.m4)
 
-CFLAGS="$CFLAGS $CONFIGURE_CFLAGS"
-CXXFLAGS="$CXXFLAGS $CONFIGURE_CXXFLAGS"
-LDFLAGS="$LDFLAGS $CONFIGURE_LDFLAGS"
+case $host in
+   *-darwin*)
+        CFLAGS="$CFLAGS $CONFIGURE_CFLAGS"
+        CXXFLAGS="$CXXFLAGS $CONFIGURE_CXXFLAGS"
+        LDFLAGS="$LDFLAGS $CONFIGURE_LDFLAGS"
+       ;;
+esac
 
 dnl Hard-coded inclusion at the tail end of apr_private.h:
 AH_BOTTOM([

@@ -32,9 +32,13 @@ AC_LANG(C)
 AC_PROG_LIBTOOL
 m4_include(m4/acinclude.m4)
 
-CFLAGS="$CFLAGS $CONFIGURE_CFLAGS"
-CXXFLAGS="$CXXFLAGS $CONFIGURE_CXXFLAGS"
-LDFLAGS="$LDFLAGS $CONFIGURE_LDFLAGS"
+case $host in
+   *-darwin*)
+        CFLAGS="$CFLAGS $CONFIGURE_CFLAGS"
+        CXXFLAGS="$CXXFLAGS $CONFIGURE_CXXFLAGS"
+        LDFLAGS="$LDFLAGS $CONFIGURE_LDFLAGS"
+       ;;
+esac
 
 dnl Compute the canonical host (run-time) system type variable
 AC_CANONICAL_HOST

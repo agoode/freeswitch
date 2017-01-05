@@ -20,9 +20,13 @@ dnl Generate ./config.nice for reproducing runs of configure
 dnl 
 APR_CONFIG_NICE(config.nice)
 
-CFLAGS="$CFLAGS $CONFIGURE_CFLAGS"
-CXXFLAGS="$CXXFLAGS $CONFIGURE_CXXFLAGS"
-LDFLAGS="$LDFLAGS $CONFIGURE_LDFLAGS"
+case $host in
+   *-darwin*)
+        CFLAGS="$CFLAGS $CONFIGURE_CFLAGS"
+        CXXFLAGS="$CXXFLAGS $CONFIGURE_CXXFLAGS"
+        LDFLAGS="$LDFLAGS $CONFIGURE_LDFLAGS"
+       ;;
+esac
 
 dnl # Some initial steps for configuration.  We setup the default directory
 dnl # and which files are to be configured.

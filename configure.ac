@@ -1991,7 +1991,13 @@ AC_SUBST(OUR_DISABLED_INSTALL_MODS)
 AC_SUBST(OUR_DISABLED_UNINSTALL_MODS)
 AC_SUBST(AM_MAKEFLAGS)
 
-ac_configure_args="$ac_configure_args --with-modinstdir=${modulesdir} CONFIGURE_CFLAGS='$CFLAGS $CPPFLAGS' CONFIGURE_CXXFLAGS='$CXXFLAGS $CPPFLAGS' CONFIGURE_LDFLAGS='$LDFLAGS' "
+ac_configure_args="$ac_configure_args --with-modinstdir=${modulesdir}"
+
+case $host in
+   *-darwin*)
+        ac_configure_args="$ac_configure_args CONFIGURE_CFLAGS='$CFLAGS $CPPFLAGS' CONFIGURE_CXXFLAGS='$CXXFLAGS $CPPFLAGS' CONFIGURE_LDFLAGS='$LDFLAGS' "
+       ;;
+esac
 
 #	--prefix='$prefix' --exec_prefix='$exec_prefix' --libdir='$libdir' --libexecdir='$libexecdir' --bindir='$bindir' --sbindir='$sbindir' \
 #	--localstatedir='$localstatedir' --datadir='$datadir'"
