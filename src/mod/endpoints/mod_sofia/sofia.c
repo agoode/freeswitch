@@ -10986,20 +10986,11 @@ void sofia_handle_sip_i_invite(switch_core_session_t *session, nua_t *nua, sofia
 	profile_dup_clean(context, tech_pvt->caller_profile->context, tech_pvt->caller_profile->pool);
 	profile_dup_clean(destination_number, tech_pvt->caller_profile->destination_number, tech_pvt->caller_profile->pool);
 
-	if (!bnh && sip->sip_replaces) {
-		if (!(bnh = nua_handle_by_replaces(nua, sip->sip_replaces))) {
-			if (!(bnh = nua_handle_by_call_id(nua, sip->sip_replaces->rp_call_id))) {
-				bnh = sofia_global_nua_handle_by_replaces(sip->sip_replaces);
-			}
-		}
-	}
 
-	if (bnh) {
-		sofia_private_t *b_private = NULL;
-		if ((b_private = nua_handle_magic(bnh))) {
+	if(sip->sip_replaces && sip->sip_replaces->rp_call_id) {
 			switch_core_session_t *b_session = NULL;
-
-			if ((b_session = switch_core_session_locate(b_private->uuid))) {
+			const char *rp_call_id = sip->sip_replaces->rp_call_id;
+			if ((b_session = switch_core_session_locate(rp_call_id))) {
 				switch_channel_t *b_channel = switch_core_session_get_channel(b_session);
 				const char *bridge_uuid;
 				switch_caller_profile_t *orig_cp, *cp;
@@ -11103,7 +11094,7 @@ void sofia_handle_sip_i_invite(switch_core_session_t *session, nua_t *nua, sofia
 						}
 
 						tech_pvt->caller_profile->destination_number = switch_core_sprintf(tech_pvt->caller_profile->pool,
-																						   "answer,sofia_sla:%s", b_private->uuid);
+																						   "answer,sofia_sla:%s", rp_call_id);
 					}
 				} else {
 					char const *a_leg = NULL;
@@ -11166,10 +11157,8 @@ void sofia_handle_sip_i_invite(switch_core_session_t *session, nua_t *nua, sofia
 					}
 				}
 
-				switch_core_session_rwunlock(b_session);
-			}
+			switch_core_session_rwunlock(b_session);
 		}
-		nua_handle_unref(bnh);
 	}
 
 
