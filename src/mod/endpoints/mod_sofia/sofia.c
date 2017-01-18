@@ -10939,10 +10939,12 @@ void sofia_handle_sip_i_invite(switch_core_session_t *session, nua_t *nua, sofia
 					tech_pvt->caller_profile->caller_id_number = switch_core_strdup(tech_pvt->caller_profile->pool, tech_pvt->caller_profile->orig_caller_id_number);
 				}
 
+/*
 				if (orig_cp) {
 					cp = switch_caller_profile_dup(tech_pvt->caller_profile->pool, orig_cp);
 					switch_channel_set_originator_caller_profile(channel, cp);
 				}
+*/
 
 #if 0
 				sent_name = switch_channel_get_variable(b_channel, "last_sent_callee_id_name");
