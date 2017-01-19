@@ -7039,7 +7039,9 @@ static void mark_transfer_record(switch_core_session_t *session, const char *br_
 	switch_core_session_t *br_b_session, *br_a_session;
 	switch_channel_t *channel;
 	const char *uvar1, *dvar1, *uvar2, *dvar2;
+	const char *uuid = NULL;
 
+	uuid = switch_core_session_get_uuid(session);
 	channel = switch_core_session_get_channel(session);
 
 	if (switch_channel_direction(channel) == SWITCH_CALL_DIRECTION_INBOUND) {
@@ -7066,7 +7068,7 @@ static void mark_transfer_record(switch_core_session_t *session, const char *br_
 		cp->transfer_source = switch_core_sprintf(cp->pool,
 												  "%ld:%s:att_xfer:%s@%s/%s@%s",
 												  (long) switch_epoch_time_now(NULL),
-												  cp->uuid_str,
+												  uuid,
 												  switch_channel_get_variable(channel, uvar1),
 												  switch_channel_get_variable(channel, dvar1),
 												  switch_channel_get_variable(br_b_channel, uvar2),
@@ -7095,7 +7097,7 @@ static void mark_transfer_record(switch_core_session_t *session, const char *br_
 		cp->transfer_source = switch_core_sprintf(cp->pool,
 												  "%ld:%s:att_xfer:%s@%s/%s@%s",
 												  (long) switch_epoch_time_now(NULL),
-												  cp->uuid_str,
+												  uuid,
 												  switch_channel_get_variable(channel, uvar1),
 												  switch_channel_get_variable(channel, dvar1),
 												  switch_channel_get_variable(br_a_channel, uvar2),
@@ -7684,7 +7686,8 @@ static void sofia_handle_sip_i_state(switch_core_session_t *session, int status,
 										}
 
 										switch_channel_set_variable_printf(channel, "transfer_to", "att:%s", br_b);
-
+										switch_channel_set_variable_printf(channel, SWITCH_TRANSFEREE_UUID_VARIABLE, "%s", br_a);
+										switch_channel_set_variable_printf(channel, SWITCH_TRANSFEREE_DESTINATION_VARIABLE, "%s", br_b);
 										mark_transfer_record(session, br_a, br_b);
 										switch_ivr_uuid_bridge(br_a, br_b);
 										switch_channel_set_variable(channel, SWITCH_ENDPOINT_DISPOSITION_VARIABLE, "ATTENDED_TRANSFER");
@@ -8476,6 +8479,8 @@ void *SWITCH_THREAD_FUNC nightmare_xfer_thread_run(switch_thread_t *thread, void
 
 					tuuid_str = switch_core_session_get_uuid(tsession);
 					switch_channel_set_variable_printf(channel_a, "transfer_to", "att:%s", tuuid_str);
+					switch_channel_set_variable_printf(channel_a, SWITCH_TRANSFEREE_UUID_VARIABLE, "%s", nhelper->bridge_to_uuid);
+					switch_channel_set_variable_printf(channel_a, SWITCH_TRANSFEREE_DESTINATION_VARIABLE, "%s", tuuid_str);
 					mark_transfer_record(session, nhelper->bridge_to_uuid, tuuid_str);
 					switch_ivr_uuid_bridge(nhelper->bridge_to_uuid, tuuid_str);
 					switch_channel_set_variable(channel_a, SWITCH_ENDPOINT_DISPOSITION_VARIABLE, "ATTENDED_TRANSFER");
@@ -8793,6 +8798,8 @@ void sofia_handle_sip_i_refer(nua_t *nua, sofia_profile_t *profile, nua_handle_t
 
 
 						switch_channel_set_variable_printf(channel_b, "transfer_to", "satt:%s", br_a);
+						switch_channel_set_variable_printf(channel_b, SWITCH_TRANSFEREE_UUID_VARIABLE, "%s", switch_core_session_get_uuid(b_session));
+						switch_channel_set_variable_printf(channel_b, SWITCH_TRANSFEREE_DESTINATION_VARIABLE, "%s", br_a);
 
 						switch_channel_set_variable(channel_b, SWITCH_ENDPOINT_DISPOSITION_VARIABLE, "ATTENDED_TRANSFER");
 
@@ -8936,6 +8943,8 @@ void sofia_handle_sip_i_refer(nua_t *nua, sofia_profile_t *profile, nua_handle_t
 						}
 
 						switch_channel_set_variable_printf(channel_a, "transfer_to", "att:%s", br_b);
+						switch_channel_set_variable_printf(channel_b, SWITCH_TRANSFEREE_UUID_VARIABLE, "%s", br_a);
+						switch_channel_set_variable_printf(channel_b, SWITCH_TRANSFEREE_DESTINATION_VARIABLE, "%s", br_b);
 
 						mark_transfer_record(session, br_a, br_b);
 

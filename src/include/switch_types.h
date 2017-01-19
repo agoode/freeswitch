@@ -141,6 +141,8 @@ SWITCH_BEGIN_EXTERN_C
 #define SWITCH_PROTO_SPECIFIC_HANGUP_CAUSE_VARIABLE "proto_specific_hangup_cause"
 #define SWITCH_TRANSFER_HISTORY_VARIABLE "transfer_history"
 #define SWITCH_TRANSFER_SOURCE_VARIABLE "transfer_source"
+#define SWITCH_TRANSFEREE_UUID_VARIABLE "transferee_uuid"
+#define SWITCH_TRANSFEREE_DESTINATION_VARIABLE "transferee_destination"
 #define SWITCH_SENSITIVE_DTMF_VARIABLE "sensitive_dtmf"
 #define SWITCH_RECORD_POST_PROCESS_EXEC_APP_VARIABLE "record_post_process_exec_app"
 #define SWITCH_RECORD_POST_PROCESS_EXEC_API_VARIABLE "record_post_process_exec_api"
