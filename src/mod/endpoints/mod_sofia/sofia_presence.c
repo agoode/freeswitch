@@ -4118,6 +4118,8 @@ void sofia_presence_handle_sip_i_subscribe(int status,
 						   SIPTAG_EXPIRES_STR("0"),
 						   SIPTAG_SUBSCRIPTION_STATE_STR(sstr),
 						   SIPTAG_CSEQ(cseq),
+						   SIPTAG_FROM(sip->sip_to),
+						   SIPTAG_EVENT_STR(event), 
 						   TAG_END());
 			}
 
