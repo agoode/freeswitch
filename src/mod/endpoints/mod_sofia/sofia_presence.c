@@ -29,7 +29,7 @@
  * Bret McDanel <trixter AT 0xdecafbad.com>
  * Raymond Chandler <intralanman@freeswitch.org>
  * William King <william.king@quentustech.com>
- * Emmanuel Schmidbauer <e.schmidbauer@gmail.com>
+ * Emmanuel Schmidbauer <eschmidbauer@gmail.com>
  * David Knell <david.knell@telng.com>
  *
  * sofia_presence.c -- SOFIA SIP Endpoint (presence code)
@@ -3657,6 +3657,7 @@ void sofia_presence_handle_sip_i_subscribe(int status,
 	sip_to_t const *to;
 	const char *from_user = NULL, *from_host = NULL;
 	const char *to_user = NULL, *to_host = NULL;
+	char *dup_mwi_account = NULL;
 	char *my_to_user = NULL;
 	char *sql, *event = NULL;
 	char *proto = "sip";
@@ -3950,13 +3951,45 @@ void sofia_presence_handle_sip_i_subscribe(int status,
 		} else {
 			sip_accept_t *ap = sip->sip_accept;
 			char accept_header[256] = "";
-
 			sub_state = nua_substate_active;
 
 			while (ap) {
 				switch_snprintf(accept_header + strlen(accept_header), sizeof(accept_header) - strlen(accept_header),
 								"%s%s ", ap->ac_type, ap->ac_next ? "," : "");
 				ap = ap->ac_next;
+			}
+
+			if (!strcasecmp(event, "message-summary")) {
+				switch_xml_t x_user, x_params, x_param;
+				switch_event_t *locate_params;
+				char *mwi_user = NULL;
+				char *mwi_host = NULL;
+
+				switch_event_create(&locate_params, SWITCH_EVENT_GENERAL);
+				if (switch_xml_locate_user_merged("id:number-alias", from_user, from_host, NULL, &x_user, locate_params) == SWITCH_STATUS_SUCCESS) {
+					if ((x_params = switch_xml_child(x_user, "params"))) {
+						for (x_param = switch_xml_child(x_params, "param"); x_param; x_param = x_param->next) {
+							const char *var = switch_xml_attr_soft(x_param, "name");
+							const char *val = switch_xml_attr_soft(x_param, "value");
+							if (!strcasecmp(var, "mwi-account")) {
+									dup_mwi_account = strdup(val);
+							}
+						}
+
+						switch_xml_free(x_user);
+					}
+				}
+				switch_event_destroy(&locate_params);
+				switch_assert(dup_mwi_account != NULL);
+				switch_split_user_domain(dup_mwi_account, &mwi_user, &mwi_host);
+
+				if (mwi_user) {
+					to_user = mwi_user;
+				}
+
+				if (mwi_host) {
+					to_host = mwi_host;
+				}
 			}
 
 			sql = switch_mprintf("insert into sip_subscriptions "
@@ -4296,9 +4329,9 @@ void sofia_presence_handle_sip_i_subscribe(int status,
 								  "full_via,expires,user_agent,accept,profile_name,network_ip"
 								  " from sip_subscriptions where hostname='%q' and profile_name='%q' and "
 								  "event='message-summary' and sub_to_user='%q' "
-								  "and (sip_host='%q' or presence_hosts like '%%%q%%') and call_id='%q'",
+								  "and (sub_to_host='%q' or sip_host='%q' or presence_hosts like '%%%q%%') and call_id='%q'",
 								  to_host, mod_sofia_globals.hostname, profile->name,
-								  to_user, to_host, to_host, call_id))) {
+								  to_user, to_host, to_host, to_host, call_id))) {
 
 			if (mod_sofia_globals.debug_presence > 0) {
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR,
@@ -4419,6 +4452,10 @@ void sofia_presence_handle_sip_i_subscribe(int status,
 	}
 	if (full_agent) {
 		su_free(nh->nh_home, full_agent);
+	}
+
+	if (dup_mwi_account) {
+		switch_safe_free(dup_mwi_account);
 	}
 
 	switch_safe_free(d_user);
