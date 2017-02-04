@@ -20,7 +20,7 @@
 # Set variables
 ##############################################################################
 
-%define version	1.0.50
+%define version	1.0.51
 %define release	1
 
 %define fsname  freeswitch

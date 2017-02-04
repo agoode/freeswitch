@@ -35,8 +35,8 @@
 
 Summary:	FreeSWITCH Music on Hold soundfiles
 Name:		freeswitch-sounds-music
-Version:	1.0.50
-Release:	2%{?dist}
+Version:	1.0.51
+Release:	1%{?dist}
 License:	MPL
 Group:		Productivity/Telephony/Servers
 Packager:	Joseph L. Casale <jcasale@activenetwerx.com>
@@ -98,6 +98,18 @@ Requires:       freeswitch
 %description -n freeswitch-sounds-music-48000
 FreeSWITCH 48kHz Music On Hold soundfiles
 
+%package -n freeswitch-sounds-music-all
+Summary: FreeSWITCH Music On Hold soundfiles
+Group: Productivity/Telephony/Servers
+BuildArch: noarch
+Requires: freeswitch
+Requires: freeswitch-sounds-music-8000 = %{version}
+Requires: freeswitch-sounds-music-16000 = %{version}
+Requires: freeswitch-sounds-music-32000 = %{version}
+Requires: freeswitch-sounds-music-48000 = %{version}
+
+%description -n freeswitch-sounds-music-all
+FreeSWITCH Music On Hold package that pulls in the 8KHz, 16KHz, 32KHz and 48KHz RPMs
 
 %prep
 %setup -n music
@@ -151,6 +163,7 @@ FreeSWITCH 48kHz Music On Hold soundfiles
 %dir	%{SOUNDSDIR}/music/48000
 %{SOUNDSDIR}/music/48000/*.wav
 
+%files -n freeswitch-sounds-music-all
 
 %changelog
 * Sat Jul 16 2011 Joseph Casale <jcasale@activenetwerx.com> 1.0.8-2
