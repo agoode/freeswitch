@@ -553,6 +553,10 @@ switch_status_t conference_api_sub_unvmute(conference_member_t *member, switch_s
 	}
 
 
+    if (!member->video_mute_png){
+		switch_img_free(&member->video_mute_img);
+	}
+
 	conference_member_update_status_field(member);
 
 	return SWITCH_STATUS_SUCCESS;
