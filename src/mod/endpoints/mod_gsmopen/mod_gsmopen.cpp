@@ -66,7 +66,8 @@ const char *interface_status[] = {	/* should match GSMOPEN_STATE_xxx in gsmopen.
 	"DOUBLE",
 	"SELECTD",
 	"HANG_RQ",
-	"PREANSW"
+	"PREANSW",
+	"Disconected"
 };
 
 const char *phone_callflow[] = {	/* should match CALLFLOW_XXX in gsmopen.h */
@@ -116,17 +117,25 @@ static struct {
 	int fd;
 	int calls;
 	int real_interfaces;
+	int searching_devices;
 	int next_interface;
 	char hold_music[256];
 	private_t GSMOPEN_INTERFACES[GSMOPEN_MAX_INTERFACES];
 	switch_mutex_t *mutex;
 	private_t *gsm_console;
-} globals;
+	time_t    discovery_timestamp;
+	switch_thread_t *gsmopen_discovery_thread;      /*!< \brief  this thread runs to discover disconnected devices */
+	time_t discovery_period;   /*!< \brief default is "30" second you can set this in gsmopen.conf.xml in global settings */ 
+	
+	} globals;
 
 switch_endpoint_interface_t *gsmopen_endpoint_interface;
 switch_memory_pool_t *gsmopen_module_pool = NULL;
 int running = 0;
-
+#ifndef WIN32
+char LOCK_DIRECTORY[100];   //  to make lock files 
+int z =	sprintf( LOCK_DIRECTORY, "%s/gsmopen", SWITCH_GLOBAL_dirs.base_dir);
+#endif
 SWITCH_DECLARE_GLOBAL_STRING_FUNC(set_global_dialplan, globals.dialplan);
 SWITCH_DECLARE_GLOBAL_STRING_FUNC(set_global_context, globals.context);
 SWITCH_DECLARE_GLOBAL_STRING_FUNC(set_global_destination, globals.destination);
@@ -473,7 +482,8 @@ static switch_status_t channel_on_destroy(switch_core_session_t *session)
 		}
 
 		*tech_pvt->session_uuid_str = '\0';
-		tech_pvt->interface_state = GSMOPEN_STATE_IDLE;
+		
+			if (tech_pvt->interface_state != GSMOPEN_STATE_DISCONNECTED) tech_pvt->interface_state = GSMOPEN_STATE_IDLE;
 		if (tech_pvt->phone_callflow == CALLFLOW_STATUS_FINISHED) {
 			tech_pvt->phone_callflow = CALLFLOW_CALL_IDLE;
 		}
@@ -482,7 +492,7 @@ static switch_status_t channel_on_destroy(switch_core_session_t *session)
 	} else {
 		DEBUGA_GSMOPEN("!!!!!!NO tech_pvt!!!! CHANNEL DESTROY %s\n", GSMOPEN_P_LOG, switch_core_session_get_uuid(session));
 	}
-
+		alarm_event(tech_pvt, ALARM_INTERFACE_STATE_FREE, "STATE_FREE");
 	return SWITCH_STATUS_SUCCESS;
 }
 
@@ -525,7 +535,9 @@ static switch_status_t channel_on_hangup(switch_core_session_t *session)
 		globals.calls = 0;
 	}
 
+	if (tech_pvt->interface_state !=  GSMOPEN_STATE_DISCONNECTED){
 	tech_pvt->interface_state = GSMOPEN_STATE_IDLE;
+	}
 	tech_pvt->phone_callflow = CALLFLOW_CALL_IDLE;
 	switch_mutex_unlock(globals.mutex);
 
@@ -1014,10 +1026,16 @@ static switch_call_cause_t channel_outgoing_channel(switch_core_session_t *sessi
 				/* we've been asked for a normal interface name, or we have not found idle interfaces to serve as the "ANY" interface */
 				if (strlen(globals.GSMOPEN_INTERFACES[i].name)
 					&& (strncmp(globals.GSMOPEN_INTERFACES[i].name, interface_name, strlen(interface_name)) == 0)) {
-					if (strlen(globals.GSMOPEN_INTERFACES[i].session_uuid_str)) {
-						DEBUGA_GSMOPEN
-							("globals.GSMOPEN_INTERFACES[%d].name=|||%s||| session_uuid_str=|||%s||| is BUSY\n",
-							 GSMOPEN_P_LOG, i, globals.GSMOPEN_INTERFACES[i].name, globals.GSMOPEN_INTERFACES[i].session_uuid_str);
+					if (strlen(globals.GSMOPEN_INTERFACES[i].session_uuid_str) || globals.GSMOPEN_INTERFACES[i].interface_state == GSMOPEN_STATE_DISCONNECTED) {
+					if (globals.GSMOPEN_INTERFACES[i].interface_state == GSMOPEN_STATE_DISCONNECTED){
+					WARNINGA
+							("  Dialing   Failed  interface_id:[%d]      interface_name:[%s]     Is    NOT     CONNECTED      \n",
+							 GSMOPEN_P_LOG, i, globals.GSMOPEN_INTERFACES[i].name);						
+					}else{
+					DEBUGA_GSMOPEN
+							("globals.GSMOPEN_INTERFACES:[%d].name=[%s] session_uuid_str=|||%s||| is BUSY\n",
+							 GSMOPEN_P_LOG, i, globals.GSMOPEN_INTERFACES[i].name, globals.GSMOPEN_INTERFACES[i].session_uuid_str);						
+					}
 						DEBUGA_GSMOPEN("1 SESSION_DESTROY %s\n", GSMOPEN_P_LOG, switch_core_session_get_uuid(*new_session));
 						switch_core_session_destroy(new_session);
 						switch_mutex_unlock(globals.mutex);
@@ -1094,6 +1112,7 @@ static switch_call_cause_t channel_outgoing_channel(switch_core_session_t *sessi
 		if(result != 0){
 			return SWITCH_CAUSE_DESTINATION_OUT_OF_ORDER;
 		}
+		alarm_event(tech_pvt, ALARM_INTERFACE_STATE_UP, "STATE_UP");
 		return SWITCH_CAUSE_SUCCESS;
 	}
 
@@ -1145,11 +1164,14 @@ static switch_status_t load_config(int reload_type)
 	DEBUGA_GSMOPEN("Default globals.destination=%s\n", GSMOPEN_P_LOG, globals.destination);
 	set_global_context("default");
 	DEBUGA_GSMOPEN("Default globals.context=%s\n", GSMOPEN_P_LOG, globals.context);
+	globals.discovery_period = 30;   //  TODO:
+	DEBUGA_GSMOPEN("Default globals.discovery_period=%d\n", GSMOPEN_P_LOG, globals.discovery_period);
 
 	if ((global_settings = switch_xml_child(cfg, "global_settings"))) {
 		for (param = switch_xml_child(global_settings, "param"); param; param = param->next) {
 			char *var = (char *) switch_xml_attr_soft(param, "name");
 			char *val = (char *) switch_xml_attr_soft(param, "value");
+			const char *discovery_period = "30";	
 
 			if (!strcasecmp(var, "debug")) {
 				DEBUGA_GSMOPEN("globals.debug=%d\n", GSMOPEN_P_LOG, globals.debug);
@@ -1168,6 +1190,17 @@ static switch_status_t load_config(int reload_type)
 				set_global_context(val);
 				DEBUGA_GSMOPEN("globals.context=%s\n", GSMOPEN_P_LOG, globals.context);
 
+			}else if( !strcmp(var, "discovery_period")){
+				discovery_period = val;
+				
+					if (!switch_is_number(discovery_period)) {
+				ERRORA("global_settings  param 'discovery_period' MUST be a number, now discovery_period='%s'\n", GSMOPEN_P_LOG, discovery_period);
+				ERRORA("Leaving On default   globals.discovery_period='%d'\n", GSMOPEN_P_LOG, globals.discovery_period);
+			}else{
+				globals.discovery_period = atoi(discovery_period);
+				DEBUGA_GSMOPEN("globals.discovery_period=%d\n", GSMOPEN_P_LOG, globals.discovery_period);
+			}
+			
 			}
 
 		}
@@ -1182,8 +1215,10 @@ static switch_status_t load_config(int reload_type)
 			const char *context = globals.context;
 			const char *dialplan = globals.dialplan;
 			const char *destination = globals.destination;
-			const char *controldevice_name = "/dev/ttyUSB3";
-			const char *controldevice_audio_name = "/dev/ttyUSB2";
+//			const char *controldevice_name = "/dev/ttyUSB3";   //  i think it is not better to specify ports here
+//			const char *controldevice_audio_name = "/dev/ttyUSB2"; //    i think it is not better to specify ports here
+			const char *controldevice_name = "";
+			const char *controldevice_audio_name = "";
 			char *digit_timeout = NULL;
 			char *max_digits = NULL;
 			char *hotline = NULL;
@@ -1263,6 +1298,7 @@ static switch_status_t load_config(int reload_type)
 			const char *gsmopen_serial_sync_period = "300";	//FIXME TODO
 			const char *imei = "";	
 			const char *imsi = "";
+						
 
 			tech_pvt = NULL;
 
@@ -1358,7 +1394,7 @@ static switch_status_t load_config(int reload_type)
 					at_query_battchg = val;
 				} else if (!strcasecmp(var, "at_query_battchg_expect")) {
 					at_query_battchg_expect = val;
-				} else if (!strcasecmp(var, "at_query_signal")) {
+				}else if (!strcasecmp(var, "at_query_signal")) {
 					at_query_signal = val;
 				} else if (!strcasecmp(var, "at_query_signal_expect")) {
 					at_query_signal_expect = val;
@@ -1497,6 +1533,8 @@ static switch_status_t load_config(int reload_type)
 					   gsmopen_serial_sync_period);
 				continue;
 			}
+			
+			
 
 			if (interface_id && interface_id < GSMOPEN_MAX_INTERFACES) {
 				private_t newconf;
@@ -1578,7 +1616,6 @@ static switch_status_t load_config(int reload_type)
 				globals.GSMOPEN_INTERFACES[interface_id].playback_boost = atoi(playback_boost);
 				globals.GSMOPEN_INTERFACES[interface_id].no_sound = atoi(no_sound);
 				globals.GSMOPEN_INTERFACES[interface_id].gsmopen_serial_sync_period = atoi(gsmopen_serial_sync_period);
-
 				globals.GSMOPEN_INTERFACES[interface_id].ussd_request_encoding =
 					strcasecmp(ussd_request_encoding, "plain") == 0 ? USSD_ENCODING_PLAIN : 
 					strcasecmp(ussd_request_encoding, "hex7") == 0 ? USSD_ENCODING_HEX_7BIT : 
@@ -1594,7 +1631,7 @@ static switch_status_t load_config(int reload_type)
 				globals.GSMOPEN_INTERFACES[interface_id].controldevice_speed = controldevice_speed;	//FIXME
 				globals.GSMOPEN_INTERFACES[interface_id].controldevprotocol = controldevprotocol;	//FIXME
 				globals.GSMOPEN_INTERFACES[interface_id].running = 1;	//FIXME
-
+				globals.GSMOPEN_INTERFACES[interface_id].unload_flag = 0;  //  for discovery  thread
 
 				gsmopen_store_boost((char *) capture_boost, &globals.GSMOPEN_INTERFACES[interface_id].capture_boost);	//FIXME
 				gsmopen_store_boost((char *) playback_boost, &globals.GSMOPEN_INTERFACES[interface_id].playback_boost);	//FIXME
@@ -1621,7 +1658,8 @@ static switch_status_t load_config(int reload_type)
 
 			if (strlen(globals.GSMOPEN_INTERFACES[i].name) && !globals.GSMOPEN_INTERFACES[i].active) {
 
-				WARNINGA("STARTING interface_id=%u\n", GSMOPEN_P_LOG, interface_id);
+				WARNINGA("     STARTING interface_id=%u\n", GSMOPEN_P_LOG, interface_id);
+				globals.GSMOPEN_INTERFACES[i].initialized =1;  // mark device   initialized 
 				DEBUGA_GSMOPEN("id=%s\n", GSMOPEN_P_LOG, globals.GSMOPEN_INTERFACES[interface_id].id);
 				DEBUGA_GSMOPEN("name=%s\n", GSMOPEN_P_LOG, globals.GSMOPEN_INTERFACES[interface_id].name);
 				DEBUGA_GSMOPEN("hold-music=%s\n", GSMOPEN_P_LOG, globals.GSMOPEN_INTERFACES[interface_id].hold_music);
@@ -1640,36 +1678,29 @@ static switch_status_t load_config(int reload_type)
 					globals.GSMOPEN_INTERFACES[interface_id].controldevfd =
 						gsmopen_serial_init(&globals.GSMOPEN_INTERFACES[interface_id], globals.GSMOPEN_INTERFACES[interface_id].controldevice_speed);
 					if (globals.GSMOPEN_INTERFACES[interface_id].controldevfd == -1) {
-						ERRORA("STARTING interface_id=%u FAILED: gsmopen_serial_init failed\n", GSMOPEN_P_LOG, interface_id);
-						globals.GSMOPEN_INTERFACES[interface_id].running = 0;
-						alarm_event(&globals.GSMOPEN_INTERFACES[interface_id], ALARM_FAILED_INTERFACE, "gsmopen_serial_init failed");
-						globals.GSMOPEN_INTERFACES[interface_id].active = 0;
-						globals.GSMOPEN_INTERFACES[interface_id].name[0] = '\0';
-						continue;
+						ERRORA(" gsmopen_serial_init failed\n", GSMOPEN_P_LOG, interface_id);
+						globals.GSMOPEN_INTERFACES[interface_id].initialized =0;  // mark device  as  Not initialized  To Try again Later
+						goto handle_error;
 					}
 				}
 
-				/* config the phone/modem on the serial port */
+				/* configure  the phone/modem on the serial port */
 				if (globals.GSMOPEN_INTERFACES[interface_id].controldevprotocol != PROTOCOL_NO_SERIAL) {
 					res = gsmopen_serial_config(&globals.GSMOPEN_INTERFACES[interface_id]);
 					if (res) {
 						int count = 0;
 						ERRORA("gsmopen_serial_config failed, let's try again\n", GSMOPEN_P_LOG);
-						while (res && count < 5) {
+						while (res && count < 1) {
 							switch_sleep(100000);	//0.1 seconds
 							res = gsmopen_serial_config(&globals.GSMOPEN_INTERFACES[interface_id]);
 							count++;
 							if (res) {
-								ERRORA("%d: gsmopen_serial_config failed, let's try again\n", GSMOPEN_P_LOG, count);
+								ERRORA("%d: gsmopen_serial_config   failed \n", GSMOPEN_P_LOG, count);
 							}
 						}
 						if (res) {
-							ERRORA("STARTING interface_id=%u FAILED\n", GSMOPEN_P_LOG, interface_id);
-							globals.GSMOPEN_INTERFACES[interface_id].running = 0;
-							alarm_event(&globals.GSMOPEN_INTERFACES[interface_id], ALARM_FAILED_INTERFACE, "gsmopen_serial_config failed");
-							globals.GSMOPEN_INTERFACES[interface_id].active = 0;
-							globals.GSMOPEN_INTERFACES[interface_id].name[0] = '\0';
-							continue;
+						globals.GSMOPEN_INTERFACES[interface_id].initialized =0;  // mark device  as  Not initialized  To Try again Later
+						goto handle_error;
 						}
 					}
 				}
@@ -1677,30 +1708,25 @@ static switch_status_t load_config(int reload_type)
 				if (globals.GSMOPEN_INTERFACES[interface_id].no_sound == 0) {
 					if (serial_audio_init(&globals.GSMOPEN_INTERFACES[interface_id])) {
 						ERRORA("serial_audio_init failed\n", GSMOPEN_P_LOG);
-						ERRORA("STARTING interface_id=%u FAILED\n", GSMOPEN_P_LOG, interface_id);
-						globals.GSMOPEN_INTERFACES[interface_id].running = 0;
-						alarm_event(&globals.GSMOPEN_INTERFACES[interface_id], ALARM_FAILED_INTERFACE, "serial_audio_init failed");
-						globals.GSMOPEN_INTERFACES[interface_id].active = 0;
-						globals.GSMOPEN_INTERFACES[interface_id].name[0] = '\0';
-						continue;
+						globals.GSMOPEN_INTERFACES[interface_id].initialized =0;  // mark device  as  Not initialized  To Try again Later
+					goto handle_error;
 
 					}
 
 					if (serial_audio_shutdown(&globals.GSMOPEN_INTERFACES[interface_id])) {
 						ERRORA("serial_audio_shutdown failed\n", GSMOPEN_P_LOG);
-						ERRORA("STARTING interface_id=%u FAILED\n", GSMOPEN_P_LOG, interface_id);
-						globals.GSMOPEN_INTERFACES[interface_id].running = 0;
-						alarm_event(&globals.GSMOPEN_INTERFACES[interface_id], ALARM_FAILED_INTERFACE, "serial_audio_shutdown failed");
-						globals.GSMOPEN_INTERFACES[interface_id].active = 0;
-						globals.GSMOPEN_INTERFACES[interface_id].name[0] = '\0';
-						continue;
-
+						globals.GSMOPEN_INTERFACES[interface_id].initialized =0;  // mark device  as  Not initialized  To Try again Later
+					goto handle_error;
 					}
 
 				}
 
-				globals.GSMOPEN_INTERFACES[interface_id].active = 1;
 
+				if (globals.GSMOPEN_INTERFACES[interface_id].initialized == 1){
+						globals.GSMOPEN_INTERFACES[interface_id].running = 1;
+						globals.GSMOPEN_INTERFACES[interface_id].active = 1;
+						globals.GSMOPEN_INTERFACES[interface_id].stop_discovery = 1;         //   stop  discovery here because  device is now started
+						globals.GSMOPEN_INTERFACES[interface_id].interface_state = GSMOPEN_STATE_IDLE;  //  mark  device  IDLE
 				//gsmopen_store_boost((char *) capture_boost, &globals.GSMOPEN_INTERFACES[interface_id].capture_boost);	//FIXME
 				//gsmopen_store_boost((char *) playback_boost, &globals.GSMOPEN_INTERFACES[interface_id].playback_boost);	//FIXME
 
@@ -1711,15 +1737,41 @@ static switch_status_t load_config(int reload_type)
 									 &globals.GSMOPEN_INTERFACES[interface_id], gsmopen_module_pool);
 
 				switch_sleep(100000);
+
+				alarm_event(tech_pvt, ALARM_CONNECTED_INTERFACE, "Connected");
 				WARNINGA("STARTED interface_id=%u\n", GSMOPEN_P_LOG, interface_id);
 
 				/* How many real intterfaces */
 				globals.real_interfaces++;
+				}
+
+
+
+	handle_error:
+					if (globals.GSMOPEN_INTERFACES[interface_id].initialized == 0){
+						ERRORA("             STARTING interface_id=%u FAILED\n", GSMOPEN_P_LOG, interface_id);
+						globals.GSMOPEN_INTERFACES[interface_id].got_signal = 0;
+						globals.GSMOPEN_INTERFACES[interface_id].running = 0;
+						alarm_event(&globals.GSMOPEN_INTERFACES[interface_id], ALARM_FAILED_INTERFACE, "STARTING interface_id FAILED");
+						globals.GSMOPEN_INTERFACES[interface_id].active = 0;
+						globals.GSMOPEN_INTERFACES[interface_id].interface_state = GSMOPEN_STATE_DISCONNECTED;  //  mark  device Disconected  Only
+						globals.GSMOPEN_INTERFACES[interface_id].initialized =0;  // mark device  as  Not initialized  To Try again Later
+						memset(globals.GSMOPEN_INTERFACES[interface_id].operator_name, 0, sizeof(globals.GSMOPEN_INTERFACES[interface_id].operator_name));
+						globals.GSMOPEN_INTERFACES[interface_id].stop_discovery = 0;
+
+					/* How many real intterfaces */
+				globals.real_interfaces++;
+				switch_sleep(100000);   //  sleep 0.1 seconds
+									 continue;
+					}
+
+				}
+
+
 
 			}
-		}
 
-
+				/*    print loaded  Devices  */
 		for (i = 0; i < GSMOPEN_MAX_INTERFACES; i++) {
 			if (strlen(globals.GSMOPEN_INTERFACES[i].name)) {
 
@@ -1742,7 +1794,16 @@ static switch_status_t load_config(int reload_type)
 
 	switch_mutex_unlock(globals.mutex);
 	switch_xml_free(xml);
-
+#ifndef WIN32		
+					//  start discovery  thread 
+					DEBUGA_GSMOPEN("   starting  discovery  thread  \n", GSMOPEN_P_LOG);					
+					switch_threadattr_t *gsmopen_discovery_thread_attr = NULL;
+					switch_threadattr_create(&gsmopen_discovery_thread_attr, gsmopen_module_pool);
+					switch_threadattr_stacksize_set(gsmopen_discovery_thread_attr, SWITCH_THREAD_STACKSIZE);
+					switch_thread_create(&globals.gsmopen_discovery_thread, gsmopen_discovery_thread_attr, gsmopen_do_discovery_thread, NULL, gsmopen_module_pool);
+#endif
+	
+	
 	return SWITCH_STATUS_SUCCESS;
 }
 
@@ -1808,19 +1869,24 @@ static switch_status_t chat_send(switch_event_t *message_event)
 			for (i = 0; !found && i < GSMOPEN_MAX_INTERFACES; i++) {
 				if (strlen(globals.GSMOPEN_INTERFACES[i].name)
 					&& (strncmp(globals.GSMOPEN_INTERFACES[i].name, hint, strlen(hint)) == 0)) {
+						if (globals.GSMOPEN_INTERFACES[i].interface_state != GSMOPEN_STATE_DISCONNECTED ){
 					tech_pvt = &globals.GSMOPEN_INTERFACES[i];
 					DEBUGA_GSMOPEN("Using interface: globals.GSMOPEN_INTERFACES[%d].name=|||%s|||\n", GSMOPEN_P_LOG, i,
 								   globals.GSMOPEN_INTERFACES[i].name);
 					found = 1;
 					break;
+						}else{
+							ERRORA("ERROR: A GSMopen interface with name='%s'  Is  Not Connected    \n", GSMOPEN_P_LOG, hint ? hint : "NULL");
+							break;
+						}
 				}
 			}
 		}
-		if (!found) {
+		if (!found && globals.GSMOPEN_INTERFACES[i].interface_state != GSMOPEN_STATE_DISCONNECTED) {
 			ERRORA("ERROR: A GSMopen interface with name='%s' or one with SIM_number='%s' was not found\n", GSMOPEN_P_LOG, hint ? hint : "NULL",
 				   from ? from : "NULL");
 			goto end;
-		} else {
+		} else if( globals.GSMOPEN_INTERFACES[i].interface_state != GSMOPEN_STATE_DISCONNECTED){
 			if (strcasecmp(to, "ussd") == 0) {
 				gsmopen_ussd(tech_pvt, (char *) body, 0);
 			} else {
@@ -1858,9 +1924,7 @@ static switch_status_t compat_chat_send(const char *proto, const char *from, con
 
 	status = chat_send(message_event);
 	switch_event_destroy(&message_event);
-
 	return status;
-
 }
 
 SWITCH_MODULE_LOAD_FUNCTION(mod_gsmopen_load)
@@ -1870,9 +1934,36 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_gsmopen_load)
 
 	gsmopen_module_pool = pool;
 	memset(&globals, '\0', sizeof(globals));
-
+	private_t *tech_pvt = NULL;
 	running = 1;
+#ifndef WIN32
+/*  Make A Directory  For Lock Files */
+	DIR *dir;
+	struct dirent *entry;
+	char dir_name[100];
+	char cmd[100];
+	char *pcmd;
+	char file[100];
+	char *dirname ;
+	dirname = LOCK_DIRECTORY ;
+	DEBUGA_GSMOPEN(" Checking  LOCK  directory :%s    \n", GSMOPEN_P_LOG, dirname);
+	dir = opendir(dirname);
+	if (dir == NULL){
+	DEBUGA_GSMOPEN("  Making  Directory:%s   \n", GSMOPEN_P_LOG, dirname);
+	sprintf( cmd ,"mkdir -m 766 %s", dirname);
+     pcmd = cmd;
+	if (switch_system(pcmd, SWITCH_FALSE) < 0) {
+		ERRORA( "Failed to execute command: %s \n",GSMOPEN_P_LOG, cmd);
+	DEBUGA_GSMOPEN("  Making  Directory Failed:%s   \n", GSMOPEN_P_LOG, dirname);
+	}
 
+	}else{
+		DEBUGA_GSMOPEN(" Directory Is Already There :%s   \n", GSMOPEN_P_LOG, dirname);
+	}
+	closedir(dir);
+	usleep(100000); //0.1 seconds
+	remove_lock(NULL);  // it is possible that some files in lock dir are not deleted  may be incase of power failure  so remove all lock files now 
+#endif
 	if (load_config(FULL_RELOAD) != SWITCH_STATUS_SUCCESS) {
 		running = 0;
 		return SWITCH_STATUS_FALSE;
@@ -1922,6 +2013,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_gsmopen_load)
 		return SWITCH_STATUS_FALSE;
 }
 
+
 SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_gsmopen_shutdown)
 {
 	int x;
@@ -1943,6 +2035,8 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_gsmopen_shutdown)
 		if (strlen(globals.GSMOPEN_INTERFACES[interface_id].name)) {
 			WARNINGA("SHUTDOWN interface_id=%d\n", GSMOPEN_P_LOG, interface_id);
 			globals.GSMOPEN_INTERFACES[interface_id].running = 0;
+			alarm_event(tech_pvt, ALARM_INTERFACE_SHUTDOWN, "SHUTDOWN");
+			globals.GSMOPEN_INTERFACES[interface_id].unload_flag = 1;  //  shutdown  discovery thread
 			if (globals.GSMOPEN_INTERFACES[interface_id].gsmopen_signaling_thread) {
 #ifdef WIN32
 				switch_file_write(tech_pvt->GSMopenHandles.fdesc[1], "sciutati", &howmany);	// let's the controldev_thread die
@@ -2017,6 +2111,58 @@ void *SWITCH_THREAD_FUNC gsmopen_do_gsmopenapi_thread(switch_thread_t *thread, v
 	return gsmopen_do_gsmopenapi_thread_func(obj);
 }
 
+
+/*
+*  Brief this  Thread Runs all time  If Dongle Unplugged Or Disconnected
+*  After Dongle Plugged in it find Ports of Dongle And Starts Dongle Then Exited
+*/
+#ifndef WIN32
+void *gsmopen_do_discovery_thread_func(void *obj)
+{
+
+		private_t *tech_pvt = (private_t *) obj;
+		time_t now_timestamp;
+		time(&globals.discovery_timestamp);  //   gsmopen  discovery timestamp
+		DEBUGA_GSMOPEN("      STARTED Discovery  Thred   \n",GSMOPEN_P_LOG);
+		
+	while ( running ) {
+		int res;
+		switch_yield(100000); //  sleep 1 secoond		
+		time(&now_timestamp);
+		if ((now_timestamp - globals.discovery_timestamp) > globals.discovery_period) {	//TODO find a sensible period. 30 Second  ? in config?
+		int k = 0;
+		for (k = 0; k < GSMOPEN_MAX_INTERFACES; k++) {
+
+		if ( strlen(globals.GSMOPEN_INTERFACES[k].name) && globals.GSMOPEN_INTERFACES[k].interface_state == GSMOPEN_STATE_DISCONNECTED ){
+
+
+		DEBUGA_GSMOPEN("      Trying To Discover Ports  For Device :%s    IMEI:%s  \n",GSMOPEN_P_LOG, globals.GSMOPEN_INTERFACES[k].name, globals.GSMOPEN_INTERFACES[k].imei);
+			if (strlen(globals.GSMOPEN_INTERFACES[k].name) && running)  search_ttyusb_device(&globals.GSMOPEN_INTERFACES[k],"/sys/devices");
+			if (globals.GSMOPEN_INTERFACES[k].stop_discovery == 1  && running){
+		DEBUGA_GSMOPEN("     Found  Ports  For Device :%s    IMEI:%s  \n",GSMOPEN_P_LOG, globals.GSMOPEN_INTERFACES[k].name, globals.GSMOPEN_INTERFACES[k].imei);
+		DEBUGA_GSMOPEN("    controldevice_name :[%s]    controldevice_audio_name:[%s]  \n",GSMOPEN_P_LOG, globals.GSMOPEN_INTERFACES[k].controldevice_name, globals.GSMOPEN_INTERFACES[k].controldevice_audio_name);		
+		if (running)	pvt_start_interface(&globals.GSMOPEN_INTERFACES[k]);  //  start interface  if not unloading
+			}else{
+		DEBUGA_GSMOPEN("    Ports  Not    Found   For Device :%s    IMEI:%s  \n",GSMOPEN_P_LOG, globals.GSMOPEN_INTERFACES[k].name, globals.GSMOPEN_INTERFACES[k].imei);		
+			}
+
+		}
+		
+		}
+		time(&globals.discovery_timestamp);  //   gsmopen  discovery timestamp
+		}
+	
+	}
+	DEBUGA_GSMOPEN("  Discovery Thread    EXITED   \n", GSMOPEN_P_LOG);
+	return NULL;
+}
+
+void *SWITCH_THREAD_FUNC gsmopen_do_discovery_thread(switch_thread_t *thread, void *obj)
+{
+	return gsmopen_do_discovery_thread_func(obj);
+}
+#endif
+
 int dtmf_received(private_t *tech_pvt, char *value)
 {
 	switch_core_session_t *session = NULL;
@@ -2086,7 +2232,7 @@ int new_inbound_channel(private_t *tech_pvt)
 			return 0;
 		}
 	}
-
+	alarm_event(tech_pvt, ALARM_INTERFACE_STATE_UP, "STATE_UP");
 	DEBUGA_GSMOPEN("EXITING new_inbound_channel\n", GSMOPEN_P_LOG);
 
 	return 0;
@@ -2231,6 +2377,179 @@ private_t *find_available_gsmopen_interface_rr(private_t *tech_pvt_calling)
 	return NULL;
 }
 
+#ifndef WIN32
+//  function to start pvt who  stoped  Or Unplugged
+void pvt_start_interface(private_t  * tech_pvt) {
+
+			switch_threadattr_t *gsmopen_api_thread_attr = NULL;
+			int res = 0;
+			uint32_t  interface_id = 0;
+			interface_id = atoi(tech_pvt->id);
+			if (strlen(tech_pvt->name) && !tech_pvt->active && tech_pvt->unload_flag == 0) {
+
+				NOTICA("STARTING          interface_id:[%s]      interface_name=%s\n", GSMOPEN_P_LOG, tech_pvt->id, tech_pvt->name);
+				DEBUGA_GSMOPEN("id=%s\n", GSMOPEN_P_LOG, tech_pvt->id);
+				DEBUGA_GSMOPEN("name=%s\n", GSMOPEN_P_LOG, tech_pvt->name);
+				DEBUGA_GSMOPEN("hold-music=%s\n", GSMOPEN_P_LOG, tech_pvt->hold_music);
+				DEBUGA_GSMOPEN("context=%s\n", GSMOPEN_P_LOG, tech_pvt->context);
+				DEBUGA_GSMOPEN("dialplan=%s\n", GSMOPEN_P_LOG, tech_pvt->dialplan);
+				DEBUGA_GSMOPEN("destination=%s\n", GSMOPEN_P_LOG, tech_pvt->destination);
+				DEBUGA_GSMOPEN("imei=%s\n", GSMOPEN_P_LOG, tech_pvt->imei);
+				DEBUGA_GSMOPEN("imsi=%s\n", GSMOPEN_P_LOG, tech_pvt->imsi);
+				DEBUGA_GSMOPEN("controldevice_name=%s\n", GSMOPEN_P_LOG, tech_pvt->controldevice_name);
+				DEBUGA_GSMOPEN("controldevice_audio_name=%s\n", GSMOPEN_P_LOG, tech_pvt->controldevice_audio_name);
+				DEBUGA_GSMOPEN("gsmopen_serial_sync_period=%d\n", GSMOPEN_P_LOG,
+							   (int) tech_pvt->gsmopen_serial_sync_period);
+					tech_pvt->initialized = 1;  // mark device  as  initialized  First
+					tech_pvt->initializing = 1;  //  To initializ  Easily
+					tech_pvt->running = 1;
+					tech_pvt->controldev_dead = 0;
+					/* init the serial port */
+				if (tech_pvt->controldevprotocol != PROTOCOL_NO_SERIAL) {													
+					tech_pvt->controldevfd = gsmopen_serial_init(tech_pvt, tech_pvt->controldevice_speed);
+					if (tech_pvt->controldevfd == -1) {
+						alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_init failed");
+						WARNINGA("   gsmopen_serial_init failed\n", GSMOPEN_P_LOG, tech_pvt->name);
+						tech_pvt->initialized =0;  // mark device  as  Not initialized  To Try again Later
+						goto stop;
+					}
+				}
+				/* config the phone/modem on the serial port */
+				if (tech_pvt->controldevprotocol != PROTOCOL_NO_SERIAL) {
+					res = gsmopen_serial_config(tech_pvt);
+					if (res) {
+						
+						ERRORA("gsmopen_serial_config failed, let's try again\n", GSMOPEN_P_LOG);
+						
+							switch_sleep(100000);	//0.1 seconds
+							res = gsmopen_serial_config(tech_pvt);
+							
+						if (res) {
+							ERRORA(" gsmopen_serial_config failed \n", GSMOPEN_P_LOG);
+							alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_config failed");
+							WARNINGA("       STARTING        interface_name='%s'     FAILED\n", GSMOPEN_P_LOG, tech_pvt->name);
+						tech_pvt->initialized =0;  // mark device  as  Not initialized  To Try again Later
+						goto stop;
+						
+						}
+					}
+				}
+
+				if (tech_pvt->no_sound == 0) {
+					if (serial_audio_init(tech_pvt) ) {
+						ERRORA("serial_audio_init failed\n", GSMOPEN_P_LOG);
+						alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_init failed");
+						tech_pvt->initialized =0;  // mark device  as  Not initialized  To Try again Later
+						goto stop;
+					}
+
+					if (serial_audio_shutdown(tech_pvt)) {
+						ERRORA("serial_audio_shutdown failed\n", GSMOPEN_P_LOG);
+						alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_init failed");
+						tech_pvt->initialized =0;  // mark device  as  Not initialized  To Try again Later
+						goto stop;
+					}
+
+				}
+				
+				tech_pvt->interface_state = GSMOPEN_STATE_IDLE ;    //       mark device as IDLE 
+				tech_pvt->active = 1;
+				tech_pvt->stop_discovery = 1;         //   stop  discovery here because  device is now started
+					tech_pvt->running = 1;
+                tech_pvt->initializing = 0;			// Now Device is initialized
+				switch_sleep(100000);
+				switch_threadattr_create(&gsmopen_api_thread_attr, gsmopen_module_pool);
+				switch_threadattr_stacksize_set(gsmopen_api_thread_attr, SWITCH_THREAD_STACKSIZE);
+				switch_thread_create(&globals.GSMOPEN_INTERFACES[interface_id].gsmopen_api_thread, gsmopen_api_thread_attr, gsmopen_do_gsmopenapi_thread,
+									 &globals.GSMOPEN_INTERFACES[interface_id], gsmopen_module_pool);
+
+				switch_sleep(100000);
+				alarm_event(tech_pvt, ALARM_CONNECTED_INTERFACE, "Connected");
+				NOTICA("...........		STARTED         interface_id=[%s]       interface_name=[%s].........  \n", GSMOPEN_P_LOG, tech_pvt->id, tech_pvt->name);
+
+				stop:if (tech_pvt->initialized == 0){
+	WARNINGA("..... interface_name='%s'    Initialization    Failed \n", GSMOPEN_P_LOG , tech_pvt->name);
+						tech_pvt->controldev_dead = 1;
+						tech_pvt->running = 0;
+						tech_pvt->active = 0;
+						tech_pvt->stop_discovery = 0; //globals.GSMOPEN_INTERFACES[interface_id].name[0] = '\0';
+                        tech_pvt->initializing = 0;
+						 remove_lock(tech_pvt);   //  remove lock so discovery thread  rediscover this device again
+						memset(tech_pvt->controldevice_name, 0, sizeof(tech_pvt->controldevice_name));
+						memset(tech_pvt->controldevice_audio_name, 0, sizeof(tech_pvt->controldevice_audio_name));
+						 return ;					
+				}			
+			
+			
+			}
+		}
+#endif
+
+
+
+
+
+//  function to disconnect dongle 
+//  incase dongle unplugged or something other happend
+void pvt_disconnect_dongle(private_t  * tech_pvt) {
+	
+				if (tech_pvt  && tech_pvt->unload_flag == 0 && running){
+				
+					switch_core_session_t *session = NULL;
+					switch_channel_t *channel = NULL;
+					session = switch_core_session_locate(tech_pvt->session_uuid_str);
+					if (session) {
+						channel = switch_core_session_get_channel(session);
+						switch_core_session_rwunlock(session);
+						switch_channel_hangup(channel, SWITCH_CAUSE_NONE);
+						NOTICA("     GSMOPEN_CAUSE_FAILURE    Hanging Up Channel \n", GSMOPEN_P_LOG);						
+								}
+					if (tech_pvt->interface_state == GSMOPEN_STATE_DISCONNECTED && tech_pvt->owner) {
+						DEBUGA_GSMOPEN("     GSMOPEN_CAUSE_FAILURE    HANGUP\n", GSMOPEN_P_LOG);
+						tech_pvt->owner->hangupcause = GSMOPEN_CAUSE_FAILURE;
+						gsmopen_queue_control(tech_pvt->owner, GSMOPEN_CONTROL_HANGUP);
+						DEBUGA_GSMOPEN("just sent GSMOPEN_CONTROL_HANGUP\n", GSMOPEN_P_LOG);
+					}
+			tech_pvt->controldev_dead = 1;	
+			tech_pvt->stop_discovery = 0;
+			tech_pvt->active = 0;
+			tech_pvt->not_registered = 0;
+			tech_pvt->home_network_registered = 0;
+			tech_pvt->roaming_registered = 0;
+			tech_pvt->got_signal = 0;
+			tech_pvt->signal_strength =  0;
+			tech_pvt->running = 0;
+			memset(tech_pvt->subscriber_number, 0, sizeof(tech_pvt->subscriber_number));
+			memset(tech_pvt->device_mfg, 0, sizeof(tech_pvt->device_mfg));
+			memset(tech_pvt->device_model, 0, sizeof(tech_pvt->device_model));
+			memset(tech_pvt->device_firmware, 0, sizeof(tech_pvt->device_firmware));
+			memset(tech_pvt->operator_name, 0, sizeof(tech_pvt->operator_name));
+			memset(tech_pvt->imsi, 0, sizeof(tech_pvt->imsi));
+#ifndef WIN32
+			remove_lock( tech_pvt);  //  remove lock so discovery thread  rediscover this device again
+#endif  // win32
+			memset(tech_pvt->controldevice_name, 0, sizeof(tech_pvt->controldevice_name));
+			memset(tech_pvt->controldevice_audio_name, 0, sizeof(tech_pvt->controldevice_audio_name));
+            memset(tech_pvt->session_uuid_str, 0, sizeof(tech_pvt->session_uuid_str));			
+			tech_pvt->ib_calls = 0;
+			tech_pvt->ob_calls = 0;
+			tech_pvt->ib_failed_calls = 0;
+			tech_pvt->ob_failed_calls = 0;
+			tech_pvt->interface_state = GSMOPEN_STATE_DISCONNECTED;    // mark interface  state Disconnected
+			tech_pvt->phone_callflow = 0;
+
+			alarm_event(tech_pvt, ALARM_DISCONNECTED_INTERFACE, "Disconnected");
+				WARNINGA("   Dongle  Disconnected   Interface_id:[%s]     interface_name[%s]  \n", GSMOPEN_P_LOG, tech_pvt->id, tech_pvt->name);
+			}else{
+				WARNINGA("  Unable to stop Dongle   No  tech_pvt  \n",GSMOPEN_P_LOG);
+			}
+
+		}
+
+
+
+
+
 SWITCH_STANDARD_API(gsm_function)
 {
 	char *mycmd = NULL, *argv[10] = { 0 };
@@ -2258,8 +2577,8 @@ SWITCH_STANDARD_API(gsm_function)
 		unsigned int ob_failed = 0;
 		char next_flag_char = ' ';
 
-		stream->write_function(stream, "F ID Name       Operator         IMEI            IB (F/T)  OB (F/T)  State   CallFlw         UUID\n");
-		stream->write_function(stream, "= == ========== ================ =============== ========= ========= ======= =============== ====\n");
+		stream->write_function(stream, "F ID Name       Operator     Signal     IMEI          IB (F/T)  OB (F/T)  State   CallFlw         UUID\n");
+		stream->write_function(stream, "= == ========== ===========   =====   =============== ========= ========= ======= =============== ====\n");
 
 		for (i = 0; i < GSMOPEN_MAX_INTERFACES; i++) {
 
@@ -2272,10 +2591,11 @@ SWITCH_STANDARD_API(gsm_function)
 
 
 				stream->write_function(stream,
-						"%c %-2d %-10s %-16.16s %-15s %4u/%-4u %4u/%-4u %-7s %-15s %s\n",
+						"%c %-2d %-10s %-16.16s %-2d  %-15s %4u/%-4u %4u/%-4u %-7s %-15s %s\n",
 						next_flag_char,
 						i, globals.GSMOPEN_INTERFACES[i].name,
 						globals.GSMOPEN_INTERFACES[i].operator_name,
+						globals.GSMOPEN_INTERFACES[i].got_signal,
 						globals.GSMOPEN_INTERFACES[i].imei,
 						globals.GSMOPEN_INTERFACES[i].ib_failed_calls,
 						globals.GSMOPEN_INTERFACES[i].ib_calls,
@@ -2300,12 +2620,19 @@ SWITCH_STANDARD_API(gsm_function)
 				/* we've been asked for a normal interface name, or we have not found idle interfaces to serve as the "ANY" interface */
 				if (strlen(globals.GSMOPEN_INTERFACES[i].name)
 					&& (strncmp(globals.GSMOPEN_INTERFACES[i].name, argv[1], strlen(argv[1])) == 0)) {
+                    if(globals.GSMOPEN_INTERFACES[i].interface_state != GSMOPEN_STATE_DISCONNECTED ){	
 					globals.gsm_console = &globals.GSMOPEN_INTERFACES[i];
 					stream->write_function(stream, "gsm console is now: globals.GSMOPEN_INTERFACES[%d].name=|||%s|||\n", i,
 										   globals.GSMOPEN_INTERFACES[i].name);
 					stream->write_function(stream, "gsm console is: |||%s|||\n", globals.gsm_console->name);
 					found = 1;
 					break;
+					}else{
+		//			tech_pvt = &globals.GSMOPEN_INTERFACES[i];
+					stream->write_function(stream,"  interface_id:=%d      interface_name:=%s    IS : NOT  Conected\n",  i, globals.GSMOPEN_INTERFACES[i].name);
+						break;
+					}
+
 				}
 
 			}
@@ -2347,9 +2674,10 @@ SWITCH_STANDARD_API(gsm_function)
 	}
   end:
 	switch_safe_free(mycmd);
+			return SWITCH_STATUS_SUCCESS;
+			}
 
-	return SWITCH_STATUS_SUCCESS;
-}
+
 
 SWITCH_STANDARD_API(gsmopen_function)
 {
@@ -2377,13 +2705,20 @@ SWITCH_STANDARD_API(gsmopen_function)
 
 		for (i = 0; !found && i < GSMOPEN_MAX_INTERFACES; i++) {
 			/* we've been asked for a normal interface name, or we have not found idle interfaces to serve as the "ANY" interface */
-			if (strlen(globals.GSMOPEN_INTERFACES[i].name)
-				&& (strncmp(globals.GSMOPEN_INTERFACES[i].name, argv[0], strlen(argv[0])) == 0)) {
+		
+			if (globals.GSMOPEN_INTERFACES[i].interface_state != GSMOPEN_STATE_DISCONNECTED){
+		if (strlen(globals.GSMOPEN_INTERFACES[i].name)
+				&& (strncmp(globals.GSMOPEN_INTERFACES[i].name, argv[0], strlen(globals.GSMOPEN_INTERFACES[i].name)) == 0)) {
+				// incase we entered a name gsm and there are gsm01 gsm02 then it will match gsm01 after this fix you need to type complete name
 				tech_pvt = &globals.GSMOPEN_INTERFACES[i];
 				stream->write_function(stream, "Using interface: globals.GSMOPEN_INTERFACES[%d].name=|||%s|||\n", i, globals.GSMOPEN_INTERFACES[i].name);
 				found = 1;
 				break;
 			}
+					}else{
+					stream->write_function(stream, "    ERROR       interface  With  Name   '%s'  Is   Not   Connected   \n", argv[0] );
+				break;
+					}
 
 		}
 		if (!found) {
@@ -2424,7 +2759,8 @@ SWITCH_STANDARD_API(gsmopen_dump_function)
 		for (i = 0; !found && i < GSMOPEN_MAX_INTERFACES; i++) {
 			/* we've been asked for a normal interface name, or we have not found idle interfaces to serve as the "ANY" interface */
 			if (strlen(globals.GSMOPEN_INTERFACES[i].name)
-				&& (strncmp(globals.GSMOPEN_INTERFACES[i].name, argv[0], strlen(argv[0])) == 0)) {
+				&& (strncmp(globals.GSMOPEN_INTERFACES[i].name, argv[0], strlen(globals.GSMOPEN_INTERFACES[i].name)) == 0)) {
+					// incase we entered a name gsm and there are gsm01 gsm02 then it will match gsm01 after this fix you need to type complete name
 				tech_pvt = &globals.GSMOPEN_INTERFACES[i];
 				found = 1;
 				break;
@@ -2589,7 +2925,8 @@ SWITCH_STANDARD_API(gsmopen_boost_audio_function)
 		for (i = 0; !found && i < GSMOPEN_MAX_INTERFACES; i++) {
 			/* we've been asked for a normal interface name, or we have not found idle interfaces to serve as the "ANY" interface */
 			if (strlen(globals.GSMOPEN_INTERFACES[i].name)
-				&& (strncmp(globals.GSMOPEN_INTERFACES[i].name, argv[0], strlen(argv[0])) == 0)) {
+				&& (strncmp(globals.GSMOPEN_INTERFACES[i].name, argv[0], strlen(globals.GSMOPEN_INTERFACES[i].name)) == 0)) {
+				// incase we entered a name gsm and there are gsm01 gsm02 then it will match gsm01 after this fix you need to type complete name
 				tech_pvt = &globals.GSMOPEN_INTERFACES[i];
 				stream->write_function(stream, "Using interface: globals.GSMOPEN_INTERFACES[%d].name=|||%s|||\n", i, globals.GSMOPEN_INTERFACES[i].name);
 				found = 1;
@@ -2642,8 +2979,10 @@ void *gsmopen_do_gsmopenapi_thread_func(void *obj)
 
 	private_t *tech_pvt = (private_t *) obj;
 	time_t now_timestamp;
-
-	while (running && tech_pvt && tech_pvt->running) {
+#ifndef WIN32
+           make_lock(tech_pvt);  //  make
+#endif
+		   while (running && tech_pvt && tech_pvt->running && !tech_pvt->unload_flag) {
 		int res;
 		res = gsmopen_serial_read(tech_pvt);
 		if (res == -1) {		//manage the graceful interface shutdown
@@ -2653,7 +2992,6 @@ void *gsmopen_do_gsmopenapi_thread_func(void *obj)
 			tech_pvt->running = 0;
 			alarm_event(tech_pvt, ALARM_FAILED_INTERFACE, "gsmopen_serial_monitor failed, declaring interface dead");
 			tech_pvt->active = 0;
-			tech_pvt->name[0] = '\0';
 			switch_sleep(1000000);
 		} else if (tech_pvt->controldevprotocol != PROTOCOL_NO_SERIAL && tech_pvt->interface_state == GSMOPEN_STATE_RING
 				   && tech_pvt->phone_callflow != CALLFLOW_CALL_HANGUP_REQUESTED) {
@@ -2674,10 +3012,16 @@ void *gsmopen_do_gsmopenapi_thread_func(void *obj)
 
 		if ((now_timestamp - tech_pvt->gsmopen_serial_synced_timestamp) > tech_pvt->gsmopen_serial_sync_period) {	//TODO find a sensible period. 5min? in config?
 			gsmopen_serial_sync(tech_pvt);
-			gsmopen_serial_getstatus_AT(tech_pvt);
+		res = gsmopen_serial_getstatus_AT(tech_pvt);
+		DEBUGA_GSMOPEN("    gsmopen_serial_getstatus_AT(%s)   res:'%d'\n", GSMOPEN_P_LOG, tech_pvt->name, res);
+			if ( res == -1 ) {		//manage the graceful interface Disconnect
+				pvt_disconnect_dongle(tech_pvt);
+			}
 		}
 	}
-	DEBUGA_GSMOPEN("EXIT\n", GSMOPEN_P_LOG);
+
+
+	DEBUGA_GSMOPEN(".......gsmopen_do_gsmopenapi_thread_func... For  Device :%s........EXITED............\n", GSMOPEN_P_LOG, tech_pvt->name);
 	return NULL;
 
 }
@@ -2709,20 +3053,25 @@ SWITCH_STANDARD_API(sendsms_function)
 		for (i = 0; !found && i < GSMOPEN_MAX_INTERFACES; i++) {
 			/* we've been asked for a normal interface name, or we have not found idle interfaces to serve as the "ANY" interface */
 			if (strlen(globals.GSMOPEN_INTERFACES[i].name)
-				&& (strncmp(globals.GSMOPEN_INTERFACES[i].name, argv[0], strlen(argv[0])) == 0)) {
+				&& (strncmp(globals.GSMOPEN_INTERFACES[i].name, argv[0], strlen(globals.GSMOPEN_INTERFACES[i].name)) == 0)) {
+				if (globals.GSMOPEN_INTERFACES[i].interface_state != GSMOPEN_STATE_DISCONNECTED){
 				tech_pvt = &globals.GSMOPEN_INTERFACES[i];
 				stream->write_function(stream, "Trying to send your SMS: interface=%s, dest=%s, text=%s\n", argv[0], argv[1], argv[2]);
 				found = 1;
 				break;
+				}else{
+					stream->write_function(stream, "    ERROR       interface  With  Name   '%s'  Is   Not   Connected   \n", argv[0] );
+				break;
+					}
 			}
 
 		}
-		if (!found) {
-			stream->write_function(stream, "ERROR: A GSMopen interface with name='%s' was not found\n", argv[0]);
+		if( !found && globals.GSMOPEN_INTERFACES[i].interface_state != GSMOPEN_STATE_DISCONNECTED ) {
+			stream->write_function(stream, "ERROR:  A GSMopen interface with name='%s' was not found\n", argv[0]);
 			switch_safe_free(mycmd);
 
 			return SWITCH_STATUS_SUCCESS;
-		} else {
+		} else if( found ) {
 			NOTICA("chat_send(proto=%s, from=%s, to=%s, subject=%s, body=%s, type=NULL, hint=%s)\n", GSMOPEN_P_LOG, GSMOPEN_CHAT_PROTO, tech_pvt->name,
 				   argv[1], "SIMPLE MESSAGE", switch_str_nil(argv[2]), tech_pvt->name);
 
@@ -2743,7 +3092,6 @@ SWITCH_STANDARD_API(gsmopen_ussd_function)
 	int argc = 0;
 	int waittime = 20;
 	private_t *tech_pvt = NULL;
-
 	if (!zstr(cmd) && (mycmd = strdup(cmd))) {
 		argc = switch_separate_string(mycmd, ' ', argv, (sizeof(argv) / sizeof(argv[0])));
 	}
@@ -2754,7 +3102,6 @@ SWITCH_STANDARD_API(gsmopen_ussd_function)
 	}
 
 	if (argc < 2) {
-		stream->write_function(stream, "ERROR, usage: %s", USSD_SYNTAX);
 		goto end;
 	}
 	
@@ -2765,20 +3112,29 @@ SWITCH_STANDARD_API(gsmopen_ussd_function)
 	if (argv[0]) {
 		int i;
 		int found = 0;
-
 		for (i = 0; !found && i < GSMOPEN_MAX_INTERFACES; i++) {
 			/* we've been asked for a normal interface name, or we have not found idle interfaces to serve as the "ANY" interface */
 			if (strlen(globals.GSMOPEN_INTERFACES[i].name)
-				&& (strncmp(globals.GSMOPEN_INTERFACES[i].name, argv[0], strlen(argv[0])) == 0)) {
+				&& (strncmp(globals.GSMOPEN_INTERFACES[i].name, argv[0], strlen(globals.GSMOPEN_INTERFACES[i].name)) == 0)) {
+					// incase we entered a name gsm and there are gsm01 gsm02 then it will match gsm01 after this fix you need to type complete name
+					if (globals.GSMOPEN_INTERFACES[i].interface_state != GSMOPEN_STATE_DISCONNECTED){
 				tech_pvt = &globals.GSMOPEN_INTERFACES[i];
 				NOTICA("Trying to send USSD request: interface=%s, ussd=%s\n", GSMOPEN_P_LOG, argv[0], argv[1]);
 				found = 1;
 				break;
+					}else{
+					break;
+					}
 			}
 
 		}
-		if (!found) {
+		if (!found && globals.GSMOPEN_INTERFACES[i].interface_state != GSMOPEN_STATE_DISCONNECTED ) {
 			stream->write_function(stream, "ERROR: A GSMopen interface with name='%s' was not found\n", argv[0]);
+			switch_safe_free(mycmd);
+
+			return SWITCH_STATUS_SUCCESS;
+		}else if (!found && globals.GSMOPEN_INTERFACES[i].interface_state == GSMOPEN_STATE_DISCONNECTED ) {
+			stream->write_function(stream, "    ERROR       interface  With  Name   '%s'  Is   Not   Connected   \n" , argv[0]);
 			switch_safe_free(mycmd);
 
 			return SWITCH_STATUS_SUCCESS;
@@ -2827,8 +3183,12 @@ int dump_event_full(private_t *tech_pvt, int is_alarm, int alarm_code, const cha
 	}
 
 	if (is_alarm) {
-		ERRORA("ALARM on interface %s: \n", GSMOPEN_P_LOG, tech_pvt->name);
-		status = switch_event_create_subclass(&event, SWITCH_EVENT_CUSTOM, MY_EVENT_ALARM);
+		if (alarm_code > ALARM_NETWORK_LOW_SIGNAL){
+		NOTICA(" interface_name :%s   alarm_message:%s  \n", GSMOPEN_P_LOG, tech_pvt->name, alarm_message);
+	}else{
+		ERRORA("ALARM on interface :%s \n", GSMOPEN_P_LOG, tech_pvt->name);
+	}
+	status = switch_event_create_subclass(&event, SWITCH_EVENT_CUSTOM, MY_EVENT_ALARM);
 	} else {
 		DEBUGA_GSMOPEN("DUMP on interface %s: \n", GSMOPEN_P_LOG, tech_pvt->name);
 		status = switch_event_create_subclass(&event, SWITCH_EVENT_CUSTOM, MY_EVENT_DUMP);
@@ -3028,6 +3388,7 @@ char imsi[256];
 int times=0;
 int conta=0;
 */
+
 void find_ttyusb_devices(private_t *tech_pvt, const char *dirname)
 {
 	DIR *dir;
@@ -3151,7 +3512,8 @@ void find_ttyusb_devices(private_t *tech_pvt, const char *dirname)
 
 								sprintf(f.tty_data_device_file, "%s/%s", f.tty_data_dir, entry2->d_name);
 								sprintf(f.tty_data_device, "/dev/%s", entry2->d_name);
-
+//								char  filename[100] ;
+//							sprintf(filename, entry2->d_name); 
 								memset(f.answer,0,sizeof(f.answer));
 								memset(f.imei,0,sizeof(f.imei));
 								memset(f.imsi,0,sizeof(f.imsi));
@@ -3181,10 +3543,10 @@ void find_ttyusb_devices(private_t *tech_pvt, const char *dirname)
 									if (res != 8) {
 										ERRORA("writing AT+GSN failed: %d\n", GSMOPEN_P_LOG, res);
 									}else {
-										usleep(200000); //0.2 seconds
+										usleep(200000); //0.1 seconds
 										read_count = serialPort_serial_control->Read(f.answer, AT_BUFSIZ);
 										if (read_count < 32) {
-											ERRORA("reading AT+GSN failed: |%s|, read_count=%d, probably harmless in 'gsm reload'\n", GSMOPEN_P_LOG, f.answer, read_count);
+									if (!tech_pvt)		ERRORA("reading AT+GSN failed: |%s|, read_count=%d, probably harmless in 'gsm reload'\n", GSMOPEN_P_LOG, f.answer, read_count);
 										} else {
 											strncpy(f.imei, f.answer+9, 15);
 											sprintf(at_command, "AT\r\n");
@@ -3224,10 +3586,13 @@ void find_ttyusb_devices(private_t *tech_pvt, const char *dirname)
 								} else {
 									ERRORA("port %s, NOT open\n", GSMOPEN_P_LOG, f.tty_data_device);
 								}
+
+
+							
 							}
 						} while ((entry2 = readdir(dir2)));
 						closedir(dir2);
-
+						
 						if (!(dir2 = opendir(f.tty_audio_dir))) {
 							ERRORA("ERRORA!\n", GSMOPEN_P_LOG);
 						}
@@ -3239,13 +3604,12 @@ void find_ttyusb_devices(private_t *tech_pvt, const char *dirname)
 								int i;
 								sprintf(f.tty_audio_device_file, "%s/%s", f.tty_audio_dir, entry2->d_name);
 								sprintf(f.tty_audio_device, "/dev/%s", entry2->d_name);
-
-								NOTICA("************************************************\n", GSMOPEN_P_LOG, f.imei);
-								NOTICA("f.imei=|%s|\n", GSMOPEN_P_LOG, f.imei);
-								NOTICA("f.imsi=|%s|\n", GSMOPEN_P_LOG, f.imsi);
-								NOTICA("f.tty_data_device = |%s|\n", GSMOPEN_P_LOG, f.tty_data_device);
-								NOTICA("f.tty_audio_device = |%s|\n", GSMOPEN_P_LOG, f.tty_audio_device);
-								NOTICA("************************************************\n", GSMOPEN_P_LOG, f.imei);
+								DEBUGA_GSMOPEN("************************************************\n", GSMOPEN_P_LOG, f.imei);
+								DEBUGA_GSMOPEN("f.imei=|%s|\n", GSMOPEN_P_LOG, f.imei);
+								DEBUGA_GSMOPEN("f.imsi=|%s|\n", GSMOPEN_P_LOG, f.imsi);
+								DEBUGA_GSMOPEN("f.tty_data_device = |%s|\n", GSMOPEN_P_LOG, f.tty_data_device);
+								DEBUGA_GSMOPEN("f.tty_audio_device = |%s|\n", GSMOPEN_P_LOG, f.tty_audio_device);
+								DEBUGA_GSMOPEN("************************************************\n", GSMOPEN_P_LOG, f.imei);
 
 								for (i = 0; i < GSMOPEN_MAX_INTERFACES; i++) {
 									switch_threadattr_t *gsmopen_api_thread_attr = NULL;
@@ -3263,7 +3627,7 @@ void find_ttyusb_devices(private_t *tech_pvt, const char *dirname)
 											}
 										}
 									}
-								}
+							}   
 							}
 						} while ((entry2 = readdir(dir2)));
 						closedir(dir2);
@@ -3282,8 +3646,424 @@ void find_ttyusb_devices(private_t *tech_pvt, const char *dirname)
 	conta--;
 */
 }
-#endif// WIN32
 
+/*   Search  single device only */
+void search_ttyusb_device(private_t *tech_pvt, const char *dirname)
+{
+	DIR *dir;
+	struct dirent *entry;
+
+	memset( f.path_idvendor, 0, sizeof(f.path_idvendor) );
+	memset( f.path_idproduct, 0, sizeof(f.path_idproduct) );
+	memset( f.tty_base, 0, sizeof(f.tty_base) );
+	memset( f.idvendor, 0, sizeof(f.idvendor) );
+	memset( f.idproduct, 0, sizeof(f.idproduct) );
+	memset( f.tty_data_dir, 0, sizeof(f.tty_data_dir) );
+	memset( f.tty_audio_dir, 0, sizeof(f.tty_audio_dir) );
+	memset( f.data_dev_id, 0, sizeof(f.data_dev_id) );
+	memset( f.audio_dev_id, 0, sizeof(f.audio_dev_id) );
+	memset( f.delimiter, 0, sizeof(f.delimiter) );
+	memset( f.txt_saved, 0, sizeof(f.txt_saved) );
+	memset( f.tty_base_copied, 0, sizeof(f.tty_base_copied) );
+	memset( f.tty_data_device_file, 0, sizeof(f.tty_data_device_file) );
+	memset( f.tty_data_device, 0, sizeof(f.tty_data_device) );
+	memset( f.tty_audio_device_file, 0, sizeof(f.tty_audio_device_file) );
+	memset( f.tty_audio_device, 0, sizeof(f.tty_audio_device) );
+
+	if (!(dir = opendir(dirname))){
+		ERRORA("ERRORA! dirname=%s\n", GSMOPEN_P_LOG, dirname);
+		closedir(dir);
+		//conta--;
+		return;
+	}
+	if (!(entry = readdir(dir))){
+		ERRORA("ERRORA!\n", GSMOPEN_P_LOG);
+		closedir(dir);
+		//conta--;
+		return;
+	}
+
+	//conta++;
+	do {
+		if (entry->d_type == DT_DIR) {
+			char path[PATH_MAX_GIOVA];
+			int len;
+
+			//times++;
+			len = snprintf(path, sizeof(path)-1, "%s/%s", dirname, entry->d_name);
+			path[len] = 0;
+			if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+				continue;
+			search_ttyusb_device(tech_pvt, path);
+		} else{
+			int fd=-1;
+			int len2=-1;
+			DIR *dir2=NULL;
+			struct dirent *entry2=NULL;
+			int counter;
+			char *scratch=NULL;
+			char *txt=NULL;
+
+			if (strcmp(entry->d_name, "idVendor") == 0){
+				sprintf(f.tty_base, "%s", dirname);
+				sprintf(f.path_idvendor, "%s/%s", dirname, entry->d_name);
+				sprintf(f.path_idproduct, "%s/idProduct", dirname);
+
+				fd = open(f.path_idvendor, O_RDONLY);
+				len2=read(fd, f.idvendor, sizeof(f.idvendor));
+				close(fd);
+
+				if(f.idvendor[len2-1]=='\n'){
+					f.idvendor[len2-1]='\0';
+				}
+				if (strcmp(f.idvendor, "12d1") == 0){
+
+					fd = open(f.path_idproduct, O_RDONLY);
+					len2=read(fd, f.idproduct, sizeof(f.idproduct));
+					close(fd);
+
+					if(f.idproduct[len2-1]=='\n'){
+						f.idproduct[len2-1]='\0';
+					}
+					if (strcmp(f.idproduct, "1001") == 0  ||  strcmp(f.idproduct, "140c") == 0 ||  strcmp(f.idproduct, "1436") == 0 ||  strcmp(f.idproduct, "1506") == 0 ||  strcmp(f.idproduct, "14ac") == 0 ){
+						if (strcmp(f.idproduct, "1001") == 0){
+							strcpy(f.data_dev_id, "2");
+							strcpy(f.audio_dev_id, "1");
+						}else if (strcmp(f.idproduct, "140c") == 0){
+							strcpy(f.data_dev_id, "3");
+							strcpy(f.audio_dev_id, "2");
+						}else if (strcmp(f.idproduct, "1436") == 0){
+							strcpy(f.data_dev_id, "4");
+							strcpy(f.audio_dev_id, "3");
+						}else if (strcmp(f.idproduct, "1506") == 0){
+							strcpy(f.data_dev_id, "1");
+							strcpy(f.audio_dev_id, "2");
+						}else if (strcmp(f.idproduct, "14ac") == 0){
+							strcpy(f.data_dev_id, "4");
+							strcpy(f.audio_dev_id, "3");
+						}else{
+							//not possible
+						}
+						strcpy(f.delimiter, "/");
+						strcpy(f.tty_base_copied, f.tty_base);
+						counter=0;
+						while((txt = strtok_r(!counter ? f.tty_base_copied : NULL, f.delimiter, &scratch)))
+						{
+							strcpy(f.txt_saved, txt);
+							counter++;
+						}
+						sprintf(f.tty_data_dir, "%s/%s:1.%s", f.tty_base, f.txt_saved, f.data_dev_id);
+						sprintf(f.tty_audio_dir, "%s/%s:1.%s", f.tty_base, f.txt_saved, f.audio_dev_id);
+
+						if (!(dir2 = opendir(f.tty_data_dir))) {
+							ERRORA("ERRORA!\n", GSMOPEN_P_LOG);
+						}
+						if (!(entry2 = readdir(dir2))){
+							ERRORA("ERRORA!\n", GSMOPEN_P_LOG);
+						}
+						do {
+							if (strncmp(entry2->d_name, "ttyUSB", 6) == 0){
+								//char f.answer[AT_BUFSIZ];
+								ctb::SerialPort *serialPort_serial_control;
+								int res;
+								int read_count;
+								char at_command[256];
+
+								sprintf(f.tty_data_device_file, "%s/%s", f.tty_data_dir, entry2->d_name);
+								sprintf(f.tty_data_device, "/dev/%s", entry2->d_name);
+								char  filename[100] ;
+							sprintf(filename, entry2->d_name); 
+								memset(f.answer,0,sizeof(f.answer));
+								memset(f.imei,0,sizeof(f.imei));
+								memset(f.imsi,0,sizeof(f.imsi));
+																
+								if ( tech_pvt ){
+						int	is_lock = check_lock(tech_pvt, filename);
+		DEBUGA_GSMOPEN("    filename:%s     f.tty_data_device:[%s]   	is_lock:%d  \n", GSMOPEN_P_LOG, filename,f.tty_data_device, is_lock);							
+							
+							if (is_lock == -1){
+								serialPort_serial_control = new ctb::SerialPort();
+								if (serialPort_serial_control->Open(f.tty_data_device, 115200, "8N1", ctb::SerialPort::NoFlowControl) >= 0) {
+									sprintf(at_command, "AT\r\n");
+									
+									res = serialPort_serial_control->Write(at_command, 4);
+									usleep(20000); //0.02 seconds
+									res = serialPort_serial_control->Write(at_command, 4);
+									usleep(20000); //0.02 seconds
+									sprintf(at_command, "ATE1\r\n");
+									res = serialPort_serial_control->Write(at_command, 6);
+									usleep(20000); //0.02 seconds
+									read_count = serialPort_serial_control->Read(f.answer, AT_BUFSIZ);
+									sprintf(at_command, "AT\r\n");
+									res = serialPort_serial_control->Write(at_command, 4);
+									usleep(20000); //0.02 seconds
+									read_count = serialPort_serial_control->Read(f.answer, AT_BUFSIZ);
+									memset(f.answer,0,sizeof(f.answer));
+									read_count = serialPort_serial_control->Read(f.answer, AT_BUFSIZ);
+									memset(f.answer,0,sizeof(f.answer));
+
+									/* IMEI */
+									sprintf(at_command, "AT+GSN\r\n");
+									res = serialPort_serial_control->Write(at_command, 8);
+									if (res != 8) {
+										ERRORA("writing AT+GSN failed: %d\n", GSMOPEN_P_LOG, res);
+									}else {
+										usleep(200000); //0.2 seconds
+										read_count = serialPort_serial_control->Read(f.answer, AT_BUFSIZ);
+							//			NOTICA("  read_count='%d'   f.answer='%s'   tech_pvt->name='%s' \n", GSMOPEN_P_LOG, read_count , f.answer, tech_pvt->name);
+									if (read_count < 32) {
+											ERRORA("reading AT+GSN failed: |%s|, read_count=%d, \n", GSMOPEN_P_LOG, f.answer, read_count);
+										usleep(500000); //0.5 seconds
+										} else {
+											strncpy(f.imei, f.answer+9, 15);
+								//				NOTICA("  read_count='%d'   f.imei='%s'   tech_pvt->name='%s' \n", GSMOPEN_P_LOG, read_count , f.imei, tech_pvt->name);
+											sprintf(at_command, "AT\r\n");
+											res = serialPort_serial_control->Write(at_command, 4);
+											usleep(20000); //0.02 seconds
+											res = serialPort_serial_control->Write(at_command, 4);
+											usleep(20000); //0.02 seconds
+											sprintf(at_command, "ATE1\r\n");
+											res = serialPort_serial_control->Write(at_command, 6);
+											usleep(20000); //0.02 seconds
+											read_count = serialPort_serial_control->Read(f.answer, AT_BUFSIZ);
+											sprintf(at_command, "AT\r\n");
+											res = serialPort_serial_control->Write(at_command, 4);
+											usleep(20000); //0.02 seconds
+											read_count = serialPort_serial_control->Read(f.answer, AT_BUFSIZ);
+											memset(f.answer,0,sizeof(f.answer));
+											read_count = serialPort_serial_control->Read(f.answer, AT_BUFSIZ);
+											memset(f.answer,0,sizeof(f.answer));
+											
+											struct timeval timeout;
+											timeout.tv_sec = 0;  //  0  second timeout
+											timeout.tv_usec = 100000; // a 10th of a second Read timeout  Now WE are SAFE incase we have ERROR in RAED
+											/* IMSI */
+											sprintf(at_command, "AT+CIMI\r\n");
+											res = serialPort_serial_control->Write(at_command, 9);
+											if (res != 9) {
+												ERRORA("writing AT+CIMI failed: %d\n", GSMOPEN_P_LOG, res);
+											}else{
+												usleep(200000); //0.2 seconds
+												read_count = serialPort_serial_control->Read(f.answer , AT_BUFSIZ );
+												DEBUGA_GSMOPEN("  read_count='%d'   f.answer='%s'   tech_pvt->name='%s' \n", GSMOPEN_P_LOG, read_count , f.answer, tech_pvt->name);
+												if (read_count != 33) {
+													strncpy(f.imsi, f.answer+10, 15);
+													if(strcmp(f.imsi,"+CME ERROR: SIM") == 0) {
+													ERRORA(" reading AT+CIMI failed:|%s|  Unable To Get IMSI From   Device  Where   IMEI:'%s'  May be SIM  CARD is Not Ready yet , Or  Dongle Without SIM  CARD   ?    \n", GSMOPEN_P_LOG, f.imsi, f.imei);														
+													memset(f.imsi,0,sizeof(f.imsi));  // clear memory
+													}else{
+													ERRORA("reading AT+CIMI failed:|%s|  Unable To Get IMSI From  Device   Where IMEI:'%s'   May be SIM  CARD is Not Ready yet , Or  Dongle Without SIM  CARD   ?  \n", GSMOPEN_P_LOG, f.imsi, f.imei);														
+													memset(f.imsi,0,sizeof(f.imsi));  // clear memory
+													}
+												} else {
+													strncpy(f.imsi, f.answer+10, 15);
+													DEBUGA_GSMOPEN("  read_count='%d'   f.imsi='%s'   tech_pvt->name='%s' \n", GSMOPEN_P_LOG, read_count , f.imsi, tech_pvt->name);
+												}
+											}
+										}
+									}
+									res = serialPort_serial_control->Close();
+								} else {
+									DEBUGA_GSMOPEN("port %s, NOT open\n", GSMOPEN_P_LOG, f.tty_data_device);
+								}
+							
+							}else{//
+									DEBUGA_GSMOPEN("port %s, is alredy used  by  process:%d   \n", GSMOPEN_P_LOG, f.tty_data_device, is_lock);
+														}
+
+								}  // end if (tech_pvt)
+
+							}
+						} while ((entry2 = readdir(dir2)));
+						closedir(dir2);
+//////
+						
+						if (!(dir2 = opendir(f.tty_audio_dir))) {
+							ERRORA("ERRORA!\n", GSMOPEN_P_LOG);
+						}
+						if (!(entry2 = readdir(dir2))){
+							ERRORA("ERRORA!\n", GSMOPEN_P_LOG);
+						}
+						do {
+							if (strncmp(entry2->d_name, "ttyUSB", 6) == 0){
+								int i;
+								sprintf(f.tty_audio_device_file, "%s/%s", f.tty_audio_dir, entry2->d_name);
+								sprintf(f.tty_audio_device, "/dev/%s", entry2->d_name);
+								DEBUGA_GSMOPEN("************************************************\n", GSMOPEN_P_LOG, f.imei);
+								DEBUGA_GSMOPEN("f.imei=|%s|\n", GSMOPEN_P_LOG, f.imei);
+								DEBUGA_GSMOPEN("f.imsi=|%s|\n", GSMOPEN_P_LOG, f.imsi);
+								DEBUGA_GSMOPEN("f.tty_data_device = |%s|\n", GSMOPEN_P_LOG, f.tty_data_device);
+								DEBUGA_GSMOPEN("f.tty_audio_device = |%s|\n", GSMOPEN_P_LOG, f.tty_audio_device);
+								DEBUGA_GSMOPEN("************************************************\n", GSMOPEN_P_LOG, f.imei);
+					//	NOTICA("  tech_pvt->imei=%s strlen(tech_pvt->imei)=%d   f.imsi=%s    strlen(f.imsi)=%d    \n", GSMOPEN_P_LOG, tech_pvt->imei, strlen(tech_pvt->imei), f.imsi , strlen(f.imsi) );
+								if (strlen(f.imei)){
+									int res = 0;
+									if (strlen(tech_pvt->name) && (strlen(tech_pvt->imsi) || strlen(tech_pvt->imei)) ) {
+									//	NOTICA("  tech_pvt->imei)=%s strlen(tech_pvt->imei)=%d (strcmp(tech_pvt->imei, f.imei) == 0)=%d \n", GSMOPEN_P_LOG, tech_pvt->imei, strlen(tech_pvt->imei), (strcmp(tech_pvt->imei, f.imei) == 0) );
+										if( ( strlen(tech_pvt->imei) ? (strcmp(tech_pvt->imei, f.imei) == 0) : 1)  ) {
+											if(strlen(f.imsi)){
+											if ( (strlen(tech_pvt->imsi) ? (strcmp(tech_pvt->imsi, f.imsi) == 0) : 1) ){
+												strcpy(tech_pvt->controldevice_audio_name, f.tty_audio_device);
+												strcpy(tech_pvt->controldevice_name, f.tty_data_device);
+												DEBUGA_GSMOPEN("name = |%s|, controldevice_audio_name = |%s|, controldevice_name = |%s|\n", GSMOPEN_P_LOG, tech_pvt->name, tech_pvt->controldevice_audio_name, tech_pvt->controldevice_name);
+												tech_pvt->stop_discovery = 1;
+												DEBUGA_GSMOPEN("     Matched   interface :%s       \n",GSMOPEN_P_LOG, tech_pvt->name);
+												          make_lock(tech_pvt);  //  make lock to protect this device during serial config
+												return;
+											}else{
+																					ERRORA(" Error  IMSI  Not Matched  Skipping Device  Searching  tech_pvt->imsi:[%s]    Found f.imsi:[%s] \n ",GSMOPEN_P_LOG, tech_pvt->imsi , f.imsi);	
+											}
+											}else{
+												ERRORA(" interface_name:'%s'    Start Failed  , May be SIM  CARD is Not Ready yet , Or  Dongle Without SIM  CARD   ?   \n", GSMOPEN_P_LOG,  tech_pvt->name); 
+											}
+											
+											
+										}else{
+										DEBUGA_GSMOPEN(" Error     Skipping    tech_pvt->imei:[%s]  Not Matched    imei:[%s] \n",GSMOPEN_P_LOG, tech_pvt->imei , f.imei);	
+										}
+									}
+							   }//  if(strlen(f.imei))
+							}
+						} while ((entry2 = readdir(dir2)));
+						closedir(dir2);
+					}
+				}
+			}
+		}
+	} while ((entry = readdir(dir)));
+	closedir(dir);
+/*
+	if(f.conta < 0){
+		ERRORA("f.conta=%d, dirs=%d, mem=%d\n", GSMOPEN_P_LOG, conta, times, conta*PATH_MAX_GIOVA);
+	}else{
+		NOTICA("f.conta=%d, dirs=%d, mem=%d\n", GSMOPEN_P_LOG, conta, times, conta*PATH_MAX_GIOVA);
+	}
+	conta--;
+*/
+}
+
+static struct {
+char file_1[256];
+} files;
+
+		
+/* to remove lock  files in dir   /usr/local/freeswitch/lock   */
+void remove_lock(private_t * tech_pvt ){
+	memset( files.file_1, 0, sizeof(files.file_1) );
+	DIR *dir;
+	struct dirent *entry;
+	char dir_name[100];
+	char *found;
+	char file[100];
+  char *dirname ;
+ dirname = LOCK_DIRECTORY ;
+if (!tech_pvt) DEBUGA_GSMOPEN("    Trying  To  delete all lock files  In :%s    \n", GSMOPEN_P_LOG, dirname);
+	dir = opendir(dirname);
+	if (dir != NULL){
+	
+	if ( ! tech_pvt){
+	while(entry = readdir(dir)){
+if(strcmp(entry->d_name ,".")== 0 || strcmp( entry->d_name , "..") == 0 ){
+
+}else{
+
+sprintf(files.file_1, "%s/%s", dirname, entry->d_name);
+   	DEBUGA_GSMOPEN("        Deleting lock file :%s    \n", GSMOPEN_P_LOG , files.file_1);
+remove(files.file_1);
+}
+
+  }
+
+	}else{
+		const	char * s = strrchr (tech_pvt->controldevice_name, '/');
+	sprintf(file, "%s%s.lck", dirname, s);
+	DEBUGA_GSMOPEN("    trying  to delet lock file :%s   \n", GSMOPEN_P_LOG , file);
+	remove(file);
+	
+			s = strrchr (tech_pvt->controldevice_audio_name, '/');
+	sprintf(file, "%s%s.lck", dirname, s);
+	DEBUGA_GSMOPEN("    trying To  delet lock  file :%s   \n", GSMOPEN_P_LOG , file);
+	remove(file);
+
+  }
+	}else{
+   	DEBUGA_GSMOPEN("    Cannot open directory : %s    \n", GSMOPEN_P_LOG , dirname);
+			}
+closedir(dir);
+memset( files.file_1, 0, sizeof(files.file_1) );
+}
+
+
+
+		// Make a lock
+void make_lock(private_t * tech_pvt){
+	int fd;
+	int len1 = 0;
+	int len = 0;
+	char pidb[21];
+const	char * s = strrchr (tech_pvt->controldevice_name, '/');
+ char  lockfile[100] ;
+ sprintf(lockfile, "%s%s.lck", LOCK_DIRECTORY, s);
+DEBUGA_GSMOPEN("  Making  Lock For  Device:%s Lockfile name:%s    \n", GSMOPEN_P_LOG, tech_pvt->name, lockfile);
+
+
+	fd = open(lockfile, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IRGRP | S_IROTH);
+	if(fd >= 0)
+	{
+		len = snprintf(pidb, sizeof(pidb), "%d %d", getpid(), fd);
+		len = write(fd, pidb, len);
+		close(fd);
+	} else {
+		ERRORA(" Unable to Make Lock For Device :%s      open('%s') failed: %s\n", GSMOPEN_P_LOG , tech_pvt->name, lockfile, strerror(errno));
+	}
+
+ const	char * dfile = strrchr (tech_pvt->controldevice_audio_name, '/');
+ char  alockfile[100] ;
+ snprintf(alockfile, sizeof(alockfile), "%s%s.lck", LOCK_DIRECTORY, dfile);
+DEBUGA_GSMOPEN("  Making  Lock  For  Device:%s Lockfile name:%s    \n", GSMOPEN_P_LOG, tech_pvt->name ,alockfile);
+	fd = open(alockfile, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IRGRP | S_IROTH);
+	if(fd >= 0)
+	{
+		len = snprintf(pidb, sizeof(pidb), "%d %d", getpid(), fd);
+		len = write(fd, pidb, len);//  write freeswitch pid into file
+		close(fd);
+	} else {
+		ERRORA("Unable to Make Lock For Device :%s    open('%s') failed: %s\n", GSMOPEN_P_LOG , tech_pvt->name, alockfile, strerror(errno));
+	}
+	
+}  //  END  void make_lock(private_t * tech_pvt) 
+
+
+
+//  return -1 if no lock   
+//  return pid of process if  lock is there
+int check_lock(private_t *tech_pvt, char * name){
+	int pid = -1;
+	int assigned;
+	int fd2;
+	int fd;
+	int len;
+	char lockfile[100];	
+	char buffer[65];
+	char bas_dir[100];
+DEBUGA_GSMOPEN(" received file  name:%s    \n", GSMOPEN_P_LOG, name);
+//sprintf(bas_dir, "%s", SWITCH_GLOBAL_dirs.base_dir);	
+	 sprintf(lockfile,"%s/%s.lck", LOCK_DIRECTORY, name);
+	DEBUGA_GSMOPEN( " checking  lock for file   [%s] \n", GSMOPEN_P_LOG , lockfile);
+fd = open(lockfile, O_RDONLY);
+if (fd != -1){
+	len = read(fd, buffer, sizeof(buffer) - 1);
+			if(len > 0){
+			buffer[len] = 0;
+			assigned = sscanf(buffer, "%d %d", &len, &fd2);
+		if(assigned > 0 )  pid = len;
+			}	
+	close(fd);
+	}
+		DEBUGA_GSMOPEN("       check_lock pid:%d  for file :[%s]\n", GSMOPEN_P_LOG, pid , lockfile);
+return  pid;
+}
+#endif		/* WIN32   */
 
 
 

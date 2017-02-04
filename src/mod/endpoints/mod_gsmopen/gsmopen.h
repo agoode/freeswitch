@@ -49,6 +49,12 @@
 #define ALARM_NETWORK_NO_SERVICE 3
 #define ALARM_NETWORK_NO_SIGNAL 4
 #define ALARM_NETWORK_LOW_SIGNAL 5
+#define ALARM_DISCONNECTED_INTERFACE 6
+#define ALARM_CONNECTED_INTERFACE 7
+#define ALARM_INTERFACE_STATE_UP	8
+#define ALARM_INTERFACE_STATE_FREE	9
+#define ALARM_INTERFACE_SHUTDOWN	10
+
 
 #undef GIOVA48
 
@@ -140,22 +146,23 @@ typedef enum {
 #define GSMOPEN_CONTROL_BUSY		4
 
 /*********************************/
-#define		GSMOPEN_STATE_IDLE				0
-#define		GSMOPEN_STATE_DOWN				1
-#define		GSMOPEN_STATE_RING				2
+#define		GSMOPEN_STATE_IDLE					0
+#define		GSMOPEN_STATE_DOWN					1
+#define		GSMOPEN_STATE_RING					2
 #define		GSMOPEN_STATE_DIALING				3
-#define		GSMOPEN_STATE_BUSY				4
-#define		GSMOPEN_STATE_UP				5
+#define		GSMOPEN_STATE_BUSY					4
+#define		GSMOPEN_STATE_UP					5
 #define		GSMOPEN_STATE_RINGING				6
 #define		GSMOPEN_STATE_PRERING				7
-#define		GSMOPEN_STATE_ERROR_DOUBLE_CALL			8
+#define		GSMOPEN_STATE_ERROR_DOUBLE_CALL		8
 #define		GSMOPEN_STATE_SELECTED				9
-#define 	GSMOPEN_STATE_HANGUP_REQUESTED			10
+#define 	GSMOPEN_STATE_HANGUP_REQUESTED		10
 #define		GSMOPEN_STATE_PREANSWER				11
+#define		GSMOPEN_STATE_DISCONNECTED			12
 /*********************************/
 /* call flow from the device */
-#define 	CALLFLOW_CALL_IDLE				0
-#define 	CALLFLOW_CALL_DOWN				1
+#define 	CALLFLOW_CALL_IDLE					0
+#define 	CALLFLOW_CALL_DOWN					1
 #define 	CALLFLOW_INCOMING_RING				2
 #define 	CALLFLOW_CALL_DIALING				3
 #define 	CALLFLOW_CALL_LINEBUSY				4
@@ -167,7 +174,7 @@ typedef enum {
 #define 	CALLFLOW_CALL_INCOMING				10
 #define 	CALLFLOW_CALL_FAILED				11
 #define 	CALLFLOW_CALL_NOSERVICE				12
-#define 	CALLFLOW_CALL_OUTGOINGRESTRICTED		13
+#define 	CALLFLOW_CALL_OUTGOINGRESTRICTED	13
 #define 	CALLFLOW_CALL_SECURITYFAIL			14
 #define 	CALLFLOW_CALL_NOANSWER				15
 #define 	CALLFLOW_STATUS_FINISHED			16
@@ -182,7 +189,7 @@ typedef enum {
 #define 	CALLFLOW_INCOMING_CALLID			25
 #define 	CALLFLOW_STATUS_REMOTEHOLD			26
 #define 	CALLFLOW_CALL_REMOTEANSWER			27
-#define 	CALLFLOW_CALL_HANGUP_REQUESTED			28
+#define 	CALLFLOW_CALL_HANGUP_REQUESTED		28
 
 /*********************************/
 
@@ -311,6 +318,10 @@ struct private_object {
 	int controldevprotocol;		/*!< \brief which protocol is used for serial control of this interface */
 	char controldevprotocolname[50];	/*!< \brief name of the serial device controlling protocol, one of "at" "fbus2" "no_serial" "alsa_voicemodem" */
 	int controldevfd;			/*!< \brief serial controlling file descriptor for this interface */
+	int unload_flag;           /*         To unload Module easyly */
+	int  stop_discovery;           /*     stop_discovery     */
+	int  initialized;				/*      If Device Not Initialized Correctly initialize again   */
+	int  initializing;				/*      To Initialized Correctly    */
 #ifdef WIN32
 	int controldevice_speed;
 #else
@@ -388,7 +399,6 @@ struct private_object {
 	char at_cmgw[16];
 	int no_ucs2;
 	time_t gsmopen_serial_sync_period;
-
 	time_t gsmopen_serial_synced_timestamp;
 	struct s_result line_array;
 
@@ -474,11 +484,12 @@ struct private_object {
 
 	char buffer2[320];
 	int buffer2_full;
-	int serialPort_serial_audio_opened;
-
-};
+	int serialPort_serial_audio_opened;	
+	};
 
 typedef struct private_object private_t;
+
+
 
 void *SWITCH_THREAD_FUNC gsmopen_api_thread_func(switch_thread_t *thread, void *obj);
 int gsmopen_audio_read(private_t *tech_pvt);
@@ -570,6 +581,7 @@ int gsmopen_ring(private_t *tech_pvt);
 int iso_8859_1_to_utf8(private_t *tech_pvt, char *iso_8859_1_in, char *utf8_out, size_t outbytesleft);
 int gsmopen_serial_getstatus_AT(private_t *tech_pvt);
 
+
 int dump_event(private_t *tech_pvt);
 int alarm_event(private_t *tech_pvt, int alarm_code, const char *alarm_message);
 int dump_event_full(private_t *tech_pvt, int is_alarm, int alarm_code, const char *alarm_message);
@@ -578,7 +590,15 @@ int gsmopen_serial_init_audio_port(private_t *tech_pvt, int controldevice_audio_
 int serial_audio_init(private_t *tech_pvt);
 int serial_audio_shutdown(private_t *tech_pvt);
 #ifndef WIN32
+void *SWITCH_THREAD_FUNC gsmopen_do_discovery_thread(switch_thread_t *thread, void *obj);
+void *gsmopen_do_discovery_thread_func(void *obj);
 void find_ttyusb_devices(private_t *tech_pvt, const char *dirname);
+void search_ttyusb_device(private_t *tech_pvt, const char *dirname);
+void pvt_start_interface(private_t *tech_pvt);  //  
+void remove_lock(private_t *tech_pvt );  //  remove lock file from dir   /usr/local/freeswitch/lock/
+void  make_lock(private_t *tech_pvt);  //  make lock file from dir		/usr/local/freeswitch/lock/
+int check_lock(private_t *tech_pvt, char * name);  //  to check lock file in dir   /usr/local/freeswitch/lock/
 #endif// WIN32
 int gsmopen_ussd(private_t *tech_pvt, char *ussd, int waittime);
 int ussd_incoming(private_t *tech_pvt);
+void pvt_disconnect_dongle(private_t  * tech_pvt);  // 
