@@ -275,6 +275,7 @@ library_include_HEADERS = \
 	src/include/switch_buffer.h \
 	src/include/switch_caller.h \
 	src/include/switch_channel.h \
+	src/include/switch_channel_filter.h \
 	src/include/switch_console.h \
 	src/include/switch_core_event_hook.h \
 	src/include/switch_scheduler.h \
@@ -332,6 +333,7 @@ libfreeswitch_la_SOURCES = \
 	src/switch_buffer.c \
 	src/switch_caller.c \
 	src/switch_channel.c \
+	src/switch_channel_filter.c \
 	src/switch_console.c \
 	src/switch_mprintf.c \
 	src/switch_core_media_bug.c \
