@@ -2178,6 +2178,17 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_session_transfer(switch_core_session_
 			/* If we are transferring the CALLER out of the bridge, we do not want to hang up on them */
 			switch_channel_set_variable(channel, SWITCH_HANGUP_AFTER_BRIDGE_VARIABLE, "false");
 
+			/* Set transferee_uuid and transferee_destination on transferer */
+			switch_channel_set_variable_printf(other_channel, SWITCH_TRANSFEREE_UUID_VARIABLE, "%s", switch_core_session_get_uuid(session));
+			switch_channel_set_variable_printf(other_channel, SWITCH_TRANSFEREE_DESTINATION_VARIABLE, "%s", extension);
+
+			/* Set transfer_source and transfer_history on transferee */
+			new_profile->transfer_source = switch_core_sprintf(new_profile->pool, "%ld:%s:bl_xfer:%s/%s/%s", 
+															   (long) switch_epoch_time_now(NULL), uuid,
+															   extension, use_context, use_dialplan);
+			switch_channel_add_variable_var_check(channel, SWITCH_TRANSFER_HISTORY_VARIABLE, new_profile->transfer_source, SWITCH_FALSE, SWITCH_STACK_PUSH);
+			switch_channel_set_variable_var_check(channel, SWITCH_TRANSFER_SOURCE_VARIABLE, new_profile->transfer_source, SWITCH_FALSE);
+
 			switch_channel_hangup(other_channel, SWITCH_CAUSE_BLIND_TRANSFER);
 			switch_ivr_media(uuid, SMF_NONE);
 
@@ -2196,12 +2207,6 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_session_transfer(switch_core_session_
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_NOTICE, "Transfer %s to %s[%s@%s]\n", switch_channel_get_name(channel), use_dialplan,
 						  extension, use_context);
 
-
-		new_profile->transfer_source = switch_core_sprintf(new_profile->pool, "%ld:%s:bl_xfer:%s/%s/%s",
-														   (long) switch_epoch_time_now(NULL), new_profile->uuid_str,
-														   extension, use_context, use_dialplan);
-		switch_channel_add_variable_var_check(channel, SWITCH_TRANSFER_HISTORY_VARIABLE, new_profile->transfer_source, SWITCH_FALSE, SWITCH_STACK_PUSH);
-		switch_channel_set_variable_var_check(channel, SWITCH_TRANSFER_SOURCE_VARIABLE, new_profile->transfer_source, SWITCH_FALSE);
 		return SWITCH_STATUS_SUCCESS;
 	}
 
