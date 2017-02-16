@@ -131,8 +131,9 @@ static switch_status_t tts_commandline_speech_close(switch_speech_handle_t *sh, 
 static switch_status_t tts_commandline_speech_feed_tts(switch_speech_handle_t *sh, char *text, switch_speech_flag_t *flags)
 {
 	switch_status_t ret=SWITCH_STATUS_SUCCESS;
-	char *message, *tmp, *mtmp, *rate;
+	char *message = NULL, *tmp, *mtmp, *rate;
 	tts_commandline_t *info = (tts_commandline_t *) sh->private_info;
+	char *voice, *engine;
 
 	assert(info != NULL);
 
@@ -141,11 +142,47 @@ static switch_status_t tts_commandline_speech_feed_tts(switch_speech_handle_t *s
 		unlink(info->file);
 	}
 
+	/* Support for multiple different engine */
+	engine = switch_core_strdup(sh->memory_pool, info->voice_name);
+	if ((voice = strchr(engine, ':'))) {
+		char *cf = "tts_commandline.conf";
+		switch_xml_t cfg, xml, settings, param;
+
+		*voice++ = '\0';
+
+		if (!(xml = switch_xml_open_cfg(cf, &cfg, NULL))) {
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Open of %s failed\n", cf);
+		} else {
+			if ((settings = switch_xml_child(cfg, "engines"))) {
+				for (param = switch_xml_child(settings, "engine"); param; param = param->next) {
+					char *var = (char *) switch_xml_attr_soft(param, "name");
+					char *val = (char *) switch_xml_attr_soft(param, "command");
+
+					if (!strcmp(var, engine)) {
+						message = switch_core_strdup(sh->memory_pool, val);
+					}
+				}
+			}
+			switch_xml_free(xml);
+		}
+
+		if (zstr(message)) {
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Engine '%s' not found\n", engine);
+			return SWITCH_STATUS_FALSE;
+		}
+
+
+	} else {
+		message = switch_core_strdup(sh->memory_pool, globals.command);
+		voice = info->voice_name;
+	}
+
 	tmp = switch_util_quote_shell_arg(text);
-	message = switch_string_replace(globals.command, "${text}", tmp);
+	mtmp = message;
+	message = switch_string_replace(mtmp, "${text}", tmp);
 	switch_safe_free(tmp); mtmp=message;
 
-	tmp = switch_util_quote_shell_arg(info->voice_name);
+	tmp = switch_util_quote_shell_arg(voice);
 	message = switch_string_replace(mtmp, "${voice}", tmp);
 	switch_safe_free(tmp); switch_safe_free(mtmp); mtmp=message;
 
