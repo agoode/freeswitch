@@ -431,6 +431,8 @@ static switch_status_t channel_on_init(switch_core_session_t *session)
 	switch_mutex_unlock(globals.mutex);
 
 	//switch_channel_set_flag(channel, CF_ACCEPT_CNG);
+	switch_channel_set_flag(channel, CF_AUDIO);
+
 
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -452,6 +454,8 @@ static switch_status_t channel_on_routing(switch_core_session_t *session)
 
 	if (switch_channel_direction(channel) == SWITCH_CALL_DIRECTION_INBOUND) {
 		ftdm_channel_call_indicate(tech_pvt->ftdmchan, FTDM_CHANNEL_INDICATE_PROCEED);
+	} else {
+		switch_channel_answer(channel);
 	}
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -949,6 +953,7 @@ static switch_status_t channel_receive_message_cas(switch_core_session_t *sessio
 	case SWITCH_MESSAGE_INDICATE_ANSWER:
 		{
 			ftdm_channel_call_answer(tech_pvt->ftdmchan);
+			switch_channel_mark_answered(channel);
 		}
 		break;
 	default:
@@ -996,6 +1001,7 @@ static switch_status_t channel_receive_message_b(switch_core_session_t *session,
 	case SWITCH_MESSAGE_INDICATE_ANSWER:
 		{
 			ftdm_channel_call_answer(tech_pvt->ftdmchan);
+			switch_channel_mark_answered(channel);
 		}
 		break;
 	case SWITCH_MESSAGE_INDICATE_REDIRECT:
@@ -1049,6 +1055,7 @@ static switch_status_t channel_receive_message_fxo(switch_core_session_t *sessio
 	case SWITCH_MESSAGE_INDICATE_PROGRESS:
 	case SWITCH_MESSAGE_INDICATE_ANSWER:
 		ftdm_channel_call_answer(tech_pvt->ftdmchan);
+		switch_channel_mark_answered(channel);
 		break;
 	default:
 		break;
@@ -1194,7 +1201,15 @@ switch_io_routines_t freetdm_io_routines = {
 	/*.write_frame */ channel_write_frame,
 	/*.kill_channel */ channel_kill_channel,
 	/*.send_dtmf */ channel_send_dtmf,
-	/*.receive_message*/ channel_receive_message
+	/*.receive_message*/ channel_receive_message,
+	/*.receive_event */ NULL,
+	/*.state_change */ NULL,
+	/*.read_video_frame */ NULL,
+	/*.write_video_frame */ NULL,
+	/*.read_text_frame */ NULL,
+	/*.write_text_frame */ NULL,
+	/*.state_run*/ NULL,
+	/*.get_jb*/ NULL
 };
 
 static const char* channel_get_variable(switch_core_session_t *session, switch_event_t *var_event, const char *variable_name)
