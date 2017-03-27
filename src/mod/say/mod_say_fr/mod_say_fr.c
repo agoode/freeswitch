@@ -110,9 +110,13 @@ static switch_status_t play_group(switch_say_method_t method, switch_say_gender_
 			} else {
 				say_file("digits/%d%d.wav", b, c);
 			}
-		} else {
-			say_file("digits/%d0.wav", b);
-		}
+		}  else {                                                                                                                      
+            if (b == 7 || b == 9) {                                                                                                    
+                say_file("digits/%d0.wav", b-1);                                                                                       
+            } else {
+                say_file("digits/%d0.wav", b);                                                                                         
+            }                                                                                                                          
+        }
 	}
 
 	if (c || (ftdNumber == 1 && (a || b || c))) {
@@ -120,6 +124,10 @@ static switch_status_t play_group(switch_say_method_t method, switch_say_gender_
 		int fVal = c;
 		if (ftdNumber == 1)
 			fVal = itd;
+
+		if (b == 7 || b == 9) {
+            fVal += 10;
+        }
 
 		if (method == SSM_COUNTED) {
 			say_file("digits/h-%d.wav", fVal);
