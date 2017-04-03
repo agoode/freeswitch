@@ -107,6 +107,11 @@ void conference_list(conference_obj_t *conference, switch_stream_handle_t *strea
 			count++;
 		}
 
+		if (conference_utils_member_test_flag(member, MFLAG_EARLY_MEDIA)) {
+			stream->write_function(stream, "%s%s", count ? "|" : "", "early_media");
+			count++;
+		}
+
 		if (conference_utils_member_test_flag(member, MFLAG_TALKING)) {
 			stream->write_function(stream, "%s%s", count ? "|" : "", "talking");
 			count++;
@@ -1128,6 +1133,10 @@ void conference_xlist(conference_obj_t *conference, switch_xml_t x_conference, i
 		switch_xml_set_attr_d(x_conference, "answered", "true");
 	}
 
+	if (conference_utils_test_flag(conference, CFLAG_EARLY_MEDIA)) {
+		switch_xml_set_attr_d(x_conference, "early_media", "true");
+	}
+
 	if (conference_utils_test_flag(conference, CFLAG_ENFORCE_MIN)) {
 		switch_xml_set_attr_d(x_conference, "enforce_min", "true");
 	}
@@ -1258,6 +1267,9 @@ void conference_xlist(conference_obj_t *conference, switch_xml_t x_conference, i
 
 		x_tag = switch_xml_add_child_d(x_flags, "talking", count++);
 		switch_xml_set_txt_d(x_tag, conference_utils_member_test_flag(member, MFLAG_TALKING) ? "true" : "false");
+
+		x_tag = switch_xml_add_child_d(x_flags, "early_media", count++);
+		switch_xml_set_txt_d(x_tag, conference_utils_member_test_flag(member, MFLAG_EARLY_MEDIA) ? "true" : "false");
 
 		x_tag = switch_xml_add_child_d(x_flags, "has_video", count++);
 		switch_xml_set_txt_d(x_tag, switch_channel_test_flag(switch_core_session_get_channel(member->session), CF_VIDEO) ? "true" : "false");
@@ -1816,6 +1828,7 @@ SWITCH_STANDARD_APP(conference_function)
 	int locked = 0;
 	int mpin_matched = 0;
 	uint32_t *mid;
+	switch_bool_t pre_answer;
 
 	if (!switch_channel_test_app_flag_key("conference_silent", channel, CONF_SILENT_DONE) &&
 		(switch_channel_test_flag(channel, CF_RECOVERED) || switch_true(switch_channel_get_variable(channel, "conference_silent_entry")))) {
@@ -1826,11 +1839,21 @@ SWITCH_STANDARD_APP(conference_function)
 
 	switch_channel_set_flag(channel, CF_CONFERENCE);
 
-	if (switch_channel_answer(channel) != SWITCH_STATUS_SUCCESS) {
-		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Channel answer failed.\n");
-		goto end;
+	pre_answer = switch_true(switch_channel_get_variable(channel, "conference_pre_answer"));
+	if (pre_answer && !switch_channel_test_flag(channel, CF_ANSWERED)) {
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_INFO, "Pre-Answering the channel on conference entry.\n");
+		if (switch_channel_pre_answer(channel) != SWITCH_STATUS_SUCCESS) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Channel pre_answer failed.\n");
+			goto end;
+		}
+		switch_channel_set_flag(channel, CF_EARLY_MEDIA);
+	} else {
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Answering the channel on conference entry.\n");
+		if (switch_channel_answer(channel) != SWITCH_STATUS_SUCCESS) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Channel answer failed.\n");
+			goto end;
+		}
 	}
-
 	/* Save the original read codec. */
 	if (!(read_codec = switch_core_session_get_read_codec(session))) {
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Channel has no media!\n");
@@ -2287,8 +2310,12 @@ SWITCH_STANDARD_APP(conference_function)
 	} else {
 		/* if we're not using "bridge:" set the conference answered flag */
 		/* and this isn't an outbound channel, answer the call */
-		if (switch_channel_direction(channel) == SWITCH_CALL_DIRECTION_INBOUND)
+		if ((switch_channel_direction(channel) == SWITCH_CALL_DIRECTION_INBOUND) && (!pre_answer)) {
 			conference_utils_set_flag(conference, CFLAG_ANSWERED);
+			conference_utils_clear_flag(conference, CFLAG_EARLY_MEDIA); /* clear this so it does not show in "conference list" output */
+		}  else if (pre_answer) {
+			conference_utils_set_flag(conference, CFLAG_EARLY_MEDIA);
+		}
 	}
 
 	member.session = session;
@@ -2330,6 +2357,12 @@ SWITCH_STANDARD_APP(conference_function)
 	conference_utils_set_mflags(flags_str, mflags);
 	mflags[MFLAG_RUNNING] = 1;
 
+	if (pre_answer) {
+		mflags[MFLAG_EARLY_MEDIA] = 1;
+	} else {
+		mflags[MFLAG_EARLY_MEDIA] = 0;
+	}
+	
 	if (!(mflags[MFLAG_CAN_SPEAK])) {
 		if (!(mflags[MFLAG_MUTE_DETECT])) {
 			switch_core_media_hard_mute(member.session, SWITCH_TRUE);

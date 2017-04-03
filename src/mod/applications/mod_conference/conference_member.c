@@ -1108,6 +1108,36 @@ void conference_member_set_floor_holder(conference_obj_t *conference, conference
 
 }
 
+switch_status_t conference_member_answer(conference_obj_t *conference, conference_member_t *member)
+{
+	switch_status_t status = SWITCH_STATUS_FALSE;
+
+	switch_mutex_lock(conference->mutex);
+	if (member) {
+		if (conference_utils_member_test_flag(member, MFLAG_EARLY_MEDIA)) {
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Answering pre-answered call for member[%u] channel[%s]\n", 
+																		member->id, switch_channel_get_name(member->channel));
+			if (switch_channel_answer(member->channel) != SWITCH_STATUS_SUCCESS) {
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(member->session), SWITCH_LOG_ERROR, "Channel answer failed.\n");
+				switch_mutex_unlock(conference->mutex);
+				return status;
+			}
+			conference_utils_member_clear_flag(member, MFLAG_EARLY_MEDIA); /* member is not in early_media state anymore, clear */
+			if (conference_utils_test_flag(conference, CFLAG_EARLY_MEDIA)) {
+				conference_utils_clear_flag(conference, CFLAG_EARLY_MEDIA); 
+			}
+			switch_channel_set_variable(member->channel, "conference_pre_answer", "false");  /* clear it in case of transfer*/
+			status = SWITCH_STATUS_SUCCESS;
+		} else {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(member->session), SWITCH_LOG_ERROR, "Member not in EARLY_MEDIA state.\n");
+			switch_mutex_unlock(conference->mutex);
+			return status;
+		}
+	}
+	switch_mutex_unlock(conference->mutex);
+	return status;
+}
+
 /* Gain exclusive access and remove the member from the list */
 switch_status_t conference_member_del(conference_obj_t *conference, conference_member_t *member)
 {
