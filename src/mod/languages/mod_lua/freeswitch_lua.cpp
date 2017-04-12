@@ -447,7 +447,7 @@ int Dbh::query_callback(void *pArg, int argc, char **argv, char **cargv)
 	  return 1;
   }
 
-  ret = lua_tonumber(lua_fun->L, -1);
+  ret = lua_tointeger(lua_fun->L, -1);
   lua_pop(lua_fun->L, 1);
 
   if (ret != 0) {
@@ -457,7 +457,15 @@ int Dbh::query_callback(void *pArg, int argc, char **argv, char **cargv)
   return 0; /* 0 to continue with next row */
 }
 
-bool Dbh::query(char *sql, SWIGLUA_FN lua_fun)
+#if LUA_VERSION_NUM >= 502 /* Lua 5.2 */
+
+#ifndef lua_objlen
+#define lua_objlen      lua_rawlen
+#endif
+
+#endif
+
+bool Dbh::query(char *sql, SWIGLUA_TABLE lua_params, SWIGLUA_FN lua_fun)
 {
   clear_error();
 
@@ -467,19 +475,65 @@ bool Dbh::query(char *sql, SWIGLUA_FN lua_fun)
   }
 
   if (dbh) {
-    if (lua_fun.L) {
-      if (switch_cache_db_execute_sql_callback(dbh, sql, query_callback, &lua_fun, &err) == SWITCH_STATUS_SUCCESS) {
-        return true;
+    char const** params = NULL;
+    size_t n = 0;
+    switch_status_t result;
+
+    if (lua_params.L) {
+      lua_rawgeti(lua_params.L, lua_params.idx, 0);
+      if (lua_isnil(lua_params.L, -1)) {
+        n = lua_objlen(lua_params.L, lua_params.idx);
       }
-    } else { /* if no lua_fun arg is passed from Lua, an empty initialized struct will be sent - see freeswitch.i */
-      if (switch_cache_db_execute_sql(dbh, sql, &err) == SWITCH_STATUS_SUCCESS) {
-        return true;
+      else {
+        n = lua_tointeger(lua_params.L, -1);
+      }
+      lua_pop(lua_params.L, 1);
+
+      if (n > 0) {
+        size_t i;
+        params = (char const**)calloc(n, sizeof(char*));
+        for(i = 1; i <= n; ++i){
+          lua_rawgeti(lua_params.L, lua_params.idx, i);
+          if (lua_isnil(lua_params.L, -1)) {
+            params[i-1] = NULL;
+          }
+          else {
+            params[i-1] = lua_tostring(lua_params.L, -1);
+          }
+          lua_pop(lua_params.L, 1);
+        }
       }
     }
-  } else {
-    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "DBH NOT Connected.\n");
+
+    if (lua_fun.L) {
+      result = switch_cache_db_execute_sql_callback_params(dbh, sql, query_callback, &lua_fun, params, n, &this->err);
+    } else { /* if no lua_fun arg is passed from Lua, an empty initialized struct will be sent - see freeswitch.i */
+      result = switch_cache_db_execute_sql_params(dbh, sql, params, n, &this->err);
+    }
+
+    if (params) {
+      free(params);
+    }
+
+    if (result == SWITCH_STATUS_SUCCESS) {
+      return true;
+    }
   }
+
+  switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "DBH NOT Connected.\n");
   return false;
+}
+
+bool Dbh::query(char *sql, SWIGLUA_FN lua_fun)
+{
+  SWIGLUA_TABLE lua_params = {0};
+  return this->query(sql, lua_params, lua_fun);
+}
+
+bool Dbh::query(char *sql, SWIGLUA_TABLE lua_params)
+{
+  SWIGLUA_FN lua_fun = {0};
+  return this->query(sql, lua_params, lua_fun);
 }
 
 int Dbh::affected_rows()

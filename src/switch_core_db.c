@@ -113,6 +113,143 @@ SWITCH_DECLARE(int) switch_core_db_exec(switch_core_db_t *db, const char *sql, s
 	return ret;
 }
 
+SWITCH_DECLARE(int) switch_core_db_exec_params(switch_core_db_t *db, const char *sql, switch_core_db_callback_func_t callback, void *data,
+											   char const* const* params, int params_count, char **errmsg)
+{
+	int ret = SQLITE_OK;
+	int sane = 300;
+	char *err = NULL;
+
+	if ((!params) || (params_count <= 0)) {
+		return switch_core_db_exec(db, sql, callback, data, errmsg);
+	}
+
+	while (--sane > 0) {
+		sqlite3_stmt *stmt = NULL;
+		ret = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+		if (ret == SQLITE_OK) {
+			int i;
+			for(i = 0; i < params_count; ++i){
+				const char *param = params[i];
+				if (param == NULL) {
+					ret = sqlite3_bind_null(stmt, i + 1);
+				}
+				else {
+					ret = sqlite3_bind_text(stmt, i + 1, param, -1, SQLITE_STATIC);
+				}
+				if (ret != SQLITE_OK) {
+					break;
+				}
+			}
+
+			if (ret == SQLITE_OK) {
+				int colcount = sqlite3_column_count(stmt);
+				char **colnames = NULL, **colvalues = NULL;
+
+				for(;;) {
+					ret = sqlite3_step(stmt);
+					if (ret == SQLITE_DONE) {
+						ret = SQLITE_OK;
+						break;
+					}
+
+					if (ret != SQLITE_ROW) {
+						break;
+					}
+
+					if (callback) {
+						int i;
+
+						if (!colnames) {
+							colnames = (char **)calloc(colcount * 2, sizeof(colnames));
+							for (i = 0; i < colcount; ++i) {
+								colnames[i] = (char *)sqlite3_column_name(stmt, i);
+							}
+							colvalues = &colnames[i];
+						}
+
+						for (i = 0; i < colcount; ++i) {
+							colvalues[i] = (char *)sqlite3_column_text(stmt, i);
+							if ((colvalues[i] == NULL)&&(sqlite3_errcode(db) == SQLITE_NOMEM)) {
+								ret = SQLITE_NOMEM;
+								break;
+							}
+						}
+
+						if (i < colcount) {
+							break;
+						}
+
+						if (callback(data, colcount, colvalues, colnames) ){
+							ret = SQLITE_ABORT;
+							break;
+						}
+					}
+				}
+
+				if (colnames) {
+					free(colnames);
+				}
+			}
+
+			if ((ret != SQLITE_OK) && (ret != SQLITE_DONE) && (ret != SQLITE_ABORT)) {
+				const char *err_ = sqlite3_errmsg(db);
+				if (err_) {
+					size_t n = strlen(err_);
+					err = sqlite3_malloc(n + 1);
+					if (!err) {
+						ret = SQLITE_NOMEM;
+						sqlite3_finalize(stmt);
+						break;
+					}
+					memcpy(err, err_, n);
+					err[n] = '\0';
+				}
+			}
+
+			sqlite3_finalize(stmt);
+		}
+		else {
+			const char *err_ = sqlite3_errmsg(db);
+			if (err_) {
+				size_t n = strlen(err_);
+				err = sqlite3_malloc(n + 1);
+				if (!err) {
+					ret = SQLITE_NOMEM;
+				}
+				else {
+					memcpy(err, err_, n);
+					err[n] = '\0';
+				}
+			}
+		}
+
+		if (ret == SQLITE_BUSY || ret == SQLITE_LOCKED) {
+			if (sane > 1) {
+				if (err) {
+					sqlite3_free(err);
+					err = NULL;
+				}
+				switch_yield(100000);
+				continue;
+			}
+		}
+		else {
+			break;
+		}
+	}
+
+	if (errmsg) {
+		*errmsg = err;
+	} else if (err) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "SQL ERR [%s]\n", err);
+		sqlite3_free(err);
+		err = NULL;
+	}
+
+	return ret;
+}
+
 SWITCH_DECLARE(int) switch_core_db_finalize(switch_core_db_stmt_t *pStmt)
 {
 	return sqlite3_finalize(pStmt);

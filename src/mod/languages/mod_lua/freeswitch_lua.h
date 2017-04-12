@@ -20,6 +20,12 @@ typedef struct{
 
 #define SWIGLUA_FN_GET(fn) {lua_pushvalue(fn.L,fn.idx);}
 
+typedef struct{
+  lua_State* L;
+  int idx;
+}SWIGLUA_TABLE;
+
+#define SWIGLUA_TABLE_GET(t) {lua_pushvalue(t.L,t.idx);}
 
 namespace LUA {
 	class Session:public CoreSession {
@@ -56,6 +62,8 @@ namespace LUA {
 	};
 
   class Dbh {
+    public:
+      static const int SUPPORTS_PARAMS = 1;
     protected:
       switch_cache_db_handle_t *dbh;
       char *err;
@@ -68,6 +76,8 @@ namespace LUA {
       bool connected();
       bool test_reactive(char *test_sql, char *drop_sql = NULL, char *reactive_sql = NULL);
       bool query(char *sql, SWIGLUA_FN lua_fun);
+      bool query(char *sql, SWIGLUA_TABLE lua_params);
+      bool query(char *sql, SWIGLUA_TABLE lua_params, SWIGLUA_FN lua_fun);
       int affected_rows();
       char *last_error();
       void clear_error();
