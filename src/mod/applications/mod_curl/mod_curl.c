@@ -50,7 +50,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_curl_load);
  */
 SWITCH_MODULE_DEFINITION(mod_curl, mod_curl_load, mod_curl_shutdown, NULL);
 
-static char *SYNTAX = "curl url [headers|json|content-type <mime-type>|connect-timeout <seconds>|timeout <seconds>] [get|head|post|delete|put [data]]";
+static char *SYNTAX = "curl url [headers|json|content-type <mime-type>|extra-headers <custom-headers>|connect-timeout <seconds>|timeout <seconds>] [get|head|post|delete|put [data]]";
 
 #define HTTP_SENDFILE_ACK_EVENT "curl_sendfile::ack"
 #define HTTP_SENDFILE_RESPONSE_SIZE 32768
@@ -160,10 +160,11 @@ static size_t read_callback(void *ptr, size_t size, size_t nmemb, void *stream)
 	return ncur;
 }
 
-static http_data_t *do_lookup_url(switch_memory_pool_t *pool, const char *url, const char *method, const char *data, const char *content_type, curl_options_t *options)
+static http_data_t *do_lookup_url(switch_memory_pool_t *pool, const char *url, const char *method, const char *data, const char *content_type, const char *extra_headers, curl_options_t *options)
 {
 	switch_CURL *curl_handle = NULL;
 	long httpRes = 0;
+	uint8_t count;
 	http_data_t *http_data = NULL;
 	switch_curl_slist_t *headers = NULL;
 	struct data_stream dstream = { NULL };
@@ -179,7 +180,7 @@ static http_data_t *do_lookup_url(switch_memory_pool_t *pool, const char *url, c
 		method = "get";
 	}
 
-	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "method: %s, url: %s, content-type: %s\n", method, url, content_type);
+	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "method: %s, url: %s, content-type: %s,extra-headers: %s\n", method, url, content_type, extra_headers);
 	curl_handle = switch_curl_easy_init();
 
 	if (options) {
@@ -189,6 +190,19 @@ static http_data_t *do_lookup_url(switch_memory_pool_t *pool, const char *url, c
 
 		if (options->timeout) {
 			switch_curl_easy_setopt(curl_handle, CURLOPT_TIMEOUT, options->timeout);
+		}
+	}
+
+	if (!zstr(extra_headers)) {
+		/* Now to parse out the individual header pairs */
+		char *argv[32] = { 0 }; /* Probably don't need 32 but just in case */
+		uint32_t argc = 0;
+		char *temp_extraheaders = switch_core_strdup(http_data->pool, extra_headers);
+		argc = switch_separate_string(temp_extraheaders, ',', argv, (sizeof(argv) / sizeof(argv[0])));
+		for (count = 0; count < argc; count++) {
+			headers = switch_curl_slist_append(headers, argv[count]);
+			switch_curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Passing custom header %s to http request\n", argv[count]);
 		}
 	}
 
@@ -769,7 +783,7 @@ SWITCH_STANDARD_APP(curl_app_function)
 {
 	switch_status_t status = SWITCH_STATUS_SUCCESS;
 
-	char *argv[10] = { 0 };
+	char *argv[12] = { 0 };
 	int argc;
 	char *mydata = NULL;
 
@@ -779,6 +793,7 @@ SWITCH_STANDARD_APP(curl_app_function)
 	char *method = NULL;
 	char *postdata = NULL;
 	char *content_type = NULL;
+	char *extra_headers = NULL;
 	switch_bool_t do_headers = SWITCH_FALSE;
 	switch_bool_t do_json = SWITCH_FALSE;
 	http_data_t *http_data = NULL;
@@ -834,6 +849,10 @@ SWITCH_STANDARD_APP(curl_app_function)
 				if (++i < argc) {
 					content_type = switch_core_strdup(pool, argv[i]);
 				}
+			} else if (!strcasecmp("extra-headers", argv[i])) {
+				if (++i < argc) {
+					extra_headers = switch_core_strdup(pool, argv[i]);
+				}
 			}
 		}
 	}
@@ -847,7 +866,7 @@ SWITCH_STANDARD_APP(curl_app_function)
 	if (curl_timeout) options.timeout = atoi(curl_timeout);
 
 
-	http_data = do_lookup_url(pool, url, method, postdata, content_type, &options);
+	http_data = do_lookup_url(pool, url, method, postdata, content_type, extra_headers, &options);
 	if (do_json) {
 		switch_channel_set_variable(channel, "curl_response_data", print_json(pool, http_data));
 	} else {
@@ -885,13 +904,14 @@ SWITCH_STANDARD_APP(curl_app_function)
 SWITCH_STANDARD_API(curl_function)
 {
 	switch_status_t status;
-	char *argv[10] = { 0 };
+	char *argv[12] = { 0 };
 	int argc;
 	char *mydata = NULL;
 	char *url = NULL;
 	char *method = NULL;
 	char *postdata = NULL;
 	char *content_type = NULL;
+	char *extra_headers = NULL;
 	switch_bool_t do_headers = SWITCH_FALSE;
 	switch_bool_t do_json = SWITCH_FALSE;
 	switch_curl_slist_t *slist = NULL;
@@ -954,6 +974,10 @@ SWITCH_STANDARD_API(curl_function)
 				if (++i < argc) {
 					content_type = switch_core_strdup(pool, argv[i]);
 				}
+			} else if (!strcasecmp("extra-headers", argv[i])) {
+				if (++i < argc) {
+					extra_headers = switch_core_strdup(pool, argv[i]);
+				}
 			} else if (!strcasecmp("connect-timeout", argv[i])) {
 				if (++i < argc) {
 					int tmp = atoi(argv[i]);
@@ -977,7 +1001,7 @@ SWITCH_STANDARD_API(curl_function)
 			}
 		}
 
-		http_data = do_lookup_url(pool, url, method, postdata, content_type, &options);
+		http_data = do_lookup_url(pool, url, method, postdata, content_type, extra_headers, &options);
 		if (do_json) {
 			stream->write_function(stream, "%s", print_json(pool, http_data));
 		} else {
