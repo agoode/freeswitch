@@ -1459,7 +1459,7 @@ uint8_t sofia_reg_handle_register_token(nua_t *nua, sofia_profile_t *profile, nu
 			for (; next_path; next_path = next_path->r_next) {
 				path_val = sip_header_as_string(nua_handle_home(nh), (void *) next_path);
 				if (path_val) {
-					path_stripped = sofia_glue_get_url_from_contact(path_val, SWITCH_TRUE);
+					path_stripped = sofia_glue_get_url_from_contact2(path_val, SWITCH_TRUE);
 					su_free(nua_handle_home(nh), path_val);
 					su_strlst_dup_append(path_list, path_stripped);
 					switch_safe_free(path_stripped);

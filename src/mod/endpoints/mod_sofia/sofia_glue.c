@@ -1599,6 +1599,50 @@ char *sofia_glue_get_url_from_contact(char *buf, uint8_t to_dup)
 	return url;
 }
 
+/* like sofia_glue_get_url_from_contact() but leaves '<' and '>' around SIP URI */ 
+char *sofia_glue_get_url_from_contact2(char *buf, uint8_t to_dup)
+{
+	char *url = NULL, *e;
+	int len;
+
+	switch_assert(buf);
+	
+	while(*buf == ' ') {
+		buf++;
+	}
+
+	if (*buf == '"') {
+		buf++;
+		if((e = strchr(buf, '"'))) {
+			buf = e+1;
+		}
+	}
+
+	while(*buf == ' ') {
+		buf++;
+	}
+
+	url = strchr(buf, '<');
+
+	if (url && (e = switch_find_end_paren(url, '<', '>'))) {
+		e++;
+		len = e - url;
+		if (to_dup) {
+			url = strdup(url);
+			e = url + len;
+		}
+
+		*e = '\0';
+	} else {
+		if (to_dup) {
+			url = strdup(buf);
+		} else {
+			url = buf;
+		}
+	}
+	return url;
+}
+
 switch_status_t sofia_glue_profile_rdlock__(const char *file, const char *func, int line, sofia_profile_t *profile)
 {
 	switch_status_t status = switch_thread_rwlock_tryrdlock(profile->rwlock);
