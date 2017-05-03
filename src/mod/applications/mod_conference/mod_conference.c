@@ -1159,6 +1159,10 @@ void conference_xlist(conference_obj_t *conference, switch_xml_t x_conference, i
 		switch_xml_set_attr_d(x_conference, "recording", "true");
 	}
 
+	if (conference_utils_test_flag(conference, CFLAG_TALK_EVENTS)) {
+		switch_xml_set_attr_d(x_conference, "talk_events", "true");
+	}
+
 	if (conference->endconference_grace_time > 0) {
 		switch_snprintf(i, sizeof(i), "%u", conference->endconference_grace_time);
 		switch_xml_set_attr_d(x_conference, "endconference_grace_time", ival);
@@ -1977,6 +1981,10 @@ SWITCH_STANDARD_APP(conference_function)
 
 		conference->flags[CFLAG_JSON_STATUS] = 1;
 		conference_utils_set_cflags(cflags_str, conference->flags);
+		if (conference_utils_test_flag(conference, CFLAG_TALK_EVENTS)) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Enforcing conference event flags (talk events)\n");
+			conference_utils_set_eflags("start-talking,stop-talking", &conference->eflags);
+		}
 
 		if (locked) {
 			switch_mutex_unlock(conference_globals.setup_mutex);
@@ -2063,6 +2071,10 @@ SWITCH_STANDARD_APP(conference_function)
 
 			conference->flags[CFLAG_JSON_STATUS] = 1;
 			conference_utils_set_cflags(cflags_str, conference->flags);
+			if (conference_utils_test_flag(conference, CFLAG_TALK_EVENTS)) {
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Enforcing conference event flags (talk events)\n");
+				conference_utils_set_eflags("start-talking,stop-talking", &conference->eflags);
+			}
 
 			if (locked) {
 				switch_mutex_unlock(conference_globals.setup_mutex);

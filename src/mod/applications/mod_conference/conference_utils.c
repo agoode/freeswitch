@@ -214,6 +214,8 @@ void conference_utils_set_cflags(const char *flags, conference_flag_t *f)
 				f[CFLAG_MANAGE_INBOUND_VIDEO_BITRATE] = 1;
 			} else if (!strcasecmp(argv[i], "video-muxing-personal-canvas")) {
 				f[CFLAG_PERSONAL_CANVAS] = 1;
+			} else if (!strcasecmp(argv[i], "detect-talk-events")) {
+				f[CFLAG_TALK_EVENTS] = 1;
 			}
 		}
 
@@ -289,6 +291,82 @@ void conference_utils_clear_eflags(char *events, uint32_t *f)
 				*f &= ~EFLAG_FLOOR_CHANGE;
 			} else if (!strcmp(event, "record")) {
 				*f &= ~EFLAG_RECORD;
+			}
+
+			event = next;
+		}
+	}
+}
+
+void conference_utils_set_eflags(char *events, uint32_t *f)
+{
+	char buf[512] = "";
+	char *next = NULL;
+	char *event = buf;
+
+	if (events) {
+		switch_copy_string(buf, events, sizeof(buf));
+
+		while (event) {
+			next = strchr(event, ',');
+			if (next) {
+				*next++ = '\0';
+			}
+
+			if (!strcmp(event, "add-member")) {
+				*f |= EFLAG_ADD_MEMBER;
+			} else if (!strcmp(event, "del-member")) {
+				*f |= EFLAG_DEL_MEMBER;
+			} else if (!strcmp(event, "energy-level")) {
+				*f |= EFLAG_ENERGY_LEVEL;
+			} else if (!strcmp(event, "volume-level")) {
+				*f |=  EFLAG_VOLUME_LEVEL;
+			} else if (!strcmp(event, "gain-level")) {
+				*f |=  EFLAG_GAIN_LEVEL;
+			} else if (!strcmp(event, "dtmf")) {
+				*f |= EFLAG_DTMF;
+			} else if (!strcmp(event, "stop-talking")) {
+				*f |= EFLAG_STOP_TALKING;
+			} else if (!strcmp(event, "start-talking")) {
+				*f |= EFLAG_START_TALKING;
+			} else if (!strcmp(event, "mute-detect")) {
+				*f |= EFLAG_MUTE_DETECT;
+			} else if (!strcmp(event, "mute-member")) {
+				*f |= EFLAG_MUTE_MEMBER;
+			} else if (!strcmp(event, "vblind-member")) {
+				*f |= EFLAG_BLIND_MEMBER;
+			} else if (!strcmp(event, "kick-member")) {
+				*f |=  EFLAG_KICK_MEMBER;
+			} else if (!strcmp(event, "dtmf-member")) {
+				*f |=  EFLAG_DTMF_MEMBER;
+			} else if (!strcmp(event, "energy-level-member")) {
+				*f |=  EFLAG_ENERGY_LEVEL_MEMBER;
+			} else if (!strcmp(event, "volume-in-member")) {
+				*f |=  EFLAG_VOLUME_IN_MEMBER;
+			} else if (!strcmp(event, "volume-out-member")) {
+				*f |= EFLAG_VOLUME_OUT_MEMBER;
+			} else if (!strcmp(event, "play-file")) {
+				*f |= EFLAG_PLAY_FILE;
+			} else if (!strcmp(event, "play-file-done")) {
+				*f |= EFLAG_PLAY_FILE_DONE;
+			} else if (!strcmp(event, "play-file-member")) {
+				*f |= EFLAG_PLAY_FILE_MEMBER;
+			} else if (!strcmp(event, "speak-text")) {
+				*f |= EFLAG_SPEAK_TEXT;
+			} else if (!strcmp(event, "speak-text-member")) {
+				*f |= EFLAG_SPEAK_TEXT_MEMBER;
+			} else if (!strcmp(event, "lock")) {
+				*f |= EFLAG_LOCK;
+			} else if (!strcmp(event, "unlock")) {
+				*f |= EFLAG_UNLOCK;
+			} else if (!strcmp(event, "transfer")) {
+				*f |= EFLAG_TRANSFER;
+			} else if (!strcmp(event, "bgdial-result")) {
+				*f |= EFLAG_BGDIAL_RESULT;
+			} else if (!strcmp(event, "floor-change")) {
+				*f |= EFLAG_FLOOR_CHANGE;
+			} else if (!strcmp(event, "record")) {
+				*f |= EFLAG_RECORD;
 			}
 
 			event = next;
