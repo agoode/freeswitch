@@ -125,7 +125,7 @@ void conference_member_update_status_field(conference_member_t *member)
 {
 	char *str, *vstr = "", display[128] = "", *json_display = NULL;
 	cJSON *json, *audio, *video;
-
+	mcu_canvas_t *canvas = NULL;
 	if (!member->conference->la || !member->json || !member->status_field || conference_utils_member_test_flag(member, MFLAG_SECOND_SCREEN)) {
 		return;
 	}
@@ -201,6 +201,16 @@ void conference_member_update_status_field(conference_member_t *member)
 								  cJSON_CreateString(member->video_role_id) : cJSON_CreateNull());
 
 			cJSON_AddItemToObject(video, "videoLayerID", cJSON_CreateNumber(member->video_layer_id));
+
+			cJSON_AddItemToObject(video, "canvasID", cJSON_CreateNumber(member->canvas_id));
+			if (member->canvas_id > -1 && member->video_layer_id > -1) {
+				canvas = member->conference->canvases[member->canvas_id];
+				if (canvas) {
+					cJSON_AddItemToObject(video, "layoutName", cJSON_CreateString(canvas->vlayout->name));
+				}
+			} else {
+				cJSON_AddItemToObject(video, "layoutName", cJSON_CreateString(""));	
+			}
 
 			cJSON_AddItemToObject(json, "video", video);
 		} else {

@@ -1413,7 +1413,8 @@ switch_status_t conference_video_attach_video_layer(conference_member_t *member,
 void conference_video_init_canvas_layers(conference_obj_t *conference, mcu_canvas_t *canvas, video_layout_t *vlayout)
 {
 	int i = 0;
-
+	cJSON *msg, *jdata, *rdata;
+	
 	if (!canvas) return;
 
 	switch_thread_rwlock_wrlock(canvas->video_rwlock);
@@ -1537,7 +1538,22 @@ void conference_video_init_canvas_layers(conference_obj_t *conference, mcu_canva
 	if (conference->video_canvas_bgimg && !vlayout->bgimg) {
 		conference_video_set_canvas_bgimg(canvas, conference->video_canvas_bgimg);
 	}
+	
+	if (conference->la_name) {
+		msg = cJSON_CreateObject();
+		jdata = json_add_child_obj(msg, "data", NULL);
 
+		cJSON_AddItemToObject(msg, "eventChannel", cJSON_CreateString(conference->mod_event_channel));
+		cJSON_AddItemToObject(jdata, "action", cJSON_CreateString("response"));
+		cJSON_AddItemToObject(jdata, "conf-command", cJSON_CreateString("layoutUpdated"));
+		cJSON_AddItemToObject(jdata, "response", cJSON_CreateString("OK"));
+		rdata = cJSON_CreateObject();
+		cJSON_AddItemToObject(rdata, "canvasID", cJSON_CreateNumber(canvas->canvas_id));
+		cJSON_AddItemToObject(rdata, "layoutName", cJSON_CreateString(vlayout->name));
+		cJSON_AddItemToObject(jdata, "responseData", rdata);
+		switch_event_channel_broadcast(conference->la_name, &msg, __FILE__, conference_globals.event_channel_id);
+	}
+				
 	switch_mutex_unlock(canvas->mutex);
 	switch_thread_rwlock_unlock(canvas->video_rwlock);
 
