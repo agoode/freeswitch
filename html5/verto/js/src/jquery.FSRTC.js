@@ -28,8 +28,9 @@
  * jquery.FSRTC.js - WebRTC Glue code
  *
  */
-
 (function($) {
+	// myself will be defined in jquery.jsonrpcclient.js
+	var myself;
 
     // Find the line in sdpLines that starts with |prefix|, and, if specified,
     // contains |substr| (case-insensitive search).
@@ -105,8 +106,9 @@
 	    offerToReceiveVideo: this.options.useVideo ? true : false,
 	};
 
-        if (self.options.useVideo) {
-            self.options.useVideo.style.display = 'none';
+		// if (self.options.useVideo) {
+		if (myself.options.useVideo) {
+			myself.options.useVideo.style.display = 'none';
         }
 
         setCompat();
