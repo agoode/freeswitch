@@ -890,6 +890,7 @@ struct conference_member {
 	switch_buffer_t *text_buffer;
 	char *text_framedata;
 	uint32_t text_framesize;
+	int change_banner;
 
 	mcu_layer_cam_opts_t cam_opts;
 	switch_core_video_filter_t video_filters;
