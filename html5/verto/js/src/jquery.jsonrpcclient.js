@@ -360,8 +360,9 @@
     };
 
     $.JsonRpcClient.prototype.stopRetrying = function() {
-      if (self.to)
-        clearTimeout(self.to);
+	  // see self redefinition below
+      if (myself.to)
+        clearTimeout(myself.to);
     }
 
     $.JsonRpcClient.prototype._getSocket = function(onmessage_cb) {
@@ -390,7 +391,10 @@
 
         if (socket.readyState < 1) {
             // The websocket is not open yet; we have to set sending of the message in onopen.
-            self = this; // In closure below, this is set to the WebSocket.  Use self instead.
+			// Thou shalt not steal
+			// window.self redefinition! see myself declaration in jquery.FSRTC.js
+            // self = this; // In closure below, this is set to the WebSocket.  Use self instead.
+			myself = this; // In closure below, this is set to the WebSocket.  Use self instead.
             $.JsonRpcClient.q.push(request_json);
         } else {
             // We have a socket and it should be ready to send on.
@@ -472,42 +476,42 @@
                     var orig_req = this._ws_callbacks[response.id].request;
 
                     // if this is an auth request, send the credentials and resend the failed request
-                    if (!self.authing && response.error.code == -32000 && self.options.login && self.options.passwd) {
-                        self.authing = true;
+                    if (!myself.authing && response.error.code == -32000 && myself.options.login && myself.options.passwd) {
+                        myself.authing = true;
 
-                        this.call("login", { login: self.options.login, passwd: self.options.passwd, loginParams: self.options.loginParams,
-					     userVariables: self.options.userVariables},
+                        this.call("login", { login: myself.options.login, passwd: myself.options.passwd, loginParams: myself.options.loginParams,
+					     userVariables: myself.options.userVariables},
                             this._ws_callbacks[response.id].request_obj.method == "login" ?
                             function(e) {
-                                self.authing = false;
+                                myself.authing = false;
                                 console.log("logged in");
-                                delete self._ws_callbacks[response.id];
+                                delete myself._ws_callbacks[response.id];
 
-                                if (self.options.onWSLogin) {
-                                    self.options.onWSLogin(true, self);
+                                if (myself.options.onWSLogin) {
+                                    myself.options.onWSLogin(true, myself);
                                 }
                             }
 
                             :
 
                             function(e) {
-                                self.authing = false;
+                                myself.authing = false;
                                 console.log("logged in, resending request id: " + response.id);
-                                var socket = self.options.getSocket(self.wsOnMessage);
+                                var socket = myself.options.getSocket(myself.wsOnMessage);
                                 if (socket !== null) {
                                     socket.send(orig_req);
                                 }
-                                if (self.options.onWSLogin) {
-                                    self.options.onWSLogin(true, self);
+                                if (myself.options.onWSLogin) {
+                                    myself.options.onWSLogin(true, myself);
                                 }
                             },
 
                             function(e) {
                                 console.log("error logging in, request id:", response.id);
-                                delete self._ws_callbacks[response.id];
+                                delete myself._ws_callbacks[response.id];
                                 error_cb(response.error, this);
-                                if (self.options.onWSLogin) {
-                                self.options.onWSLogin(false, self);
+                                if (myself.options.onWSLogin) {
+                                myself.options.onWSLogin(false, myself);
                                 }
                             });
                             return;
@@ -544,7 +548,7 @@
                     result: reply
                 };
 
-                var socket = self.options.getSocket(self.wsOnMessage);
+                var socket = myself.options.getSocket(myself.wsOnMessage);
                 if (socket !== null) {
                     socket.send($.toJSON(msg));
                 }
