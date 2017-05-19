@@ -35,6 +35,8 @@
           incomingBandwidth: 'default',
           vidQual: undefined,
           askRecoverCall: false,
+          uniqueLogin: false,
+          infoChat: false,
           googNoiseSuppression: true,
           googHighpassFilter: true,
           googEchoCancellation: true,
