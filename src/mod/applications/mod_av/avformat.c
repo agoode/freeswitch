@@ -40,6 +40,10 @@
 #include <libavresample/avresample.h>
 #include <libswscale/swscale.h>
 
+#include <libavfilter/avfiltergraph.h>
+#include <libavfilter/buffersink.h>
+#include <libavfilter/buffersrc.h>
+
 #define SCALE_FLAGS SWS_BICUBIC
 #define DFT_RECORD_OFFSET 0
 
@@ -122,6 +126,11 @@ struct av_file_context {
 	switch_bool_t read_paused;
 	int errs;
 	switch_file_handle_t *handle;
+
+	AVFilterContext *buffersink_ctx;
+	AVFilterContext *buffersrc_ctx;
+	AVFilterGraph *filter_graph;
+	int live;
 };
 
 typedef struct av_file_context av_file_context_t;
@@ -1364,7 +1373,74 @@ static void mod_avformat_destroy_output_context(av_file_context_t *context)
 		avresample_free(&context->audio_st.resample_ctx);
 	}
 
+	avfilter_graph_free(&context->filter_graph);
 	avformat_close_input(&context->fc);
+}
+
+static int init_filters(av_file_context_t *context, const char *filters_descr)
+{
+    char args[512];
+    int ret;
+    AVFilter *buffersrc  = avfilter_get_by_name("buffer");
+    AVFilter *buffersink = avfilter_get_by_name("buffersink");
+    AVFilterInOut *outputs = avfilter_inout_alloc();
+    AVFilterInOut *inputs  = avfilter_inout_alloc();
+    enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_YUV420P };
+	AVCodecContext *dec_ctx = context->video_st.st->codec;   
+	AVFilterGraph *filter_graph = avfilter_graph_alloc();
+	
+	if (!filter_graph) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Out of memory\n");
+		return AVERROR(ENOMEM);		
+	}
+
+    /* buffer video source: the decoded frames from the decoder will be inserted here. */
+	snprintf(args, sizeof(args), "width=%d:height=%d:pix_fmt=%d:time_base=%d/%d:sar=%d",
+			 dec_ctx->width, dec_ctx->height, /*dec_ctx->pix_fmt*/ 0 /* FORCE AV_PIX_FMT_YUV420P */,
+			 1,1,//dec_ctx->time_base.num, dec_ctx->time_base.den,
+			 dec_ctx->sample_aspect_ratio.num);
+	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Creating buffer source '%s'\n", args);
+	
+    ret = avfilter_graph_create_filter(&context->buffersrc_ctx, buffersrc, "in", args, NULL, filter_graph);
+    if (ret < 0) {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Cannot create buffer source '%s' (%s)\n", args, get_error_text(ret));
+		avfilter_graph_free(&filter_graph);
+        return ret;
+    }
+
+    /* buffer video sink: to terminate the filter chain. */
+    ret = avfilter_graph_create_filter(&context->buffersink_ctx, buffersink, "out",
+                                       NULL, pix_fmts, filter_graph);
+    if (ret < 0) {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Cannot create buffer sink (%s)\n", get_error_text(ret));
+		avfilter_graph_free(&filter_graph);
+        return ret;
+    }
+
+    /* Endpoints for the filter graph. */
+    outputs->name       = av_strdup("in");
+    outputs->filter_ctx = context->buffersrc_ctx;
+    outputs->pad_idx    = 0;
+    outputs->next       = NULL;
+
+    inputs->name       = av_strdup("out");
+    inputs->filter_ctx = context->buffersink_ctx;
+    inputs->pad_idx    = 0;
+    inputs->next       = NULL;
+	
+    if ((ret = avfilter_graph_parse(filter_graph, filters_descr, inputs, outputs, NULL)) < 0) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Cannot create filter '%s' (%s)\n", filters_descr, get_error_text(ret));
+		avfilter_graph_free(&filter_graph);		
+        return ret;
+	}
+
+    if ((ret = avfilter_graph_config(filter_graph, NULL)) < 0) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Cannot config graph '%s' (%s)\n", filters_descr, get_error_text(ret));
+        return ret;
+	}
+		
+	context->filter_graph = filter_graph;
+    return 0;
 }
 
 static switch_status_t open_input_file(av_file_context_t *context, switch_file_handle_t *handle, const char *filename)
@@ -1376,13 +1452,54 @@ static switch_status_t open_input_file(av_file_context_t *context, switch_file_h
 	int i;
 	switch_status_t status = SWITCH_STATUS_SUCCESS;
 
+    const char * val = 0;
+    const char * key = 0;
+    AVDictionary *options = NULL;
+    AVInputFormat *input = NULL;
+	AVDictionaryEntry *t = NULL;
+
+	// any av_dict_ file parameter will be part of AVDictionary options
+	if (handle->params && handle->params->headers) {
+		for (switch_event_header_t *hp = handle->params->headers; hp; hp = hp->next) {
+			if (hp->name && hp->name - strstr(hp->name, "av_dict_") == 0) {
+				key = hp->name + sizeof("av_dict_") - 1;
+				val = switch_event_get_header(handle->params, hp->name);
+				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Setting '%s'='%s' for input file '%s'\n", key, val, filename);
+				av_dict_set(&options, key, val, 0);
+			}
+		}
+	}
+
+	// http/mjpg streams (and some rtsp live streams as well) suddenly disconnects for no reason
+	// debugging it was possible to find where it happens. The av_live file parameter sets the context->live member
+	// search for "->live" to see where it's used (hope it doesn't break anything)
+	if (handle->params && (val = switch_event_get_header(handle->params, "av_live"))) {
+		context->live = switch_true(val);
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Setting live flag: %s for input file '%s'\n", val, filename);
+	}
+
+	// av_f is the input format parameter
+	if (handle->params && (val = switch_event_get_header(handle->params, "av_f"))) {
+		input = av_find_input_format(val);
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Setting input format '%s' for input file '%s'%s\n", val, filename, input ? "" : " FAILED");
+	}
+
 	// av_dict_set(&opts, "c:v", "libvpx", 0);
 
 	/** Open the input file to read from it. */
-	if ((error = avformat_open_input(&context->fc, filename, NULL, NULL)) < 0) {
+	if ((error = avformat_open_input(&context->fc, filename, input, &options)) < 0) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Could not open input file '%s' (error '%s')\n", filename, get_error_text(error));
 		switch_goto_status(SWITCH_STATUS_FALSE, err);
 	}
+	if (options) {
+		// check which dictionary parameter got ignored
+		while ( (t = av_dict_get(options, "", t, AV_DICT_IGNORE_SUFFIX)) ) {
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "AVDictionary option '%s'='%s' not processed\n", t->key, t->value);
+		}
+		
+		av_dict_free(&options);
+	}
+	
 
 	handle->seekable = context->fc->iformat->read_seek2 ? 1 : (context->fc->iformat->read_seek ? 1 : 0);
 	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "file %s is %sseekable\n", filename, handle->seekable ? "" : "not ");
@@ -1437,6 +1554,11 @@ static switch_status_t open_input_file(av_file_context_t *context, switch_file_h
 	if (context->has_video && (error = avcodec_open2(context->video_st.st->codec, video_codec, NULL)) < 0) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Could not open input codec (error '%s')\n", get_error_text(error));
 		context->has_video = 0;
+	} else if (handle->params && (val = switch_event_get_header(handle->params, "av_vf"))) {
+		// av_vf is the video filter(s) parameter. If present, a filter graph may be built
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Creating filter graph '%s' for input file '%s'\n", val, filename);
+		avfilter_register_all();
+		init_filters(context, val);
 	}
 
 	// printf("has audio:%d has_video:%d\n", context->has_audio, context->has_video);
@@ -1622,11 +1744,11 @@ again:
 
 			if (got_data && error >= 0) {
 				switch_img_fmt_t fmt = SWITCH_IMG_FMT_I420;
-				if ((
-						vframe->format == AV_PIX_FMT_YUVA420P ||
+				if (	!context->filter_graph && ( 
+						(vframe->format == AV_PIX_FMT_YUVA420P ||
 						vframe->format == AV_PIX_FMT_RGBA ||
 						vframe->format == AV_PIX_FMT_ARGB ||
-						vframe->format == AV_PIX_FMT_BGRA )) {
+						vframe->format == AV_PIX_FMT_BGRA ))) {
 					fmt = SWITCH_IMG_FMT_ARGB;
 				} else if (vframe->format != AV_PIX_FMT_YUV420P) {
 					AVFrame *frm = vframe;
@@ -1672,36 +1794,72 @@ again:
 
 				context->handle->mm.fmt = fmt;
 
-				img = switch_img_alloc(NULL, fmt, vframe->width, vframe->height, 1);
+				if (context->filter_graph) {
+					AVFrame *filt_frame;
+					
+					/* push the decoded frame into the filtergraph */
+					if (av_buffersrc_add_frame(context->buffersrc_ctx, vframe) < 0) {
+						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Error while feeding the filtergraph\n");
+						break;                
+					}                
 
-				if (img) {
-					int64_t *pts = malloc(sizeof(int64_t));
+					filt_frame = av_frame_alloc();
+					switch_assert(filt_frame);
+					
+					/* pull filtered frames from the filtergraph */
+					while (1) {						
+						int ret = av_buffersink_get_frame(context->buffersink_ctx, filt_frame);
+						if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+							break;
+						if (ret < 0)
+							break;						
+						img = switch_img_alloc(NULL, SWITCH_IMG_FMT_I420, filt_frame->width, filt_frame->height, 1);
+						if (img) {
+							int64_t *pts = malloc(sizeof(int64_t));
 
-					if (pts) {
+							if (pts) {
+								*pts = filt_frame->pkt_pts;
+								avframe2img(filt_frame, img);
+
+								img->user_priv = pts;
+								
+								context->vid_ready = 1;
+								switch_queue_push(context->eh.video_queue, img);
+								context->last_vid_push = switch_time_now();
+							}
+						}				
+						av_frame_unref(filt_frame);
+					}
+					av_frame_free(&filt_frame);			
+				} else {
+					img = switch_img_alloc(NULL, fmt, vframe->width, vframe->height, 1);
+
+					if (img) {
+						int64_t *pts = malloc(sizeof(int64_t));
+
+						if (pts) {
 #ifdef ALT_WAY
-						int diff;
-						int sleep = 66000;
+							int diff;
+							int sleep = 66000;
 #endif
-						*pts = vframe->pkt_pts;
-						avframe2img(vframe, img);
-						img->user_priv = pts;
+							*pts = vframe->pkt_pts;
+							avframe2img(vframe, img);
+							img->user_priv = pts;
 
 #ifdef ALT_WAY
-						diff = sleep - (switch_time_now() - context->last_vid_push);
+							diff = sleep - (switch_time_now() - context->last_vid_push);
 
-						if (diff > 0 && diff <= sleep) {
-							switch_core_timer_next(&context->video_timer);
-						} else {
-							switch_core_timer_sync(&context->video_timer);
+							if (diff > 0 && diff <= sleep) {
+								switch_core_timer_next(&context->video_timer);
+							} else {
+								switch_core_timer_sync(&context->video_timer);
+							}
+#endif
+
+							context->vid_ready = 1;
+							switch_queue_push(context->eh.video_queue, img);
+							context->last_vid_push = switch_time_now();
 						}
-#endif
-
-						context->vid_ready = 1;
-						switch_queue_push(context->eh.video_queue, img);
-						context->last_vid_push = switch_time_now();
-						
-						
-
 					}
 				}
 			}
@@ -2496,7 +2654,8 @@ static switch_status_t av_file_read_video(switch_file_handle_t *handle, switch_f
 
 		if (pts == 0 || context->video_start_time == 0) mst->next_pts = 0;
 
-		if ((mst->next_pts && (now - mst->next_pts) > max_delta)) {
+		// without the 'live' check, all http/mjpg frames were "too late"
+		if ((mst->next_pts && (now - mst->next_pts) > max_delta) && !context->live) {
 			//switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "picture is too late, off: %" SWITCH_INT64_T_FMT " max delta: %" SWITCH_INT64_T_FMT " queue size:%u fps:%u/%0.2f\n", (int64_t)(now - mst->next_pts), max_delta, switch_queue_size(context->eh.video_queue), context->read_fps, handle->mm.fps);
 			switch_img_free(&img);
 			//max_delta = AV_TIME_BASE;
