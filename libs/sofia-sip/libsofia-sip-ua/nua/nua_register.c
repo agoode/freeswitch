@@ -936,8 +936,10 @@ static int nua_register_client_response(nua_client_request_t *cr,
    route for that address-of-record.
 
   */
-    su_free(nh->nh_home, nr->nr_route);
-    nr->nr_route = sip_route_dup(nh->nh_home, sip->sip_service_route);
+    if (NH_PGET(nh, service_route_enable)) {
+      su_free(nh->nh_home, nr->nr_route);
+      nr->nr_route = sip_route_dup(nh->nh_home, sip->sip_service_route);
+    }
 
     {
       /* RFC 3327 */

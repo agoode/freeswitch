@@ -3282,6 +3282,7 @@ void *SWITCH_THREAD_FUNC sofia_profile_thread_run(switch_thread_t *thread, void 
 				   TAG_IF(profile->pres_type == PRES_TYPE_PNP, NUTAG_ALLOW_EVENTS("ua-profile")),
 				   NUTAG_ALLOW_EVENTS("refer"), SIPTAG_SUPPORTED_STR(supported),
 				   TAG_IF(strcasecmp(profile->user_agent, "_undef_"), SIPTAG_USER_AGENT_STR(profile->user_agent)),
+				   NUTAG_SERVICE_ROUTE_ENABLE(sofia_test_pflag(profile, PFLAG_ENABLE_SERVICE_ROUTE) ? 1 : 0),
 				   TAG_END());
 
 	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Set params for %s\n", profile->name);
@@ -5915,6 +5916,12 @@ switch_status_t config_sofia(sofia_config_t reload, char *profile_name)
 						profile->proxy_notify_events = switch_core_strdup(profile->pool, val);
 					} else if (!strcasecmp(var, "proxy-info-content-types")) {
 						profile->proxy_info_content_types = switch_core_strdup(profile->pool, val);
+					} else if (!strcasecmp(var, "enable-service-route")) {
+						if (switch_true(val)) {
+							sofia_set_pflag(profile, PFLAG_ENABLE_SERVICE_ROUTE);
+						} else {
+							sofia_clear_pflag(profile, PFLAG_ENABLE_SERVICE_ROUTE);
+						}
 					}
 				}
 
