@@ -1565,7 +1565,7 @@ nua_registration_t *nua_registration_by_aor(nua_registration_t const *list,
     if (nr->nr_aor) {
       if (aor && url_cmp(nr->nr_aor->a_url, aor->a_url) == 0)
 	return (nua_registration_t *)nr;
-      if (!namewise && alt_aor && url_cmp(nr->nr_aor->a_url, aor->a_url) == 0)
+      if (!namewise && alt_aor && url_cmp(nr->nr_aor->a_url, alt_aor->a_url) == 0)
 	namewise = nr;
     }
 
