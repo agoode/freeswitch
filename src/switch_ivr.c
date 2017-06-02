@@ -1822,7 +1822,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_3p_nomedia(const char *uuid, switch_m
 		channel = switch_core_session_get_channel(session);
 
 		if (switch_true(switch_channel_get_variable_dup(channel, "bypass_media_not_transcoding", SWITCH_FALSE, -1))) {
-			if (switch_channel_get_variable(channel, "transcoding_necessary")) {
+			if (switch_channel_var_true(channel, "transcoding_necessary")) {
 				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,  "Transcoding is necessary!\n");
 				switch_core_session_rwunlock(session);
 				return SWITCH_STATUS_INUSE;
@@ -1847,7 +1847,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_3p_nomedia(const char *uuid, switch_m
 				other_channel = switch_core_session_get_channel(other_session);
 
 				if (switch_true(switch_channel_get_variable_dup(other_channel, "bypass_media_not_transcoding", SWITCH_FALSE, -1))) {
-					if (switch_channel_get_variable(other_channel, "transcoding_necessary")) {
+					if (switch_channel_var_true(other_channel, "transcoding_necessary")) {
 						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,  "Transcoding is necessary!\n");
 						switch_core_session_rwunlock(session);
 						return SWITCH_STATUS_INUSE;
@@ -1952,7 +1952,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_nomedia(const char *uuid, switch_medi
 		}
 
 		if (switch_true(switch_channel_get_variable_dup(channel, "bypass_media_not_transcoding", SWITCH_FALSE, -1))) {
-			if (switch_channel_get_variable(channel, "transcoding_necessary")) {
+			if (switch_channel_var_true(channel, "transcoding_necessary")) {
 				switch_core_session_rwunlock(session);
 				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,  "Transcoding is necessary!\n");
 				return SWITCH_STATUS_INUSE;
@@ -1979,7 +1979,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_nomedia(const char *uuid, switch_medi
 				other_channel = switch_core_session_get_channel(other_session);
 
 				if (switch_true(switch_channel_get_variable_dup(other_channel, "bypass_media_not_transcoding", SWITCH_FALSE, -1))) {
-					if (switch_channel_get_variable(other_channel, "transcoding_necessary")) {
+					if (switch_channel_var_true(other_channel, "transcoding_necessary")) {
 						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,  "Transcoding is necessary!\n");
 						switch_core_session_rwunlock(session);
 						return SWITCH_STATUS_INUSE;
