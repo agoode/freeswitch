@@ -14,7 +14,7 @@ ExecStart=/usr/bin/freeswitch -u freeswitch -g freeswitch -ncwait $DAEMON_OPTS
 TimeoutSec=45s
 Restart=always
 ; exec
-User=root
+User=freeswitch
 Group=daemon
 LimitCORE=infinity
 LimitNOFILE=100000
