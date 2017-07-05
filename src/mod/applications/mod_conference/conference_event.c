@@ -253,10 +253,27 @@ void conference_event_mod_channel_handler(const char *event_channel, cJSON *json
 					video_layout_t *vlayout;
 					cJSON *obj = cJSON_CreateObject();
 					cJSON *resarray = cJSON_CreateArray();
-
+					cJSON *geomarray = cJSON_CreateArray();
+					int i;
+					
 					switch_core_hash_this(hi, &vvar, NULL, &val);
 					vlayout = (video_layout_t *)val;
 					for (i = 0; i < vlayout->layers; i++) {
+						cJSON *geom = cJSON_CreateObject();					
+						cJSON_AddItemToObject(geom, "x", cJSON_CreateNumber(vlayout->images[i].x));
+						cJSON_AddItemToObject(geom, "y", cJSON_CreateNumber(vlayout->images[i].y));
+						cJSON_AddItemToObject(geom, "hscale", cJSON_CreateNumber(vlayout->images[i].hscale));
+						cJSON_AddItemToObject(geom, "scale", cJSON_CreateNumber(vlayout->images[i].scale));
+						cJSON_AddItemToObject(geom, "floor", cJSON_CreateNumber(vlayout->images[i].floor));
+						cJSON_AddItemToObject(geom, "flooronly", cJSON_CreateNumber(vlayout->images[i].flooronly));
+						cJSON_AddItemToObject(geom, "fileonly", cJSON_CreateNumber(vlayout->images[i].fileonly));
+						cJSON_AddItemToObject(geom, "overlap", cJSON_CreateNumber(vlayout->images[i].overlap));
+						cJSON_AddItemToObject(geom, "zoom", cJSON_CreateNumber(vlayout->images[i].zoom));
+						cJSON_AddItemToObject(geom, "border", cJSON_CreateNumber(vlayout->images[i].border));
+						if (vlayout->images[i].res_id) {
+							cJSON_AddItemToObject(geom, "resID", cJSON_CreateString((char *)vlayout->images[i].res_id));
+						}						
+						cJSON_AddItemToArray(geomarray, geom);
 						if (vlayout->images[i].res_id) {
 							cJSON_AddItemToArray(resarray, cJSON_CreateString((char *)vlayout->images[i].res_id));
 						}
@@ -265,6 +282,7 @@ void conference_event_mod_channel_handler(const char *event_channel, cJSON *json
 					cJSON_AddItemToObject(obj, "type", cJSON_CreateString("layout"));
 					cJSON_AddItemToObject(obj, "name", cJSON_CreateString((char *)vvar));
 					cJSON_AddItemToObject(obj, "resIDS", resarray);
+					cJSON_AddItemToObject(obj, "layers", geomarray);
 
 					cJSON_AddItemToArray(array, obj);
 				}
