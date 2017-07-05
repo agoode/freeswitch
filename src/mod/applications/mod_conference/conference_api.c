@@ -2308,32 +2308,43 @@ switch_status_t conference_api_sub_vid_banner(conference_member_t *member, switc
 {
 	mcu_layer_t *layer = NULL;
 	char *text = (char *) data;
-
+	const char *suffix = "force";
+	size_t slen = strlen(suffix);
+	int force = 0;
+	
 	if (member == NULL)
 		return SWITCH_STATUS_GENERR;
-
-	switch_url_decode(text);
 
 	if (!switch_channel_test_flag(member->channel, CF_VIDEO)) {
 		stream->write_function(stream, "Channel %s does not have video capability!\n", switch_channel_get_name(member->channel));
 		return SWITCH_STATUS_SUCCESS;
 	}
 
-	layer = conference_video_get_layer_locked(member);
-
-	if (!layer) {
-		stream->write_function(stream, "Channel %s is not in a video layer\n", switch_channel_get_name(member->channel));
-		goto end;
-	}
-
+	switch_url_decode(text);
 	if (zstr(text)) {
 		stream->write_function(stream, "No text supplied\n", switch_channel_get_name(member->channel));
 		goto end;
 	}
+		
+	if (strlen(text) > slen && !strcasecmp(text + strlen(text) - slen, suffix)) {
+		text[strlen(text) - slen] = '\0';
+		force = 1;
+	}	
 
-	member->video_banner_text = switch_core_strdup(member->pool, text);
+	layer = conference_video_get_layer_locked(member);
 
-	conference_video_layer_set_banner(member, layer, NULL);
+	if (!layer) {
+		if (force) {
+			member->change_banner = 1;
+			member->video_banner_text = switch_core_strdup(member->pool, text);
+		} else {
+			stream->write_function(stream, "Channel %s is not in a video layer\n", switch_channel_get_name(member->channel));
+			goto end;
+		}
+	} else {
+		member->video_banner_text = switch_core_strdup(member->pool, text);
+		conference_video_layer_set_banner(member, layer, NULL);
+	}
 
 	stream->write_function(stream, "+OK\n");
 

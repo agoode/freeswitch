@@ -1372,7 +1372,8 @@ switch_status_t conference_video_attach_video_layer(conference_member_t *member,
 	}
 
 	var = NULL;
-	if (member->video_banner_text || (var = switch_channel_get_variable_dup(channel, "video_banner_text", SWITCH_FALSE, -1))) {
+	if (member->change_banner || member->video_banner_text || (var = switch_channel_get_variable_dup(channel, "video_banner_text", SWITCH_FALSE, -1))) {
+		member->change_banner = 0;
 		conference_video_layer_set_banner(member, layer, var);
 	}
 
