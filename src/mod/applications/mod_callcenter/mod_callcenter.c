@@ -205,7 +205,7 @@ static char agents_sql[] =
 "   system    VARCHAR(255),\n"
 "   uuid      VARCHAR(255),\n"
 "   type      VARCHAR(255),\n" /* Callback , Dial in...*/
-"   contact   VARCHAR(255),\n"
+"   contact   VARCHAR(1024),\n"
 "   status    VARCHAR(255),\n"
 /*User Personal Status
   Available
@@ -1663,7 +1663,7 @@ static void *SWITCH_THREAD_FUNC outbound_agent_thread_run(switch_thread_t *threa
 		t_agent_called = local_epoch_time_now(NULL);
 
 		dialstr = switch_channel_expand_variables(member_channel, h->originate_string);
-		status = switch_ivr_originate(NULL, &agent_session, &cause, dialstr, 60, NULL, cid_name ? cid_name : h->member_cid_name, cid_number ? cid_number : h->member_cid_number, NULL, ovars, SOF_NONE, NULL);
+		status = switch_ivr_originate(member_session, &agent_session, &cause, dialstr, 60, NULL, cid_name ? cid_name : h->member_cid_name, cid_number ? cid_number : h->member_cid_number, NULL, ovars, SOF_NONE, NULL);
 
 		/* Search for loopback agent */
 		if (status == SWITCH_STATUS_SUCCESS) {
@@ -2361,7 +2361,10 @@ static int members_callback(void *pArg, int argc, char **argv, char **columnName
 	cbt.member_system = argv[10];
 
 	if (!cbt.queue_name || !(queue = get_queue(cbt.queue_name))) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Queue %s not found locally, skip this member\n", cbt.queue_name);
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Queue %s not found locally, delete this member\n", cbt.queue_name);
+		sql = switch_mprintf("DELETE FROM members WHERE uuid = '%q' AND system = '%q'", cbt.member_uuid, cbt.member_system);
+		cc_execute_sql(NULL, sql, NULL);
+		switch_safe_free(sql);
 		goto end;
 	} else {
 		queue_name = strdup(queue->name);
@@ -2709,7 +2712,7 @@ void *SWITCH_THREAD_FUNC cc_member_thread_run(switch_thread_t *thread, void *obj
 			break;
 		}
 		/* Make the Caller Leave if he went over his max wait time */
-		if (queue->max_wait_time > 0 && queue->max_wait_time <=  time_now - m->t_member_called) {
+		if (queue->max_wait_time > 0 && queue->max_wait_time <=  time_now - m->t_member_called && !switch_channel_test_flag(member_channel, CF_ORIGINATOR)) {
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(member_session), SWITCH_LOG_DEBUG, "Member %s <%s> in queue '%s' reached max wait time\n", m->member_cid_name, m->member_cid_number, m->queue_name);
 			m->member_cancel_reason = CC_MEMBER_CANCEL_REASON_TIMEOUT;
 			switch_channel_set_flag_value(member_channel, CF_BREAK, 2);

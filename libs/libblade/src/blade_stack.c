@@ -33,143 +33,32 @@
 
 #include "blade.h"
 
-typedef enum {
-	BH_NONE = 0,
-} bhpvt_flag_t;
-
 struct blade_handle_s {
-	bhpvt_flag_t flags;
 	ks_pool_t *pool;
 	ks_thread_pool_t *tpool;
 
-	ks_hash_t *modules; // registered modules
-	ks_hash_t *transports; // registered transports exposed by modules, NOT active connections
-	ks_hash_t *spaces; // registered method spaces exposed by modules
-
-	// registered event callback registry
-	// @todo should probably use a blade_handle_event_registration_t and contain optional userdata to pass from registration back into the callback, like
-	// a blade_module_t to get at inner module data for events that service modules may need to subscribe to between each other, but this may evolve into
-	// an implementation based on ESL
-	ks_hash_t *events;
-
-	//blade_identity_t *identity;
-	blade_datastore_t *datastore;
-
-	ks_hash_t *connections; // active connections keyed by connection id
-
-	ks_hash_t *sessions; // active sessions keyed by session id
-	ks_hash_t *session_state_callbacks;
-
-	ks_hash_t *requests; // outgoing requests waiting for a response keyed by the message id
-};
-
-typedef struct blade_handle_transport_registration_s blade_handle_transport_registration_t;
-struct blade_handle_transport_registration_s {
-	ks_pool_t *pool;
-
-	blade_module_t *module;
-	blade_transport_callbacks_t *callbacks;
+	blade_transportmgr_t *transportmgr;
+	blade_rpcmgr_t *rpcmgr;
+	blade_routemgr_t *routemgr;
+	blade_subscriptionmgr_t *subscriptionmgr;
+	blade_upstreammgr_t *upstreammgr;
+	blade_mastermgr_t *mastermgr;
+	blade_connectionmgr_t *connectionmgr;
+	blade_sessionmgr_t *sessionmgr;
 };
 
 
-static void blade_handle_transport_registration_cleanup(ks_pool_t *pool, void *ptr, void *arg, ks_pool_cleanup_action_t action, ks_pool_cleanup_type_t type)
-{
-	//blade_handle_transport_registration_t *bhtr = (blade_handle_transport_registration_t *)ptr;
+ks_bool_t blade_protocol_register_request_handler(blade_rpc_request_t *brpcreq, void *data);
+ks_bool_t blade_protocol_publish_request_handler(blade_rpc_request_t *brpcreq, void *data);
+ks_bool_t blade_protocol_locate_request_handler(blade_rpc_request_t *brpcreq, void *data);
+ks_bool_t blade_protocol_execute_request_handler(blade_rpc_request_t *brpcreq, void *data);
+ks_bool_t blade_protocol_subscribe_request_handler(blade_rpc_request_t *brpcreq, void *data);
+ks_bool_t blade_protocol_broadcast_request_handler(blade_rpc_request_t *brpcreq, void *data);
 
-	//ks_assert(bhtr);
-
-	switch (action) {
-	case KS_MPCL_ANNOUNCE:
-		break;
-	case KS_MPCL_TEARDOWN:
-		break;
-	case KS_MPCL_DESTROY:
-		break;
-	}
-}
-
-KS_DECLARE(ks_status_t) blade_handle_transport_registration_create(blade_handle_transport_registration_t **bhtrP,
-																   ks_pool_t *pool,
-																   blade_module_t *module,
-																   blade_transport_callbacks_t *callbacks)
-{
-	blade_handle_transport_registration_t *bhtr = NULL;
-
-	ks_assert(bhtrP);
-	ks_assert(pool);
-	ks_assert(module);
-	ks_assert(callbacks);
-
-	bhtr = ks_pool_alloc(pool, sizeof(blade_handle_transport_registration_t));
-	bhtr->pool = pool;
-	bhtr->module = module;
-	bhtr->callbacks = callbacks;
-
-	ks_pool_set_cleanup(pool, bhtr, NULL, blade_handle_transport_registration_cleanup);
-
-	*bhtrP = bhtr;
-
-	return KS_STATUS_SUCCESS;
-}
-
-
-typedef struct blade_handle_session_state_callback_registration_s blade_handle_session_state_callback_registration_t;
-struct blade_handle_session_state_callback_registration_s {
-	ks_pool_t *pool;
-
-	const char *id;
-	void *data;
-	blade_session_state_callback_t callback;
-};
-
-static void blade_handle_session_state_callback_registration_cleanup(ks_pool_t *pool, void *ptr, void *arg, ks_pool_cleanup_action_t action, ks_pool_cleanup_type_t type)
-{
-	blade_handle_session_state_callback_registration_t *bhsscr = (blade_handle_session_state_callback_registration_t *)ptr;
-
-	ks_assert(bhsscr);
-
-	switch (action) {
-	case KS_MPCL_ANNOUNCE:
-		break;
-	case KS_MPCL_TEARDOWN:
-		ks_pool_free(bhsscr->pool, &bhsscr->id);
-		break;
-	case KS_MPCL_DESTROY:
-		break;
-	}
-}
-
-ks_status_t blade_handle_session_state_callback_registration_create(blade_handle_session_state_callback_registration_t **bhsscrP,
-																	ks_pool_t *pool,
-																	void *data,
-																	blade_session_state_callback_t callback)
-{
-	blade_handle_session_state_callback_registration_t *bhsscr = NULL;
-	uuid_t uuid;
-
-	ks_assert(bhsscrP);
-	ks_assert(pool);
-	ks_assert(callback);
-
-	ks_uuid(&uuid);
-
-	bhsscr = ks_pool_alloc(pool, sizeof(blade_handle_session_state_callback_registration_t));
-	bhsscr->pool = pool;
-	bhsscr->id = ks_uuid_str(pool, &uuid);
-	bhsscr->data = data;
-	bhsscr->callback = callback;
-
-	ks_pool_set_cleanup(pool, bhsscr, NULL, blade_handle_session_state_callback_registration_cleanup);
-
-	*bhsscrP = bhsscr;
-
-	return KS_STATUS_SUCCESS;
-}
 
 static void blade_handle_cleanup(ks_pool_t *pool, void *ptr, void *arg, ks_pool_cleanup_action_t action, ks_pool_cleanup_type_t type)
 {
 	blade_handle_t *bh = (blade_handle_t *)ptr;
-	ks_hash_iterator_t *it = NULL;
 
 	ks_assert(bh);
 
@@ -177,15 +66,15 @@ static void blade_handle_cleanup(ks_pool_t *pool, void *ptr, void *arg, ks_pool_
 	case KS_MPCL_ANNOUNCE:
 		break;
 	case KS_MPCL_TEARDOWN:
-		while ((it = ks_hash_first(bh->modules, KS_UNLOCKED)) != NULL) {
-			void *key = NULL;
-			blade_module_t *value = NULL;
+		blade_transportmgr_destroy(&bh->transportmgr);
+		blade_rpcmgr_destroy(&bh->rpcmgr);
+		blade_routemgr_destroy(&bh->routemgr);
+		blade_subscriptionmgr_destroy(&bh->subscriptionmgr);
+		blade_upstreammgr_destroy(&bh->upstreammgr);
+		blade_mastermgr_destroy(&bh->mastermgr);
+		blade_connectionmgr_destroy(&bh->connectionmgr);
+		blade_sessionmgr_destroy(&bh->sessionmgr);
 
-			ks_hash_this(it, (const void **)&key, NULL, (void **)&value);
-			ks_hash_remove(bh->modules, key);
-
-			blade_module_destroy(&value); // must call destroy to close the module pool, FREE_VALUE would attempt to free the module from the main handle pool used for the modules hash
-		}
 		ks_thread_pool_destroy(&bh->tpool);
 		break;
 	case KS_MPCL_DESTROY:
@@ -195,7 +84,6 @@ static void blade_handle_cleanup(ks_pool_t *pool, void *ptr, void *arg, ks_pool_
 
 KS_DECLARE(ks_status_t) blade_handle_create(blade_handle_t **bhP)
 {
-	bhpvt_flag_t newflags = BH_NONE;
 	blade_handle_t *bh = NULL;
 	ks_pool_t *pool = NULL;
 	ks_thread_pool_t *tpool = NULL;
@@ -209,32 +97,33 @@ KS_DECLARE(ks_status_t) blade_handle_create(blade_handle_t **bhP)
 	ks_assert(tpool);
 
 	bh = ks_pool_alloc(pool, sizeof(blade_handle_t));
-	bh->flags = newflags;
 	bh->pool = pool;
 	bh->tpool = tpool;
 
-	ks_hash_create(&bh->modules, KS_HASH_MODE_CASE_INSENSITIVE, KS_HASH_FLAG_RWLOCK | KS_HASH_FLAG_DUP_CHECK, bh->pool);
-	ks_assert(bh->modules);
+	blade_transportmgr_create(&bh->transportmgr, bh);
+	ks_assert(bh->transportmgr);
 
-	ks_hash_create(&bh->transports, KS_HASH_MODE_CASE_INSENSITIVE, KS_HASH_FLAG_RWLOCK | KS_HASH_FLAG_DUP_CHECK | KS_HASH_FLAG_FREE_KEY | KS_HASH_FLAG_FREE_VALUE, bh->pool);
-	ks_assert(bh->transports);
+	blade_rpcmgr_create(&bh->rpcmgr, bh);
+	ks_assert(bh->rpcmgr);
 
-	ks_hash_create(&bh->spaces, KS_HASH_MODE_CASE_INSENSITIVE, KS_HASH_FLAG_RWLOCK | KS_HASH_FLAG_DUP_CHECK, bh->pool);
-	ks_assert(bh->spaces);
+	blade_routemgr_create(&bh->routemgr, bh);
+	ks_assert(bh->routemgr);
 
-	ks_hash_create(&bh->events, KS_HASH_MODE_CASE_INSENSITIVE, KS_HASH_FLAG_RWLOCK | KS_HASH_FLAG_DUP_CHECK | KS_HASH_FLAG_FREE_KEY, bh->pool);
-	ks_assert(bh->events);
+	blade_subscriptionmgr_create(&bh->subscriptionmgr, bh);
+	ks_assert(bh->subscriptionmgr);
 
-	ks_hash_create(&bh->connections, KS_HASH_MODE_CASE_INSENSITIVE, KS_HASH_FLAG_RWLOCK | KS_HASH_FLAG_DUP_CHECK, bh->pool);
-	ks_assert(bh->connections);
+	blade_upstreammgr_create(&bh->upstreammgr, bh);
+	ks_assert(bh->upstreammgr);
 
-	ks_hash_create(&bh->sessions, KS_HASH_MODE_CASE_INSENSITIVE, KS_HASH_FLAG_RWLOCK | KS_HASH_FLAG_DUP_CHECK, bh->pool);
-	ks_assert(bh->sessions);
-	ks_hash_create(&bh->session_state_callbacks, KS_HASH_MODE_CASE_INSENSITIVE, KS_HASH_FLAG_RWLOCK | KS_HASH_FLAG_DUP_CHECK | KS_HASH_FLAG_FREE_VALUE, bh->pool);
-	ks_assert(bh->session_state_callbacks);
+	blade_mastermgr_create(&bh->mastermgr, bh);
+	ks_assert(bh->mastermgr);
 
-	ks_hash_create(&bh->requests, KS_HASH_MODE_CASE_INSENSITIVE, KS_HASH_FLAG_RWLOCK | KS_HASH_FLAG_DUP_CHECK, bh->pool);
-	ks_assert(bh->requests);
+	blade_connectionmgr_create(&bh->connectionmgr, bh);
+	ks_assert(bh->connectionmgr);
+
+	blade_sessionmgr_create(&bh->sessionmgr, bh);
+	ks_assert(bh->sessionmgr);
+
 
 	ks_pool_set_cleanup(pool, bh, NULL, blade_handle_cleanup);
 
@@ -260,6 +149,7 @@ KS_DECLARE(ks_status_t) blade_handle_destroy(blade_handle_t **bhP)
 	pool = bh->pool;
 
 	// shutdown cannot happen inside of the cleanup callback because it'll lock a mutex for the pool during cleanup callbacks which connections and sessions need to finish their cleanup
+	// and more importantly, memory needs to remain intact until shutdown is completed to avoid various things hitting teardown before shutdown runs
 	blade_handle_shutdown(bh);
 
 	ks_pool_close(&pool);
@@ -269,96 +159,100 @@ KS_DECLARE(ks_status_t) blade_handle_destroy(blade_handle_t **bhP)
 
 ks_status_t blade_handle_config(blade_handle_t *bh, config_setting_t *config)
 {
+	config_setting_t *master = NULL;
+	config_setting_t *master_nodeid = NULL;
+	config_setting_t *master_realms = NULL;
+	const char *nodeid = NULL;
+	int32_t realms_length = 0;
+
 	ks_assert(bh);
 
 	if (!config) return KS_STATUS_FAIL;
-    if (!config_setting_is_group(config)) return KS_STATUS_FAIL;
+	if (!config_setting_is_group(config)) {
+		ks_log(KS_LOG_DEBUG, "!config_setting_is_group(config)\n");
+		return KS_STATUS_FAIL;
+	}
+
+	master = config_setting_get_member(config, "master");
+	if (master) {
+		master_nodeid = config_lookup_from(master, "nodeid");
+		if (master_nodeid) {
+			if (config_setting_type(master_nodeid) != CONFIG_TYPE_STRING) return KS_STATUS_FAIL;
+			nodeid = config_setting_get_string(master_nodeid);
+
+			blade_upstreammgr_localid_set(bh->upstreammgr, nodeid);
+			blade_upstreammgr_masterid_set(bh->upstreammgr, nodeid);
+		}
+		master_realms = config_lookup_from(master, "realms");
+		if (master_realms) {
+			if (config_setting_type(master_realms) != CONFIG_TYPE_LIST) return KS_STATUS_FAIL;
+			realms_length = config_setting_length(master_realms);
+			if (realms_length > 0) {
+				for (int32_t index = 0; index < realms_length; ++index) {
+					const char *realm = config_setting_get_string_elem(master_realms, index);
+					if (!realm) return KS_STATUS_FAIL;
+					blade_upstreammgr_realm_add(bh->upstreammgr, realm);
+				}
+			}
+		}
+	}
 
 	return KS_STATUS_SUCCESS;
 }
 
 KS_DECLARE(ks_status_t) blade_handle_startup(blade_handle_t *bh, config_setting_t *config)
 {
-	blade_module_t *module = NULL;
-	ks_hash_iterator_t *it = NULL;
+	blade_rpc_t *brpc = NULL;
+	blade_transport_t *bt = NULL;
 
 	ks_assert(bh);
-
-	// register internal modules
-	blade_module_wss_create(&module, bh);
-	ks_assert(module);
-	blade_handle_module_register(module);
-
 
     if (blade_handle_config(bh, config) != KS_STATUS_SUCCESS) {
 		ks_log(KS_LOG_DEBUG, "blade_handle_config failed\n");
 		return KS_STATUS_FAIL;
 	}
 
+	// register internal transport for secure websockets
+	blade_transport_wss_create(&bt, bh);
+	ks_assert(bt);
+	blade_transportmgr_default_set(bh->transportmgr, bt);
+	blade_transportmgr_transport_add(bh->transportmgr, bt);
 
-	for (it = ks_hash_first(bh->modules, KS_UNLOCKED); it; it = ks_hash_next(&it)) {
-		void *key = NULL;
-		blade_module_t *value = NULL;
-		blade_module_callbacks_t *callbacks = NULL;
 
-		ks_hash_this(it, (const void **)&key, NULL, (void **)&value);
+	// register internal core rpcs for blade.xxx
+	blade_rpc_create(&brpc, bh, "blade.register", NULL, NULL, blade_protocol_register_request_handler, NULL);
+	blade_rpcmgr_corerpc_add(bh->rpcmgr, brpc);
 
-		callbacks = blade_module_callbacks_get(value);
-		ks_assert(callbacks);
+	blade_rpc_create(&brpc, bh, "blade.publish", NULL, NULL, blade_protocol_publish_request_handler, NULL);
+	blade_rpcmgr_corerpc_add(bh->rpcmgr, brpc);
 
-		if (callbacks->onstartup) callbacks->onstartup(value, config);
-	}
+	blade_rpc_create(&brpc, bh, "blade.locate", NULL, NULL, blade_protocol_locate_request_handler, NULL);
+	blade_rpcmgr_corerpc_add(bh->rpcmgr, brpc);
+
+	blade_rpc_create(&brpc, bh, "blade.execute", NULL, NULL, blade_protocol_execute_request_handler, NULL);
+	blade_rpcmgr_corerpc_add(bh->rpcmgr, brpc);
+
+	blade_rpc_create(&brpc, bh, "blade.subscribe", NULL, NULL, blade_protocol_subscribe_request_handler, NULL);
+	blade_rpcmgr_corerpc_add(bh->rpcmgr, brpc);
+
+	blade_rpc_create(&brpc, bh, "blade.broadcast", NULL, NULL, blade_protocol_broadcast_request_handler, NULL);
+	blade_rpcmgr_corerpc_add(bh->rpcmgr, brpc);
+
+
+	blade_transportmgr_startup(bh->transportmgr, config);
 
 	return KS_STATUS_SUCCESS;
 }
 
 KS_DECLARE(ks_status_t) blade_handle_shutdown(blade_handle_t *bh)
 {
-	ks_hash_iterator_t *it = NULL;
-
 	ks_assert(bh);
 
-	ks_hash_read_lock(bh->modules);
-	for (it = ks_hash_first(bh->modules, KS_UNLOCKED); it; it = ks_hash_next(&it)) {
-		void *key = NULL;
-		blade_module_t *value = NULL;
-		blade_module_callbacks_t *callbacks = NULL;
+	blade_transportmgr_shutdown(bh->transportmgr);
 
-		ks_hash_this(it, (const void **)&key, NULL, (void **)&value);
+	blade_connectionmgr_shutdown(bh->connectionmgr);
 
-		callbacks = blade_module_callbacks_get(value);
-		ks_assert(callbacks);
-
-		if (callbacks->onshutdown) callbacks->onshutdown(value);
-	}
-	ks_hash_read_unlock(bh->modules);
-
-	ks_hash_read_lock(bh->connections);
-	for (it = ks_hash_first(bh->connections, KS_UNLOCKED); it; it = ks_hash_next(&it)) {
-		void *key = NULL;
-		blade_connection_t *value = NULL;
-
-		ks_hash_this(it, (const void **)&key, NULL, (void **)&value);
-
-		blade_connection_disconnect(value);
-	}
-	ks_hash_read_unlock(bh->connections);
-	while (ks_hash_count(bh->connections) > 0) ks_sleep_ms(100);
-
-	ks_hash_read_lock(bh->sessions);
-	for (it = ks_hash_first(bh->sessions, KS_UNLOCKED); it; it = ks_hash_next(&it)) {
-		void *key = NULL;
-		blade_session_t *value = NULL;
-
-		ks_hash_this(it, (const void **)&key, NULL, (void **)&value);
-
-		blade_session_hangup(value);
-	}
-	ks_hash_read_unlock(bh->sessions);
-	while (ks_hash_count(bh->sessions) > 0) ks_sleep_ms(100);
-
-	// @todo old code, datastore will be completely revamped under the new architecture
-	if (blade_handle_datastore_available(bh)) blade_datastore_destroy(&bh->datastore);
+	blade_sessionmgr_shutdown(bh->sessionmgr);
 
 	return KS_STATUS_SUCCESS;
 }
@@ -375,479 +269,1144 @@ KS_DECLARE(ks_thread_pool_t *) blade_handle_tpool_get(blade_handle_t *bh)
 	return bh->tpool;
 }
 
-KS_DECLARE(ks_status_t) blade_handle_module_register(blade_module_t *bm)
-{
-	blade_handle_t *bh = NULL;
-	const char *id = NULL;
-
-	ks_assert(bm);
-
-	bh = blade_module_handle_get(bm);
-	ks_assert(bh);
-
-	id = blade_module_id_get(bm);
-	ks_assert(id);
-
-	ks_hash_insert(bh->modules, (void *)id, bm);
-
-	ks_log(KS_LOG_DEBUG, "Module Registered\n");
-
-	return KS_STATUS_SUCCESS;
-}
-
-
-KS_DECLARE(ks_status_t) blade_handle_transport_register(blade_handle_t *bh, blade_module_t *bm, const char *name, blade_transport_callbacks_t *callbacks)
-{
-	blade_handle_transport_registration_t *bhtr = NULL;
-	char *key = NULL;
-
-	ks_assert(bh);
-	ks_assert(bm);
-	ks_assert(name);
-	ks_assert(callbacks);
-
-	blade_handle_transport_registration_create(&bhtr, bh->pool, bm, callbacks);
-	ks_assert(bhtr);
-
-	key = ks_pstrdup(bh->pool, name);
-	ks_assert(key);
-
-	ks_hash_insert(bh->transports, (void *)key, bhtr);
-
-	ks_log(KS_LOG_DEBUG, "Transport Registered: %s\n", name);
-
-	return KS_STATUS_SUCCESS;
-}
-
-KS_DECLARE(ks_status_t) blade_handle_transport_unregister(blade_handle_t *bh, const char *name)
+KS_DECLARE(blade_transportmgr_t *) blade_handle_transportmgr_get(blade_handle_t *bh)
 {
 	ks_assert(bh);
-	ks_assert(name);
-
-	ks_log(KS_LOG_DEBUG, "Transport Unregistered: %s\n", name);
-
-	ks_hash_remove(bh->transports, (void *)name);
-
-	return KS_STATUS_SUCCESS;
+	return bh->transportmgr;
 }
 
-KS_DECLARE(ks_status_t) blade_handle_space_register(blade_space_t *bs)
-{
-	blade_handle_t *bh = NULL;
-	const char *path = NULL;
-
-	ks_assert(bs);
-
-	bh = blade_space_handle_get(bs);
-	ks_assert(bh);
-
-	path = blade_space_path_get(bs);
-	ks_assert(path);
-
-	ks_hash_insert(bh->spaces, (void *)path, bs);
-
-	ks_log(KS_LOG_DEBUG, "Space Registered: %s\n", path);
-
-	return KS_STATUS_SUCCESS;
-}
-
-KS_DECLARE(ks_status_t) blade_handle_space_unregister(blade_space_t *bs)
-{
-	blade_handle_t *bh = NULL;
-	const char *path = NULL;
-
-	ks_assert(bs);
-
-	bh = blade_space_handle_get(bs);
-	ks_assert(bh);
-
-	path = blade_space_path_get(bs);
-	ks_assert(path);
-
-	ks_log(KS_LOG_DEBUG, "Space Unregistered: %s\n", path);
-
-	ks_hash_remove(bh->spaces, (void *)path);
-
-	return KS_STATUS_SUCCESS;
-}
-
-KS_DECLARE(blade_space_t *) blade_handle_space_lookup(blade_handle_t *bh, const char *path)
-{
-	blade_space_t *bs = NULL;
-
-	ks_assert(bh);
-	ks_assert(path);
-
-	bs = ks_hash_search(bh->spaces, (void *)path, KS_READLOCKED);
-	ks_hash_read_unlock(bh->spaces);
-
-	return bs;
-}
-
-KS_DECLARE(ks_status_t) blade_handle_event_register(blade_handle_t *bh, const char *event, blade_event_callback_t callback)
-{
-	char *key = NULL;
-
-	ks_assert(bh);
-	ks_assert(event);
-	ks_assert(callback);
-
-	key = ks_pstrdup(bh->pool, event);
-	ks_assert(key);
-
-	ks_hash_insert(bh->events, (void *)key, (void *)(intptr_t)callback);
-
-	ks_log(KS_LOG_DEBUG, "Event Registered: %s\n", event);
-
-	return KS_STATUS_SUCCESS;
-}
-
-KS_DECLARE(ks_status_t) blade_handle_event_unregister(blade_handle_t *bh, const char *event)
+KS_DECLARE(blade_rpcmgr_t *) blade_handle_rpcmgr_get(blade_handle_t *bh)
 {
 	ks_assert(bh);
-	ks_assert(event);
-
-	ks_log(KS_LOG_DEBUG, "Event Unregistered: %s\n", event);
-
-	ks_hash_remove(bh->events, (void *)event);
-
-	return KS_STATUS_SUCCESS;
+	return bh->rpcmgr;
 }
 
-KS_DECLARE(blade_event_callback_t) blade_handle_event_lookup(blade_handle_t *bh, const char *event)
+KS_DECLARE(blade_routemgr_t *) blade_handle_routemgr_get(blade_handle_t *bh)
 {
-	blade_event_callback_t callback = NULL;
-
 	ks_assert(bh);
-	ks_assert(event);
-
-	callback = (blade_event_callback_t)(intptr_t)ks_hash_search(bh->events, (void *)event, KS_READLOCKED);
-	ks_hash_read_unlock(bh->events);
-
-	return callback;
+	return bh->routemgr;
 }
+
+KS_DECLARE(blade_subscriptionmgr_t *) blade_handle_subscriptionmgr_get(blade_handle_t *bh)
+{
+	ks_assert(bh);
+	return bh->subscriptionmgr;
+}
+
+KS_DECLARE(blade_upstreammgr_t *) blade_handle_upstreammgr_get(blade_handle_t *bh)
+{
+	ks_assert(bh);
+	return bh->upstreammgr;
+}
+
+KS_DECLARE(blade_mastermgr_t *) blade_handle_mastermgr_get(blade_handle_t *bh)
+{
+	ks_assert(bh);
+	return bh->mastermgr;
+}
+
+KS_DECLARE(blade_connectionmgr_t *) blade_handle_connectionmgr_get(blade_handle_t *bh)
+{
+	ks_assert(bh);
+	return bh->connectionmgr;
+}
+
+KS_DECLARE(blade_sessionmgr_t *) blade_handle_sessionmgr_get(blade_handle_t *bh)
+{
+	ks_assert(bh);
+	return bh->sessionmgr;
+}
+
 
 KS_DECLARE(ks_status_t) blade_handle_connect(blade_handle_t *bh, blade_connection_t **bcP, blade_identity_t *target, const char *session_id)
 {
 	ks_status_t ret = KS_STATUS_SUCCESS;
-	blade_handle_transport_registration_t *bhtr = NULL;
-	const char *tname = NULL;
+	blade_transport_t *bt = NULL;
+	blade_transport_callbacks_t *callbacks = NULL;
 
 	ks_assert(bh);
 	ks_assert(target);
 
-	// @todo this should take a callback, and push this to a queue to be processed async from another thread on the handle
-	// which will allow the onconnect callback to block while doing things like DNS lookups without having unknown
-	// impact depending on the caller thread
+	// @todo mini state machine to deal with upstream establishment to avoid attempting multiple upstream connects at the same time
+	if (blade_upstreammgr_session_established(bh->upstreammgr)) return KS_STATUS_DUPLICATE_OPERATION;
 
-	ks_hash_read_lock(bh->transports);
+	bt = blade_transportmgr_transport_lookup(bh->transportmgr, blade_identity_parameter_get(target, "transport"), KS_TRUE);
+	ks_assert(bt);
 
-	tname = blade_identity_parameter_get(target, "transport");
-	if (tname) {
-		bhtr = ks_hash_search(bh->transports, (void *)tname, KS_UNLOCKED);
-		if (!bhtr) {
-			// @todo error logging, target has an explicit transport that is not available in the local transports registry
-			// discuss later whether this scenario should still attempt other transports when target is explicit
-			// @note discussions indicate that by default messages should favor relaying through a master service, unless
-			// an existing direct connection already exists to the target (which if the target is the master node, then there is
-			// no conflict of proper routing). This also applies to routing for identities which relate to groups, relaying should
-			// most often occur through a master service, however there may be scenarios that exist where an existing session
-			// exists dedicated to faster delivery for a group (IE, through an ampq cluster directly, such as master services
-			// syncing with each other through a pub/sub).  There is also the potential that instead of a separate session, the
-			// current session with a master service may be able to have another connection attached which represents access through
-			// amqp, which in turn acts as a preferred router for only group identities
-			// This information does not directly apply to connecting, but should be noted for the next level up where you simply
-			// send a message which will not actually connect, only check for existing sessions for the target and master service
-			// @note relaying by master services should take a slightly different path, when they receive something not for the
-			// master service itself, it should relay this on to all other master services, which in turn all including original
-			// receiver pass on to any sessions matching an identity that is part of the group, alternatively they can use a pub/sub
-			// like amqp to relay between the master services more efficiently than using the websocket to send every master service
-			// session the message individually
-		}
+	callbacks = blade_transport_callbacks_get(bt);
+	ks_assert(callbacks);
+
+	if (callbacks->onconnect) ret = callbacks->onconnect(bcP, bt, target, session_id);
+
+	return ret;
+}
+
+
+// BLADE PROTOCOL HANDLERS
+
+// @todo revisit all error sending. JSONRPC "error" should only be used for json parsing errors, change the rest to internal errors for each of the corerpcs
+// @todo all higher level errors should be handled by each of the calls internally so that a normal result response can be sent with an error block inside the result
+// which is important for implementation of blade.execute where errors can be relayed back to the requester properly
+
+// blade.register request generator
+KS_DECLARE(ks_status_t) blade_protocol_register(blade_handle_t *bh, const char *nodeid, ks_bool_t remove, blade_rpc_response_callback_t callback, void *data)
+{
+	ks_status_t ret = KS_STATUS_SUCCESS;
+	blade_session_t *bs = NULL;
+	ks_pool_t *pool = NULL;
+	cJSON *req = NULL;
+	cJSON *req_params = NULL;
+
+	ks_assert(bh);
+	ks_assert(nodeid);
+
+	if (!(bs = blade_upstreammgr_session_get(bh->upstreammgr))) {
+		ret = KS_STATUS_DISCONNECTED;
+		goto done;
+	}
+
+	pool = blade_handle_pool_get(bh);
+	ks_assert(pool);
+
+	blade_rpc_request_raw_create(pool, &req, &req_params, NULL, "blade.register");
+
+	// fill in the req_params
+	cJSON_AddStringToObject(req_params, "nodeid", nodeid);
+	if (remove) cJSON_AddTrueToObject(req_params, "remove");
+
+	ks_log(KS_LOG_DEBUG, "Session (%s) register request (%s %s) started\n", blade_session_id_get(bs), remove ? "removing" : "adding", nodeid);
+
+	ret = blade_session_send(bs, req, callback, data);
+
+done:
+	if (req) cJSON_Delete(req);
+	if (bs) blade_session_read_unlock(bs);
+
+	return ret;
+}
+
+// blade.register request handler
+ks_bool_t blade_protocol_register_request_handler(blade_rpc_request_t *brpcreq, void *data)
+{
+	blade_handle_t *bh = NULL;
+	blade_session_t *bs = NULL;
+	cJSON *req = NULL;
+	cJSON *req_params = NULL;
+	const char *req_params_nodeid = NULL;
+	cJSON *req_params_remove = NULL;
+	ks_bool_t remove = KS_FALSE;
+	cJSON *res = NULL;
+	cJSON *res_result = NULL;
+
+	ks_assert(brpcreq);
+
+	bh = blade_rpc_request_handle_get(brpcreq);
+	ks_assert(bh);
+
+	bs = blade_sessionmgr_session_lookup(bh->sessionmgr, blade_rpc_request_sessionid_get(brpcreq));
+	ks_assert(bs);
+
+	req = blade_rpc_request_message_get(brpcreq);
+	ks_assert(req);
+
+	req_params = cJSON_GetObjectItem(req, "params");
+	if (!req_params) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) register request missing 'params' object\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params object");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	req_params_nodeid = cJSON_GetObjectCstr(req_params, "nodeid");
+	if (!req_params_nodeid) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) register request missing 'nodeid'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params nodeid");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+	req_params_remove = cJSON_GetObjectItem(req_params, "remove");
+	remove = req_params_remove && req_params_remove->type == cJSON_True;
+
+	ks_log(KS_LOG_DEBUG, "Session (%s) register request (%s %s) processing\n", blade_session_id_get(bs), remove ? "removing" : "adding", req_params_nodeid);
+
+	if (remove) {
+		blade_session_route_remove(bs, req_params_nodeid);
+		blade_routemgr_route_remove(blade_handle_routemgr_get(bh), req_params_nodeid);
 	} else {
-		for (ks_hash_iterator_t *it = ks_hash_first(bh->transports, KS_UNLOCKED); it; it = ks_hash_next(&it)) {
-			// @todo use onrank (or replace with whatever method is used for determining what transport to use) and keep highest ranked callbacks
-		}
+		blade_session_route_add(bs, req_params_nodeid);
+		blade_routemgr_route_add(blade_handle_routemgr_get(bh), req_params_nodeid, blade_session_id_get(bs));
 	}
-	ks_hash_read_unlock(bh->transports);
 
-	// @todo need to be able to get to the blade_module_t from the callbacks, may require envelope around registration of callbacks to include module
-	// this is required because onconnect transport callback needs to be able to get back to the module data to create the connection being returned
-	if (bhtr) ret = bhtr->callbacks->onconnect(bcP, bhtr->module, target, session_id);
-	else ret = KS_STATUS_FAIL;
+	blade_rpc_response_raw_create(&res, &res_result, blade_rpc_request_messageid_get(brpcreq));
+	blade_session_send(bs, res, NULL, NULL);
 
-	return ret;
+done:
+
+	if (res) cJSON_Delete(res);
+	if (bs) blade_session_read_unlock(bs);
+
+	return KS_FALSE;
 }
 
 
-KS_DECLARE(blade_connection_t *) blade_handle_connections_get(blade_handle_t *bh, const char *cid)
-{
-	blade_connection_t *bc = NULL;
-
-	ks_assert(bh);
-	ks_assert(cid);
-
-	ks_hash_read_lock(bh->connections);
-	bc = ks_hash_search(bh->connections, (void *)cid, KS_UNLOCKED);
-	if (bc && blade_connection_read_lock(bc, KS_FALSE) != KS_STATUS_SUCCESS) bc = NULL;
-	ks_hash_read_unlock(bh->connections);
-
-	return bc;
-}
-
-KS_DECLARE(ks_status_t) blade_handle_connections_add(blade_connection_t *bc)
+// blade.publish request generator
+KS_DECLARE(ks_status_t) blade_protocol_publish(blade_handle_t *bh, const char *name, const char *realm, blade_rpc_response_callback_t callback, void *data)
 {
 	ks_status_t ret = KS_STATUS_SUCCESS;
-	blade_handle_t *bh = NULL;
-
-	ks_assert(bc);
-
-	bh = blade_connection_handle_get(bc);
-	ks_assert(bh);
-
-	ks_hash_write_lock(bh->connections);
-	ret = ks_hash_insert(bh->connections, (void *)blade_connection_id_get(bc), bc);
-	ks_hash_write_unlock(bh->connections);
-
-	return ret;
-}
-
-KS_DECLARE(ks_status_t) blade_handle_connections_remove(blade_connection_t *bc)
-{
-	ks_status_t ret = KS_STATUS_SUCCESS;
-	blade_handle_t *bh = NULL;
-
-	ks_assert(bc);
-
-	bh = blade_connection_handle_get(bc);
-	ks_assert(bh);
-
-	blade_connection_write_lock(bc, KS_TRUE);
-
-	ks_hash_write_lock(bh->connections);
-	if (ks_hash_remove(bh->connections, (void *)blade_connection_id_get(bc)) == NULL) ret = KS_STATUS_FAIL;
-	ks_hash_write_unlock(bh->connections);
-
-	blade_connection_write_unlock(bc);
-
-	// @todo call bh->connection_callbacks
-
-	return ret;
-}
-
-KS_DECLARE(blade_session_t *) blade_handle_sessions_get(blade_handle_t *bh, const char *sid)
-{
 	blade_session_t *bs = NULL;
+	ks_pool_t *pool = NULL;
+	cJSON *req = NULL;
+	cJSON *req_params = NULL;
+	const char *id = NULL;
 
 	ks_assert(bh);
-	ks_assert(sid);
+	ks_assert(name);
+	ks_assert(realm);
 
-	// @todo consider using blade_session_t via reference counting, rather than locking a mutex to simulate a reference count to halt cleanups while in use
-	// using actual reference counting would mean that mutexes would not need to be held locked when looking up a session by id just to prevent cleanup,
-	// instead cleanup would automatically occur when the last reference is actually removed (which SHOULD be at the end of the state machine thread),
-	// which is safer than another thread potentially waiting on the write lock to release while it's being destroyed, or external code forgetting to unlock
-	// then use short lived mutex or rwl for accessing the content of the session while it is referenced
-	// this approach should also be used for blade_connection_t, which has a similar threaded state machine
-
-	ks_hash_read_lock(bh->sessions);
-	bs = ks_hash_search(bh->sessions, (void *)sid, KS_UNLOCKED);
-	if (bs && blade_session_read_lock(bs, KS_FALSE) != KS_STATUS_SUCCESS) bs = NULL;
-	ks_hash_read_unlock(bh->sessions);
-
-	return bs;
-}
-
-KS_DECLARE(ks_status_t) blade_handle_sessions_add(blade_session_t *bs)
-{
-	ks_status_t ret = KS_STATUS_SUCCESS;
-	blade_handle_t *bh = NULL;
-
-	ks_assert(bs);
-
-	bh = blade_session_handle_get(bs);
-	ks_assert(bh);
-
-	ks_hash_write_lock(bh->sessions);
-	ret = ks_hash_insert(bh->sessions, (void *)blade_session_id_get(bs), bs);
-	ks_hash_write_unlock(bh->sessions);
-
-	return ret;
-}
-
-KS_DECLARE(ks_status_t) blade_handle_sessions_remove(blade_session_t *bs)
-{
-	ks_status_t ret = KS_STATUS_SUCCESS;
-	blade_handle_t *bh = NULL;
-
-	ks_assert(bs);
-
-	bh = blade_session_handle_get(bs);
-	ks_assert(bh);
-
-	blade_session_write_lock(bs, KS_TRUE);
-
-	ks_hash_write_lock(bh->sessions);
-	if (ks_hash_remove(bh->sessions, (void *)blade_session_id_get(bs)) == NULL) ret = KS_STATUS_FAIL;
-	ks_hash_write_unlock(bh->sessions);
-
-	blade_session_write_unlock(bs);
-
-	return ret;
-}
-
-KS_DECLARE(void) blade_handle_sessions_send(blade_handle_t *bh, ks_list_t *sessions, const char *exclude, cJSON *json)
-{
-	blade_session_t *bs = NULL;
-
-	ks_assert(bh);
-	ks_assert(sessions);
-	ks_assert(json);
-
-	ks_list_iterator_start(sessions);
-	while (ks_list_iterator_hasnext(sessions)) {
-		const char *sessionid = ks_list_iterator_next(sessions);
-		if (exclude && !strcmp(exclude, sessionid)) continue;
-		bs = blade_handle_sessions_get(bh, sessionid);
-		if (!bs) {
-			ks_log(KS_LOG_DEBUG, "This should not happen\n");
-			continue;
-		}
-		blade_session_send(bs, json, NULL);
-		blade_session_read_unlock(bs);
+	// @todo consideration for the Master trying to publish a protocol, with no upstream
+	if (!(bs = blade_upstreammgr_session_get(bh->upstreammgr))) {
+		ret = KS_STATUS_DISCONNECTED;
+		goto done;
 	}
-	ks_list_iterator_stop(sessions);
-}
 
-KS_DECLARE(ks_status_t) blade_handle_session_state_callback_register(blade_handle_t *bh, void *data, blade_session_state_callback_t callback, const char **id)
-{
-	blade_handle_session_state_callback_registration_t *bhsscr = NULL;
+	pool = blade_handle_pool_get(bh);
+	ks_assert(pool);
 
-	ks_assert(bh);
-	ks_assert(callback);
+	blade_rpc_request_raw_create(pool, &req, &req_params, NULL, "blade.publish");
+
+	// fill in the req_params
+	cJSON_AddStringToObject(req_params, "protocol", name);
+	cJSON_AddStringToObject(req_params, "realm", realm);
+
+	blade_upstreammgr_localid_copy(bh->upstreammgr, pool, &id);
 	ks_assert(id);
 
-	blade_handle_session_state_callback_registration_create(&bhsscr, blade_handle_pool_get(bh), data, callback);
-	ks_assert(bhsscr);
+	cJSON_AddStringToObject(req_params, "requester-nodeid", id);
+	ks_pool_free(pool, &id);
 
-	ks_hash_insert(bh->session_state_callbacks, (void *)bhsscr->id, bhsscr);
-
-	*id = bhsscr->id;
-
-	return KS_STATUS_SUCCESS;
-}
-
-KS_DECLARE(ks_status_t) blade_handle_session_state_callback_unregister(blade_handle_t *bh, const char *id)
-{
-	ks_assert(bh);
+	blade_upstreammgr_masterid_copy(bh->upstreammgr, pool, &id);
 	ks_assert(id);
 
-	ks_hash_remove(bh->session_state_callbacks, (void *)id);
+	cJSON_AddStringToObject(req_params, "responder-nodeid", id);
+	ks_pool_free(pool, &id);
 
-	return KS_STATUS_SUCCESS;
+	// @todo add a parameter containing a block of json for schema definitions for each of the methods being published
+
+	ks_log(KS_LOG_DEBUG, "Session (%s) publish request started\n", blade_session_id_get(bs));
+
+	ret = blade_session_send(bs, req, callback, data);
+
+done:
+	if (req) cJSON_Delete(req);
+	if (bs) blade_session_read_unlock(bs);
+
+	return ret;
 }
 
-KS_DECLARE(void) blade_handle_session_state_callbacks_execute(blade_session_t *bs, blade_session_state_condition_t condition)
+// blade.publish request handler
+ks_bool_t blade_protocol_publish_request_handler(blade_rpc_request_t *brpcreq, void *data)
 {
 	blade_handle_t *bh = NULL;
-	ks_hash_iterator_t *it = NULL;
+	blade_session_t *bs = NULL;
+	cJSON *req = NULL;
+	cJSON *req_params = NULL;
+	const char *req_params_protocol = NULL;
+	const char *req_params_realm = NULL;
+	const char *req_params_requester_nodeid = NULL;
+	const char *req_params_responder_nodeid = NULL;
+	cJSON *res = NULL;
+	cJSON *res_result = NULL;
 
+	ks_assert(brpcreq);
+
+	bh = blade_rpc_request_handle_get(brpcreq);
+	ks_assert(bh);
+
+	bs = blade_sessionmgr_session_lookup(blade_handle_sessionmgr_get(bh), blade_rpc_request_sessionid_get(brpcreq));
 	ks_assert(bs);
 
-	if (blade_session_state_get(bs) == BLADE_SESSION_STATE_NONE) return;
+	req = blade_rpc_request_message_get(brpcreq);
+	ks_assert(req);
 
-	bh = blade_session_handle_get(bs);
-	ks_assert(bh);
-
-	ks_hash_read_lock(bh->session_state_callbacks);
-	for (it = ks_hash_first(bh->session_state_callbacks, KS_UNLOCKED); it; it = ks_hash_next(&it)) {
-		void *key = NULL;
-		blade_handle_session_state_callback_registration_t *value = NULL;
-
-		ks_hash_this(it, (const void **)&key, NULL, (void **)&value);
-
-		value->callback(bs, condition, value->data);
+	req_params = cJSON_GetObjectItem(req, "params");
+	if (!req_params) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) publish request missing 'params' object\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params object");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
 	}
-	ks_hash_read_unlock(bh->session_state_callbacks);
+
+	req_params_protocol = cJSON_GetObjectCstr(req_params, "protocol");
+	if (!req_params_protocol) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) publish request missing 'protocol'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params protocol");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	req_params_realm = cJSON_GetObjectCstr(req_params, "realm");
+	if (!req_params_realm) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) publish request missing 'realm'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params realm");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	// @todo confirm the realm is permitted for the session, this gets complicated with subdomains, skipping for now
+
+	req_params_requester_nodeid = cJSON_GetObjectCstr(req_params, "requester-nodeid");
+	if (!req_params_requester_nodeid) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) publish request missing 'requester-nodeid'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params requester-nodeid");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	req_params_responder_nodeid = cJSON_GetObjectCstr(req_params, "responder-nodeid");
+	if (!req_params_responder_nodeid) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) publish request missing 'responder-nodeid'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params responder-nodeid");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	if (!blade_upstreammgr_masterid_compare(bh->upstreammgr, req_params_responder_nodeid)) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) publish request invalid 'responder-nodeid' (%s)\n", blade_session_id_get(bs), req_params_responder_nodeid);
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Invalid params responder-nodeid");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	ks_log(KS_LOG_DEBUG, "Session (%s) publish request (%s to %s) processing\n", blade_session_id_get(bs), req_params_requester_nodeid, req_params_responder_nodeid);
+
+	blade_mastermgr_controller_add(bh->mastermgr, req_params_protocol, req_params_realm, req_params_requester_nodeid);
+
+	// build the actual response finally
+	blade_rpc_response_raw_create(&res, &res_result, blade_rpc_request_messageid_get(brpcreq));
+
+	cJSON_AddStringToObject(res_result, "protocol", req_params_protocol);
+	cJSON_AddStringToObject(res_result, "realm", req_params_realm);
+	cJSON_AddStringToObject(res_result, "requester-nodeid", req_params_requester_nodeid);
+	cJSON_AddStringToObject(res_result, "responder-nodeid", req_params_responder_nodeid);
+
+	// request was just received on a session that is already read locked, so we can assume the response goes back on the same session without further lookup
+	blade_session_send(bs, res, NULL, NULL);
+
+done:
+
+	if (res) cJSON_Delete(res);
+	if (bs) blade_session_read_unlock(bs);
+
+	return KS_FALSE;
 }
 
 
-KS_DECLARE(blade_request_t *) blade_handle_requests_get(blade_handle_t *bh, const char *mid)
+// blade.locate request generator
+// @todo discuss system to support caching locate results, and internally subscribing to receive event updates related to protocols which have been located
+// to ensure local caches remain synced when protocol controllers change, but this requires additional filters for event propagating to avoid broadcasting
+// every protocol update to everyone which may actually be a better way than an explicit locate request
+KS_DECLARE(ks_status_t) blade_protocol_locate(blade_handle_t *bh, const char *name, const char *realm, blade_rpc_response_callback_t callback, void *data)
 {
-	blade_request_t *breq = NULL;
+	ks_status_t ret = KS_STATUS_SUCCESS;
+	blade_session_t *bs = NULL;
+	ks_pool_t *pool = NULL;
+	cJSON *req = NULL;
+	cJSON *req_params = NULL;
+	const char *id = NULL;
 
 	ks_assert(bh);
-	ks_assert(mid);
+	ks_assert(name);
+	ks_assert(realm);
 
-	breq = ks_hash_search(bh->requests, (void *)mid, KS_READLOCKED);
-	ks_hash_read_unlock(bh->requests);
+	if (!(bs = blade_upstreammgr_session_get(bh->upstreammgr))) {
+		ret = KS_STATUS_DISCONNECTED;
+		goto done;
+	}
 
-	return breq;
+	pool = blade_handle_pool_get(bh);
+	ks_assert(pool);
+
+	blade_rpc_request_raw_create(pool, &req, &req_params, NULL, "blade.locate");
+
+	// fill in the req_params
+	cJSON_AddStringToObject(req_params, "protocol", name);
+	cJSON_AddStringToObject(req_params, "realm", realm);
+
+	blade_upstreammgr_localid_copy(bh->upstreammgr, pool, &id);
+	ks_assert(id);
+
+	cJSON_AddStringToObject(req_params, "requester-nodeid", id);
+	ks_pool_free(pool, &id);
+
+	blade_upstreammgr_masterid_copy(bh->upstreammgr, pool, &id);
+	ks_assert(id);
+
+	cJSON_AddStringToObject(req_params, "responder-nodeid", id);
+	ks_pool_free(pool, &id);
+
+	ks_log(KS_LOG_DEBUG, "Session (%s) locate request started\n", blade_session_id_get(bs));
+
+	ret = blade_session_send(bs, req, callback, data);
+
+done:
+	if (req) cJSON_Delete(req);
+	if (bs) blade_session_read_unlock(bs);
+
+	return ret;
 }
 
-KS_DECLARE(ks_status_t) blade_handle_requests_add(blade_request_t *br)
+// blade.locate request handler
+ks_bool_t blade_protocol_locate_request_handler(blade_rpc_request_t *brpcreq, void *data)
 {
 	blade_handle_t *bh = NULL;
+	blade_session_t *bs = NULL;
+	cJSON *req = NULL;
+	cJSON *req_params = NULL;
+	const char *req_params_protocol = NULL;
+	const char *req_params_realm = NULL;
+	const char *req_params_requester_nodeid = NULL;
+	const char *req_params_responder_nodeid = NULL;
+	cJSON *res = NULL;
+	cJSON *res_result = NULL;
+	cJSON *res_result_controllers;
+	blade_protocol_t *bp = NULL;
 
-	ks_assert(br);
+	ks_assert(brpcreq);
 
-	bh = br->handle;
+	bh = blade_rpc_request_handle_get(brpcreq);
 	ks_assert(bh);
 
-	ks_hash_insert(bh->requests, (void *)br->message_id, br);
+	bs = blade_sessionmgr_session_lookup(blade_handle_sessionmgr_get(bh), blade_rpc_request_sessionid_get(brpcreq));
+	ks_assert(bs);
 
-	return KS_STATUS_SUCCESS;
+	req = blade_rpc_request_message_get(brpcreq);
+	ks_assert(req);
+
+	req_params = cJSON_GetObjectItem(req, "params");
+	if (!req_params) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) locate request missing 'params' object\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params object");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	req_params_protocol = cJSON_GetObjectCstr(req_params, "protocol");
+	if (!req_params_protocol) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) locate request missing 'protocol'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params protocol");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	req_params_realm = cJSON_GetObjectCstr(req_params, "realm");
+	if (!req_params_realm) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) locate request missing 'realm'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params realm");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	// @todo confirm the realm is permitted for the session, this gets complicated with subdomains, skipping for now
+
+	req_params_requester_nodeid = cJSON_GetObjectCstr(req_params, "requester-nodeid");
+	if (!req_params_requester_nodeid) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) locate request missing 'requester-nodeid'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params requester-nodeid");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	req_params_responder_nodeid = cJSON_GetObjectCstr(req_params, "responder-nodeid");
+	if (!req_params_responder_nodeid) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) locate request missing 'responder-nodeid'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params responder-nodeid");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	if (!blade_upstreammgr_masterid_compare(bh->upstreammgr, req_params_responder_nodeid)) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) locate request invalid 'responder-nodeid' (%s)\n", blade_session_id_get(bs), req_params_responder_nodeid);
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Invalid params responder-nodeid");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	ks_log(KS_LOG_DEBUG, "Session (%s) locate request (%s to %s) processing\n", blade_session_id_get(bs), req_params_requester_nodeid, req_params_responder_nodeid);
+
+	res_result_controllers = cJSON_CreateObject();
+
+	bp = blade_mastermgr_protocol_lookup(bh->mastermgr, req_params_protocol, req_params_realm);
+	if (bp) {
+		ks_hash_t *controllers = blade_protocol_controllers_get(bp);
+		for (ks_hash_iterator_t *it = ks_hash_first(controllers, KS_UNLOCKED); it; it = ks_hash_next(&it)) {
+			const char *key = NULL;
+			void *value = NULL;
+
+			ks_hash_this(it, (const void **)&key, NULL, &value);
+
+			cJSON_AddItemToArray(res_result_controllers, cJSON_CreateString(key));
+		}
+	}
+
+
+	// build the actual response finally
+	blade_rpc_response_raw_create(&res, &res_result, blade_rpc_request_messageid_get(brpcreq));
+
+	cJSON_AddStringToObject(res_result, "protocol", req_params_protocol);
+	cJSON_AddStringToObject(res_result, "realm", req_params_realm);
+	cJSON_AddStringToObject(res_result, "requester-nodeid", req_params_requester_nodeid);
+	cJSON_AddStringToObject(res_result, "responder-nodeid", req_params_responder_nodeid);
+	cJSON_AddItemToObject(res_result, "controllers", res_result_controllers);
+
+	// request was just received on a session that is already read locked, so we can assume the response goes back on the same session without further lookup
+	blade_session_send(bs, res, NULL, NULL);
+
+done:
+
+	if (res) cJSON_Delete(res);
+	if (bs) blade_session_read_unlock(bs);
+
+	return KS_FALSE;
 }
 
-KS_DECLARE(ks_status_t) blade_handle_requests_remove(blade_request_t *br)
+
+// blade.execute request generator
+KS_DECLARE(ks_status_t) blade_protocol_execute(blade_handle_t *bh, const char *nodeid, const char *method, const char *protocol, const char *realm, cJSON *params, blade_rpc_response_callback_t callback, void *data)
+{
+	ks_status_t ret = KS_STATUS_SUCCESS;
+	blade_session_t *bs = NULL;
+	ks_pool_t *pool = NULL;
+	cJSON *req = NULL;
+	cJSON *req_params = NULL;
+	const char *localid = NULL;
+
+	ks_assert(bh);
+	ks_assert(nodeid);
+	ks_assert(method);
+	ks_assert(protocol);
+	ks_assert(realm);
+
+	if (!(bs = blade_routemgr_route_lookup(blade_handle_routemgr_get(bh), nodeid))) {
+		if (!(bs = blade_upstreammgr_session_get(bh->upstreammgr))) {
+			ret = KS_STATUS_DISCONNECTED;
+			goto done;
+		}
+	}
+
+	pool = blade_handle_pool_get(bh);
+	ks_assert(pool);
+
+	blade_rpc_request_raw_create(pool, &req, &req_params, NULL, "blade.execute");
+
+	// fill in the req_params
+	cJSON_AddStringToObject(req_params, "method", method);
+	cJSON_AddStringToObject(req_params, "protocol", protocol);
+	cJSON_AddStringToObject(req_params, "realm", realm);
+
+	blade_upstreammgr_localid_copy(bh->upstreammgr, pool, &localid);
+	ks_assert(localid);
+
+	cJSON_AddStringToObject(req_params, "requester-nodeid", localid);
+	ks_pool_free(pool, &localid);
+
+	cJSON_AddStringToObject(req_params, "responder-nodeid", nodeid);
+
+	if (params) cJSON_AddItemToObject(req_params, "params", cJSON_Duplicate(params, 1));
+
+	ks_log(KS_LOG_DEBUG, "Session (%s) execute request started\n", blade_session_id_get(bs));
+
+	ret = blade_session_send(bs, req, callback, data);
+
+done:
+	if (req) cJSON_Delete(req);
+	if (bs) blade_session_read_unlock(bs);
+
+	return ret;
+}
+
+// blade.execute request handler
+ks_bool_t blade_protocol_execute_request_handler(blade_rpc_request_t *brpcreq, void *data)
+{
+	ks_bool_t ret = KS_FALSE;
+	blade_handle_t *bh = NULL;
+	blade_session_t *bs = NULL;
+	cJSON *req = NULL;
+	cJSON *req_params = NULL;
+	const char *req_params_method = NULL;
+	const char *req_params_protocol = NULL;
+	const char *req_params_realm = NULL;
+	const char *req_params_requester_nodeid = NULL;
+	const char *req_params_responder_nodeid = NULL;
+	blade_rpc_t *brpc = NULL;
+	blade_rpc_request_callback_t callback = NULL;
+	cJSON *res = NULL;
+
+	ks_assert(brpcreq);
+
+	bh = blade_rpc_request_handle_get(brpcreq);
+	ks_assert(bh);
+
+	bs = blade_sessionmgr_session_lookup(blade_handle_sessionmgr_get(bh), blade_rpc_request_sessionid_get(brpcreq));
+	ks_assert(bs);
+
+	req = blade_rpc_request_message_get(brpcreq);
+	ks_assert(req);
+
+	req_params = cJSON_GetObjectItem(req, "params");
+	if (!req_params) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) execute request missing 'params' object\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params object");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	req_params_method = cJSON_GetObjectCstr(req_params, "method");
+	if (!req_params_method) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) execute request missing 'method'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params method");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	req_params_protocol = cJSON_GetObjectCstr(req_params, "protocol");
+	if (!req_params_protocol) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) execute request missing 'protocol'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params protocol");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	req_params_realm = cJSON_GetObjectCstr(req_params, "realm");
+	if (!req_params_realm) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) execute request missing 'realm'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params realm");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	// @todo confirm the realm is permitted for the session, this gets complicated with subdomains, skipping for now
+
+	req_params_requester_nodeid = cJSON_GetObjectCstr(req_params, "requester-nodeid");
+	if (!req_params_requester_nodeid) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) execute request missing 'requester-nodeid'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params requester-nodeid");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	req_params_responder_nodeid = cJSON_GetObjectCstr(req_params, "responder-nodeid");
+	if (!req_params_responder_nodeid) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) execute request missing 'responder-nodeid'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params responder-nodeid");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	ks_log(KS_LOG_DEBUG, "Session (%s) execute request (%s to %s) processing\n", blade_session_id_get(bs), req_params_requester_nodeid, req_params_responder_nodeid);
+
+	// @todo pull out nested params block if it exists and check against schema later, so blade_rpc_t should be able to carry a schema with it, even though blade.xxx may not associate one
+
+	brpc = blade_rpcmgr_protocolrpc_lookup(blade_handle_rpcmgr_get(bh), req_params_method, req_params_protocol, req_params_realm);
+	if (!brpc) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) execute request unknown method\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Unknown params method");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	callback = blade_rpc_callback_get(brpc);
+	if (callback) ret = callback(brpcreq, blade_rpc_callback_data_get(brpc));
+
+done:
+
+	if (res) cJSON_Delete(res);
+	if (bs) blade_session_read_unlock(bs);
+
+	return ret;
+}
+
+KS_DECLARE(const char *) blade_protocol_execute_request_requester_nodeid_get(blade_rpc_request_t *brpcreq)
+{
+	cJSON *req = NULL;
+	cJSON *req_params = NULL;
+	const char *req_requester_nodeid = NULL;
+
+	ks_assert(brpcreq);
+
+	req = blade_rpc_request_message_get(brpcreq);
+	ks_assert(req);
+
+	req_params = cJSON_GetObjectItem(req, "params");
+	if (req_params) req_requester_nodeid = cJSON_GetObjectCstr(req_params, "requester-nodeid");
+
+	return req_requester_nodeid;
+}
+
+KS_DECLARE(const char *) blade_protocol_execute_request_responder_nodeid_get(blade_rpc_request_t *brpcreq)
+{
+	cJSON *req = NULL;
+	cJSON *req_params = NULL;
+	const char *req_responder_nodeid = NULL;
+
+	ks_assert(brpcreq);
+
+	req = blade_rpc_request_message_get(brpcreq);
+	ks_assert(req);
+
+	req_params = cJSON_GetObjectItem(req, "params");
+	if (req_params) req_responder_nodeid = cJSON_GetObjectCstr(req_params, "responder-nodeid");
+
+	return req_responder_nodeid;
+}
+
+KS_DECLARE(cJSON *) blade_protocol_execute_request_params_get(blade_rpc_request_t *brpcreq)
+{
+	cJSON *req = NULL;
+	cJSON *req_params = NULL;
+	cJSON *req_params_params = NULL;
+
+	ks_assert(brpcreq);
+
+	req = blade_rpc_request_message_get(brpcreq);
+	ks_assert(req);
+
+	req_params = cJSON_GetObjectItem(req, "params");
+	if (req_params) req_params_params = cJSON_GetObjectItem(req_params, "params");
+
+	return req_params_params;
+}
+
+KS_DECLARE(cJSON *) blade_protocol_execute_response_result_get(blade_rpc_response_t *brpcres)
+{
+	cJSON *res = NULL;
+	cJSON *res_result = NULL;
+	cJSON *res_result_result = NULL;
+
+	ks_assert(brpcres);
+
+	res = blade_rpc_response_message_get(brpcres);
+	ks_assert(res);
+
+	res_result = cJSON_GetObjectItem(res, "result");
+	if (res_result) res_result_result = cJSON_GetObjectItem(res_result, "result");
+
+	return res_result_result;
+}
+
+// @note added blade_rpc_request_duplicate() to support async responding where the callbacks return immediately and the blade_rpc_request_t will be destroyed,
+// in such cases duplicate the request to retain a copy for passing to blade_protocol_execute_response_send when sending the response as it contains everything
+// needed to produce a response except the inner result block for blade.execute and call blade_rpc_request_destroy() to clean up the duplicate when finished
+KS_DECLARE(void) blade_protocol_execute_response_send(blade_rpc_request_t *brpcreq, cJSON *result)
 {
 	blade_handle_t *bh = NULL;
+	blade_session_t *bs = NULL;
+	cJSON *req = NULL;
+	cJSON *req_params = NULL;
+	//const char *req_params_method = NULL;
+	const char *req_params_protocol = NULL;
+	const char *req_params_realm = NULL;
+	const char *req_params_requester_nodeid = NULL;
+	const char *req_params_responder_nodeid = NULL;
+	cJSON *res = NULL;
+	cJSON *res_result = NULL;
 
-	ks_assert(br);
+	ks_assert(brpcreq);
 
-	bh = br->handle;
+	bh = blade_rpc_request_handle_get(brpcreq);
 	ks_assert(bh);
 
-	ks_hash_remove(bh->requests, (void *)br->message_id);
+	bs = blade_sessionmgr_session_lookup(blade_handle_sessionmgr_get(bh), blade_rpc_request_sessionid_get(brpcreq));
+	ks_assert(bs);
 
-	return KS_STATUS_SUCCESS;
+	req = blade_rpc_request_message_get(brpcreq);
+	ks_assert(req);
+
+	req_params = cJSON_GetObjectItem(req, "params");
+	ks_assert(req_params);
+
+	req_params_protocol = cJSON_GetObjectCstr(req_params, "protocol");
+	ks_assert(req_params_protocol);
+
+	req_params_realm = cJSON_GetObjectCstr(req_params, "realm");
+	ks_assert(req_params_realm);
+
+	req_params_requester_nodeid = cJSON_GetObjectCstr(req_params, "requester-nodeid");
+	ks_assert(req_params_requester_nodeid);
+
+	req_params_responder_nodeid = cJSON_GetObjectCstr(req_params, "responder-nodeid");
+	ks_assert(req_params_responder_nodeid);
+
+	// build the actual response finally, wrap this into blade_protocol_execute_response_send()
+	blade_rpc_response_raw_create(&res, &res_result, blade_rpc_request_messageid_get(brpcreq));
+
+	cJSON_AddStringToObject(res_result, "protocol", req_params_protocol);
+	cJSON_AddStringToObject(res_result, "realm", req_params_realm);
+	cJSON_AddStringToObject(res_result, "requester-nodeid", req_params_requester_nodeid);
+	cJSON_AddStringToObject(res_result, "responder-nodeid", req_params_responder_nodeid);
+	if (result) cJSON_AddItemToObject(res_result, "result", cJSON_Duplicate(result, 1));
+
+	// request was just received on a session that is already read locked, so we can assume the response goes back on the same session without further lookup
+	blade_session_send(bs, res, NULL, NULL);
+
+	cJSON_Delete(res);
+
+	blade_session_read_unlock(bs);
 }
 
 
-
-KS_DECLARE(ks_bool_t) blade_handle_datastore_available(blade_handle_t *bh)
+// blade.subscribe request generator
+KS_DECLARE(ks_status_t) blade_protocol_subscribe(blade_handle_t *bh, const char *event, const char *protocol, const char *realm, ks_bool_t remove, blade_rpc_response_callback_t callback, void *data, blade_rpc_request_callback_t event_callback, void *event_data)
 {
-	ks_assert(bh);
+	ks_status_t ret = KS_STATUS_SUCCESS;
+	blade_session_t *bs = NULL;
+	const char *localid = NULL;
+	ks_bool_t propagate = KS_FALSE;
+	blade_subscription_t *bsub = NULL;
 
-	return bh->datastore != NULL;
+	ks_assert(bh);
+	ks_assert(event);
+	ks_assert(protocol);
+	ks_assert(realm);
+
+	if (!(bs = blade_upstreammgr_session_get(bh->upstreammgr))) {
+		ret = KS_STATUS_DISCONNECTED;
+		goto done;
+	}
+
+	blade_upstreammgr_localid_copy(bh->upstreammgr, bh->pool, &localid);
+	ks_assert(localid);
+
+	if (remove) {
+		propagate = blade_subscriptionmgr_subscriber_remove(bh->subscriptionmgr, &bsub, event, protocol, realm, localid);
+	} else {
+		propagate = blade_subscriptionmgr_subscriber_add(bh->subscriptionmgr, &bsub, event, protocol, realm, localid);
+		ks_assert(event_callback);
+	}
+	ks_pool_free(bh->pool, &localid);
+
+	if (!remove && bsub) {
+		blade_subscription_callback_set(bsub, event_callback);
+		blade_subscription_callback_data_set(bsub, event_data);
+	}
+
+	if (propagate) ret = blade_protocol_subscribe_raw(bh, event, protocol, realm, remove, callback, data);
+
+done:
+	if (bs) blade_session_read_unlock(bs);
+
+	return ret;
 }
 
-KS_DECLARE(ks_status_t) blade_handle_datastore_store(blade_handle_t *bh, const void *key, int32_t key_length, const void *data, int64_t data_length)
+KS_DECLARE(ks_status_t) blade_protocol_subscribe_raw(blade_handle_t *bh, const char *event, const char *protocol, const char *realm, ks_bool_t remove, blade_rpc_response_callback_t callback, void *data)
 {
+	ks_status_t ret = KS_STATUS_SUCCESS;
+	blade_session_t *bs = NULL;
+	ks_pool_t *pool = NULL;
+	cJSON *req = NULL;
+	cJSON *req_params = NULL;
+
 	ks_assert(bh);
-	ks_assert(key);
-	ks_assert(key_length > 0);
-	ks_assert(data);
-	ks_assert(data_length > 0);
+	ks_assert(event);
+	ks_assert(protocol);
+	ks_assert(realm);
 
-	if (!blade_handle_datastore_available(bh)) return KS_STATUS_INACTIVE;
+	if (!(bs = blade_upstreammgr_session_get(bh->upstreammgr))) {
+		ret = KS_STATUS_DISCONNECTED;
+		goto done;
+	}
 
-	return blade_datastore_store(bh->datastore, key, key_length, data, data_length);
+	pool = blade_handle_pool_get(bh);
+	ks_assert(pool);
+
+	blade_rpc_request_raw_create(pool, &req, &req_params, NULL, "blade.subscribe");
+
+	cJSON_AddStringToObject(req_params, "event", event);
+	cJSON_AddStringToObject(req_params, "protocol", protocol);
+	cJSON_AddStringToObject(req_params, "realm", realm);
+	if (remove) cJSON_AddTrueToObject(req_params, "remove");
+
+	ks_log(KS_LOG_DEBUG, "Session (%s) subscribe request started\n", blade_session_id_get(bs));
+
+	ret = blade_session_send(bs, req, callback, data);
+
+done:
+	if (req) cJSON_Delete(req);
+	if (bs) blade_session_read_unlock(bs);
+
+	return ret;
 }
 
-KS_DECLARE(ks_status_t) blade_handle_datastore_fetch(blade_handle_t *bh,
-													 blade_datastore_fetch_callback_t callback,
-													 const void *key,
-													 int32_t key_length,
-													 void *userdata)
+// blade.subscribe request handler
+ks_bool_t blade_protocol_subscribe_request_handler(blade_rpc_request_t *brpcreq, void *data)
 {
+	blade_handle_t *bh = NULL;
+	blade_session_t *bs = NULL;
+	ks_pool_t *pool = NULL;
+	cJSON *req = NULL;
+	cJSON *req_params = NULL;
+	const char *req_params_event = NULL;
+	const char *req_params_protocol = NULL;
+	const char *req_params_realm = NULL;
+	cJSON *req_params_remove = NULL;
+	ks_bool_t remove = KS_FALSE;
+	cJSON *res = NULL;
+	cJSON *res_result = NULL;
+	ks_bool_t propagate = KS_FALSE;
+
+	ks_assert(brpcreq);
+
+	bh = blade_rpc_request_handle_get(brpcreq);
 	ks_assert(bh);
-	ks_assert(callback);
-	ks_assert(key);
-	ks_assert(key_length > 0);
 
-	if (!blade_handle_datastore_available(bh)) return KS_STATUS_INACTIVE;
+	pool = blade_handle_pool_get(bh);
+	ks_assert(pool);
 
-	return blade_datastore_fetch(bh->datastore, callback, key, key_length, userdata);
+	bs = blade_sessionmgr_session_lookup(blade_handle_sessionmgr_get(bh), blade_rpc_request_sessionid_get(brpcreq));
+	ks_assert(bs);
+
+	req = blade_rpc_request_message_get(brpcreq);
+	ks_assert(req);
+
+	req_params = cJSON_GetObjectItem(req, "params");
+	if (!req_params) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) subscribe request missing 'params' object\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params object");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	req_params_event = cJSON_GetObjectCstr(req_params, "event");
+	if (!req_params_event) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) subscribe request missing 'event'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params event");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	req_params_protocol = cJSON_GetObjectCstr(req_params, "protocol");
+	if (!req_params_protocol) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) subscribe request missing 'protocol'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params protocol");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	req_params_realm = cJSON_GetObjectCstr(req_params, "realm");
+	if (!req_params_realm) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) subscribe request missing 'realm'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params realm");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	req_params_remove = cJSON_GetObjectItem(req_params, "remove");
+	remove = req_params_remove && req_params_remove->type == cJSON_True;
+
+	// @todo confirm the realm is permitted for the session, this gets complicated with subdomains, skipping for now
+
+	ks_log(KS_LOG_DEBUG, "Session (%s) subscribe request processing\n", blade_session_id_get(bs));
+
+	if (remove) {
+		propagate = blade_subscriptionmgr_subscriber_remove(bh->subscriptionmgr, NULL, req_params_event, req_params_protocol, req_params_realm, blade_session_id_get(bs));
+	} else {
+		propagate = blade_subscriptionmgr_subscriber_add(bh->subscriptionmgr, NULL, req_params_event, req_params_protocol, req_params_realm, blade_session_id_get(bs));
+	}
+
+	if (propagate) blade_protocol_subscribe_raw(bh, req_params_event, req_params_protocol, req_params_realm, remove, NULL, NULL);
+
+	// build the actual response finally
+	blade_rpc_response_raw_create(&res, &res_result, blade_rpc_request_messageid_get(brpcreq));
+
+	cJSON_AddStringToObject(res_result, "event", req_params_event);
+	cJSON_AddStringToObject(res_result, "protocol", req_params_protocol);
+	cJSON_AddStringToObject(res_result, "realm", req_params_realm);
+
+	// request was just received on a session that is already read locked, so we can assume the response goes back on the same session without further lookup
+	blade_session_send(bs, res, NULL, NULL);
+
+done:
+
+	if (res) cJSON_Delete(res);
+	if (bs) blade_session_read_unlock(bs);
+
+	return KS_FALSE;
+}
+
+
+// blade.broadcast request generator
+KS_DECLARE(ks_status_t) blade_protocol_broadcast(blade_handle_t *bh, const char *broadcaster_nodeid, const char *event, const char *protocol, const char *realm, cJSON *params, blade_rpc_response_callback_t callback, void *data)
+{
+	ks_status_t ret = KS_STATUS_SUCCESS;
+	ks_pool_t *pool = NULL;
+	const char *localid = NULL;
+
+	ks_assert(bh);
+	ks_assert(event);
+	ks_assert(protocol);
+	ks_assert(realm);
+
+	// this will ensure any downstream subscriber sessions, and upstream session if available will be broadcasted to
+	pool = blade_handle_pool_get(bh);
+
+	if (!broadcaster_nodeid) {
+		blade_upstreammgr_localid_copy(bh->upstreammgr, pool, &localid);
+		ks_assert(localid);
+		broadcaster_nodeid = localid;
+	}
+
+	ret = blade_subscriptionmgr_broadcast(bh->subscriptionmgr, broadcaster_nodeid, NULL, event, protocol, realm, params, callback, data);
+
+	if (localid) ks_pool_free(pool, &localid);
+
+	// @todo must check if the local node is also subscribed to receive the event, this is a special edge case which has some extra considerations
+	// if the local node is subscribed to receive the event, it should be received here as a special case, otherwise the broadcast request handler
+	// is where this normally occurs, however this is not a simple case as the callback expects a blade_rpc_request_t parameter containing context
+
+	return ret;
+}
+
+// blade.broadcast request handler
+ks_bool_t blade_protocol_broadcast_request_handler(blade_rpc_request_t *brpcreq, void *data)
+{
+	ks_bool_t ret = KS_FALSE;
+	blade_handle_t *bh = NULL;
+	blade_session_t *bs = NULL;
+	cJSON *req = NULL;
+	cJSON *req_params = NULL;
+	const char *req_params_broadcaster_nodeid = NULL;
+	const char *req_params_event = NULL;
+	const char *req_params_protocol = NULL;
+	const char *req_params_realm = NULL;
+	cJSON *req_params_params = NULL;
+	blade_subscription_t *bsub = NULL;
+	blade_rpc_request_callback_t callback = NULL;
+	cJSON *res = NULL;
+	cJSON *res_result = NULL;
+
+	ks_assert(brpcreq);
+
+	bh = blade_rpc_request_handle_get(brpcreq);
+	ks_assert(bh);
+
+	bs = blade_sessionmgr_session_lookup(blade_handle_sessionmgr_get(bh), blade_rpc_request_sessionid_get(brpcreq));
+	ks_assert(bs);
+
+	req = blade_rpc_request_message_get(brpcreq);
+	ks_assert(req);
+
+	req_params = cJSON_GetObjectItem(req, "params");
+	if (!req_params) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) broadcast request missing 'params' object\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params object");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	req_params_broadcaster_nodeid = cJSON_GetObjectCstr(req_params, "broadcaster-nodeid");
+	if (!req_params_broadcaster_nodeid) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) broadcast request missing 'broadcaster-nodeid'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params broadcaster-nodeid");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	req_params_event = cJSON_GetObjectCstr(req_params, "event");
+	if (!req_params_event) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) broadcast request missing 'event'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params event");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	req_params_protocol = cJSON_GetObjectCstr(req_params, "protocol");
+	if (!req_params_protocol) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) broadcast request missing 'protocol'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params protocol");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	req_params_realm = cJSON_GetObjectCstr(req_params, "realm");
+	if (!req_params_realm) {
+		ks_log(KS_LOG_DEBUG, "Session (%s) broadcast request missing 'realm'\n", blade_session_id_get(bs));
+		blade_rpc_error_raw_create(&res, NULL, blade_rpc_request_messageid_get(brpcreq), -32602, "Missing params realm");
+		blade_session_send(bs, res, NULL, NULL);
+		goto done;
+	}
+
+	req_params_params = cJSON_GetObjectItem(req_params, "params");
+
+	blade_subscriptionmgr_broadcast(bh->subscriptionmgr, req_params_broadcaster_nodeid, blade_session_id_get(bs), req_params_event, req_params_protocol, req_params_realm, req_params_params, NULL, NULL);
+
+	bsub = blade_subscriptionmgr_subscription_lookup(bh->subscriptionmgr, req_params_event, req_params_protocol, req_params_realm);
+	if (bsub) {
+		const char *localid = NULL;
+		ks_pool_t *pool = NULL;
+
+		pool = blade_handle_pool_get(bh);
+
+		blade_upstreammgr_localid_copy(bh->upstreammgr, pool, &localid);
+		ks_assert(localid);
+
+		if (ks_hash_search(blade_subscription_subscribers_get(bsub), (void *)localid, KS_UNLOCKED)) {
+			callback = blade_subscription_callback_get(bsub);
+			if (callback) ret = callback(brpcreq, blade_subscription_callback_data_get(bsub));
+		}
+		ks_pool_free(pool, &localid);
+	}
+
+	// build the actual response finally
+	blade_rpc_response_raw_create(&res, &res_result, blade_rpc_request_messageid_get(brpcreq));
+
+	cJSON_AddStringToObject(res_result, "broadcaster-nodeid", req_params_broadcaster_nodeid);
+	cJSON_AddStringToObject(res_result, "event", req_params_event);
+	cJSON_AddStringToObject(res_result, "protocol", req_params_protocol);
+	cJSON_AddStringToObject(res_result, "realm", req_params_realm);
+
+	// request was just received on a session that is already read locked, so we can assume the response goes back on the same session without further lookup
+	blade_session_send(bs, res, NULL, NULL);
+
+
+done:
+
+	if (res) cJSON_Delete(res);
+	if (bs) blade_session_read_unlock(bs);
+
+	return ret;
+}
+
+KS_DECLARE(const char *) blade_protocol_broadcast_request_broadcaster_nodeid_get(blade_rpc_request_t *brpcreq)
+{
+	cJSON *req = NULL;
+	cJSON *req_params = NULL;
+	const char *req_broadcaster_nodeid = NULL;
+
+	ks_assert(brpcreq);
+
+	req = blade_rpc_request_message_get(brpcreq);
+	ks_assert(req);
+
+	req_params = cJSON_GetObjectItem(req, "params");
+	if (req_params) req_broadcaster_nodeid = cJSON_GetObjectCstr(req_params, "broadcaster-nodeid");
+
+	return req_broadcaster_nodeid;
+}
+
+KS_DECLARE(cJSON *) blade_protocol_broadcast_request_params_get(blade_rpc_request_t *brpcreq)
+{
+	cJSON *req = NULL;
+	cJSON *req_params = NULL;
+	cJSON *req_params_params = NULL;
+
+	ks_assert(brpcreq);
+
+	req = blade_rpc_request_message_get(brpcreq);
+	ks_assert(req);
+
+	req_params = cJSON_GetObjectItem(req, "params");
+	if (req_params) req_params_params = cJSON_GetObjectItem(req_params, "params");
+
+	return req_params_params;
 }
 
 /* For Emacs:

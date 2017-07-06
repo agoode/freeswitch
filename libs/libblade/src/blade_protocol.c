@@ -1,23 +1,23 @@
 /*
  * Copyright (c) 2017, Shane Bryldt
  * All rights reserved.
- *
+ * 
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
- *
+ * 
  * * Redistributions of source code must retain the above copyright
  * notice, this list of conditions and the following disclaimer.
- *
+ * 
  * * Redistributions in binary form must reproduce the above copyright
  * notice, this list of conditions and the following disclaimer in the
  * documentation and/or other materials provided with the distribution.
- *
+ * 
  * * Neither the name of the original author; nor the names of any contributors
  * may be used to endorse or promote products derived from this software
  * without specific prior written permission.
- *
- *
+ * 
+ * 
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -33,298 +33,103 @@
 
 #include "blade.h"
 
-static void blade_request_cleanup(ks_pool_t *pool, void *ptr, void *arg, ks_pool_cleanup_action_t action, ks_pool_cleanup_type_t type)
-{
-	blade_request_t *breq = (blade_request_t *)ptr;
+struct blade_protocol_s {
+	ks_pool_t *pool;
 
-	ks_assert(breq);
+	const char *name;
+	const char *realm;
+	ks_hash_t *controllers;
+	// @todo descriptors (schema, etc) for each method within a protocol
+};
+
+
+static void blade_protocol_cleanup(ks_pool_t *pool, void *ptr, void *arg, ks_pool_cleanup_action_t action, ks_pool_cleanup_type_t type)
+{
+	blade_protocol_t *bp = (blade_protocol_t *)ptr;
+
+	ks_assert(bp);
 
 	switch (action) {
 	case KS_MPCL_ANNOUNCE:
 		break;
 	case KS_MPCL_TEARDOWN:
-		ks_pool_free(breq->pool, (void **)&breq->session_id);
-		cJSON_Delete(breq->message);
+		if (bp->name) ks_pool_free(bp->pool, &bp->name);
+		if (bp->realm) ks_pool_free(bp->pool, &bp->realm);
+		if (bp->controllers) ks_hash_destroy(&bp->controllers);
 		break;
 	case KS_MPCL_DESTROY:
 		break;
 	}
 }
 
-KS_DECLARE(ks_status_t) blade_request_create(blade_request_t **breqP,
-											 blade_handle_t *bh,
-											 ks_pool_t *pool,
-											 const char *session_id,
-											 cJSON *json,
-											 blade_response_callback_t callback)
+KS_DECLARE(ks_status_t) blade_protocol_create(blade_protocol_t **bpP, ks_pool_t *pool, const char *name, const char *realm)
 {
-	blade_request_t *breq = NULL;
+	blade_protocol_t *bp = NULL;
 
-	ks_assert(breqP);
-	ks_assert(bh);
+	ks_assert(bpP);
 	ks_assert(pool);
-	ks_assert(session_id);
-	ks_assert(json);
+	ks_assert(name);
+	ks_assert(realm);
 
-	breq = ks_pool_alloc(pool, sizeof(blade_request_t));
-	breq->handle = bh;
-	breq->pool = pool;
-	breq->session_id = ks_pstrdup(pool, session_id);
-	breq->message = cJSON_Duplicate(json, 1);
-	breq->message_id = cJSON_GetObjectCstr(breq->message, "id");
-	breq->callback = callback;
+	bp = ks_pool_alloc(pool, sizeof(blade_protocol_t));
+	bp->pool = pool;
+	bp->name = ks_pstrdup(pool, name);
+	bp->realm = ks_pstrdup(pool, realm);
 
-	ks_pool_set_cleanup(pool, breq, NULL, blade_request_cleanup);
+	ks_hash_create(&bp->controllers, KS_HASH_MODE_CASE_INSENSITIVE, KS_HASH_FLAG_NOLOCK | KS_HASH_FLAG_DUP_CHECK | KS_HASH_FLAG_FREE_KEY, bp->pool);
+	ks_assert(bp->controllers);
 
-	*breqP = breq;
+	ks_pool_set_cleanup(pool, bp, NULL, blade_protocol_cleanup);
 
-	return KS_STATUS_SUCCESS;
-}
-
-KS_DECLARE(ks_status_t) blade_request_destroy(blade_request_t **breqP)
-{
-	blade_request_t *breq = NULL;
-
-	ks_assert(breqP);
-	ks_assert(*breqP);
-
-	breq = *breqP;
-
-	ks_pool_free(breq->pool, breqP);
+	*bpP = bp;
 
 	return KS_STATUS_SUCCESS;
 }
 
-static void blade_response_cleanup(ks_pool_t *pool, void *ptr, void *arg, ks_pool_cleanup_action_t action, ks_pool_cleanup_type_t type)
+KS_DECLARE(ks_status_t) blade_protocol_destroy(blade_protocol_t **bpP)
 {
-	blade_response_t *bres = (blade_response_t *)ptr;
+	blade_protocol_t *bp = NULL;
+	
+	ks_assert(bpP);
+	ks_assert(*bpP);
 
-	ks_assert(bres);
+	bp = *bpP;
 
-	switch (action) {
-	case KS_MPCL_ANNOUNCE:
-		break;
-	case KS_MPCL_TEARDOWN:
-		ks_pool_free(bres->pool, (void **)&bres->session_id);
-		blade_request_destroy(&bres->request);
-		cJSON_Delete(bres->message);
-		break;
-	case KS_MPCL_DESTROY:
-		break;
-	}
-}
-
-KS_DECLARE(ks_status_t) blade_response_create(blade_response_t **bresP,
-											  blade_handle_t *bh,
-											  ks_pool_t *pool,
-											  const char *session_id,
-											  blade_request_t *breq,
-											  cJSON *json)
-{
-	blade_response_t *bres = NULL;
-
-	ks_assert(bresP);
-	ks_assert(bh);
-	ks_assert(pool);
-	ks_assert(session_id);
-	ks_assert(breq);
-	ks_assert(json);
-
-	bres = ks_pool_alloc(pool, sizeof(blade_response_t));
-	bres->handle = bh;
-	bres->pool = pool;
-	bres->session_id = ks_pstrdup(pool, session_id);
-	bres->request = breq;
-	bres->message = cJSON_Duplicate(json, 1);
-
-	ks_pool_set_cleanup(pool, bres, NULL, blade_response_cleanup);
-
-	*bresP = bres;
+	ks_pool_free(bp->pool, bpP);
 
 	return KS_STATUS_SUCCESS;
 }
 
-KS_DECLARE(ks_status_t) blade_response_destroy(blade_response_t **bresP)
+KS_DECLARE(ks_hash_t *) blade_protocol_controllers_get(blade_protocol_t *bp)
 {
-	blade_response_t *bres = NULL;
+	ks_assert(bp);
+	return bp->controllers;
 
-	ks_assert(bresP);
-	ks_assert(*bresP);
-
-	bres = *bresP;
-
-	ks_pool_free(bres->pool, bresP);
-
-	return KS_STATUS_SUCCESS;
 }
 
-static void blade_event_cleanup(ks_pool_t *pool, void *ptr, void *arg, ks_pool_cleanup_action_t action, ks_pool_cleanup_type_t type)
+KS_DECLARE(ks_status_t) blade_protocol_controllers_add(blade_protocol_t *bp, const char *nodeid)
 {
-	blade_event_t *bev = (blade_event_t *)ptr;
+	char *key = NULL;
 
-	ks_assert(bev);
+	ks_assert(bp);
+	ks_assert(nodeid);
 
-	switch (action) {
-	case KS_MPCL_ANNOUNCE:
-		break;
-	case KS_MPCL_TEARDOWN:
-		ks_pool_free(bev->pool, &bev->session_id);
-		cJSON_Delete(bev->message);
-		break;
-	case KS_MPCL_DESTROY:
-		break;
-	}
-}
-
-KS_DECLARE(ks_status_t) blade_event_create(blade_event_t **bevP,
-										   blade_handle_t *bh,
-										   ks_pool_t *pool,
-										   const char *session_id,
-										   cJSON *json)
-{
-	blade_event_t *bev = NULL;
-
-	ks_assert(bevP);
-	ks_assert(bh);
-	ks_assert(pool);
-	ks_assert(session_id);
-	ks_assert(json);
-
-	bev = ks_pool_alloc(pool, sizeof(blade_event_t));
-	bev->handle = bh;
-	bev->pool = pool;
-	bev->session_id = ks_pstrdup(pool, session_id);
-	bev->message = cJSON_Duplicate(json, 1);
-
-	ks_pool_set_cleanup(pool, bev, NULL, blade_event_cleanup);
-
-	*bevP = bev;
+	key = ks_pstrdup(bp->pool, nodeid);
+	ks_hash_insert(bp->controllers, (void *)key, (void *)KS_TRUE);
 
 	return KS_STATUS_SUCCESS;
+
 }
 
-KS_DECLARE(ks_status_t) blade_event_destroy(blade_event_t **bevP)
+KS_DECLARE(ks_status_t) blade_protocol_controllers_remove(blade_protocol_t *bp, const char *nodeid)
 {
-	blade_event_t *bev = NULL;
+	ks_assert(bp);
+	ks_assert(nodeid);
 
-	ks_assert(bevP);
-	ks_assert(*bevP);
-
-	bev = *bevP;
-
-	ks_pool_free(bev->pool, bevP);
+	ks_hash_remove(bp->controllers, (void *)nodeid);
 
 	return KS_STATUS_SUCCESS;
-}
 
-
-KS_DECLARE(ks_status_t) blade_rpc_request_create(ks_pool_t *pool, cJSON **json, cJSON **params, const char **id, const char *method)
-{
-	cJSON *root = NULL;
-	cJSON *p = NULL;
-	uuid_t msgid;
-	const char *mid = NULL;
-
-	ks_assert(pool);
-	ks_assert(json);
-	ks_assert(method);
-
-	root = cJSON_CreateObject();
-
-	cJSON_AddStringToObject(root, "jsonrpc", "2.0");
-
-	ks_uuid(&msgid);
-	mid = ks_uuid_str(pool, &msgid);
-	cJSON_AddStringToObject(root, "id", mid);
-	ks_pool_free(pool, &mid);
-
-	cJSON_AddStringToObject(root, "method", method);
-
-	p = cJSON_CreateObject();
-	cJSON_AddItemToObject(root, "params", p);
-
-	*json = root;
-	if (params) *params = p;
-	if (id) *id = cJSON_GetObjectCstr(root, "id");
-
-	return KS_STATUS_SUCCESS;
-}
-
-KS_DECLARE(ks_status_t) blade_rpc_response_create(cJSON **json, cJSON **result, const char *id)
-{
-	cJSON *root = NULL;
-	cJSON *r = NULL;
-
-	ks_assert(json);
-	ks_assert(id);
-
-	root = cJSON_CreateObject();
-
-	cJSON_AddStringToObject(root, "jsonrpc", "2.0");
-
-	cJSON_AddStringToObject(root, "id", id);
-
-	r = cJSON_CreateObject();
-	cJSON_AddItemToObject(root, "result", r);
-
-	*json = root;
-	if (result) *result = r;
-
-	return KS_STATUS_SUCCESS;
-}
-
-KS_DECLARE(ks_status_t) blade_rpc_error_create(cJSON **json, cJSON **error, const char *id, int32_t code, const char *message)
-{
-	cJSON *root = NULL;
-	cJSON *e = NULL;
-
-	ks_assert(json);
-	//ks_assert(id);
-	ks_assert(message);
-
-	root = cJSON_CreateObject();
-
-	cJSON_AddStringToObject(root, "jsonrpc", "2.0");
-
-	if (id) cJSON_AddStringToObject(root, "id", id);
-
-	e = cJSON_CreateObject();
-	cJSON_AddNumberToObject(e, "code", code);
-	cJSON_AddStringToObject(e, "message", message);
-	cJSON_AddItemToObject(root, "error", e);
-
-	*json = root;
-	if (error) *error = e;
-
-	return KS_STATUS_SUCCESS;
-}
-
-KS_DECLARE(ks_status_t) blade_rpc_event_create(cJSON **json, cJSON **result, const char *event)
-{
-	cJSON *root = NULL;
-	cJSON *b = NULL;
-	cJSON *r = NULL;
-
-	ks_assert(json);
-	ks_assert(event);
-
-	root = cJSON_CreateObject();
-
-	cJSON_AddStringToObject(root, "jsonrpc", "2.0");
-
-	b = cJSON_CreateObject();
-	cJSON_AddStringToObject(b, "event", event);
-	cJSON_AddItemToObject(root, "blade", b);
-
-	if (result) {
-		r = cJSON_CreateObject();
-		cJSON_AddItemToObject(root, "result", r);
-		*result = r;
-	}
-
-	*json = root;
-
-	return KS_STATUS_SUCCESS;
 }
 
 /* For Emacs:

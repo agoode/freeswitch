@@ -77,6 +77,9 @@ api_command_t conference_api_sub_commands[] = {
 	{"tvmute", (void_fn_t) & conference_api_sub_tvmute, CONF_API_SUB_MEMBER_TARGET, "tvmute", "<[member_id|all]|last|non_moderator> [<quiet>]"},
 	{"vmute-snap", (void_fn_t) & conference_api_sub_conference_video_vmute_snap, CONF_API_SUB_MEMBER_TARGET, "vmute-snap", "<[member_id|all]|last|non_moderator>"},
 	{"unvmute", (void_fn_t) & conference_api_sub_unvmute, CONF_API_SUB_MEMBER_TARGET, "unvmute", "<[member_id|all]|last|non_moderator> [<quiet>]"},
+	{"vblind", (void_fn_t) & conference_api_sub_vblind, CONF_API_SUB_MEMBER_TARGET, "vblind", "<[member_id|all]|last|non_moderator> [<quiet>]"},
+	{"tvblind", (void_fn_t) & conference_api_sub_tvblind, CONF_API_SUB_MEMBER_TARGET, "tvblind", "<[member_id|all]|last|non_moderator> [<quiet>]"},
+	{"unvblind", (void_fn_t) & conference_api_sub_unvblind, CONF_API_SUB_MEMBER_TARGET, "unvblind", "<[member_id|all]|last|non_moderator> [<quiet>]"},
 	{"deaf", (void_fn_t) & conference_api_sub_deaf, CONF_API_SUB_MEMBER_TARGET, "deaf", "<[member_id|all]|last|non_moderator>"},
 	{"undeaf", (void_fn_t) & conference_api_sub_undeaf, CONF_API_SUB_MEMBER_TARGET, "undeaf", "<[member_id|all]|last|non_moderator>"},
 	{"vid-filter", (void_fn_t) & conference_api_sub_video_filter, CONF_API_SUB_MEMBER_TARGET, "vid-filter", "<[member_id|all]|last|non_moderator> <string>"},
@@ -112,6 +115,7 @@ api_command_t conference_api_sub_commands[] = {
 	{"vid-layout", (void_fn_t) & conference_api_sub_vid_layout, CONF_API_SUB_ARGS_SPLIT, "vid-layout", "<layout name>|group <group name> [<canvas id>]"},
 	{"vid-write-png", (void_fn_t) & conference_api_sub_write_png, CONF_API_SUB_ARGS_SPLIT, "vid-write-png", "<path>"},
 	{"vid-fps", (void_fn_t) & conference_api_sub_vid_fps, CONF_API_SUB_ARGS_SPLIT, "vid-fps", "<fps>"},
+	{"vid-res", (void_fn_t) & conference_api_sub_vid_res, CONF_API_SUB_ARGS_SPLIT, "vid-res", "<WxH>"},
 	{"vid-fgimg", (void_fn_t) & conference_api_sub_canvas_fgimg, CONF_API_SUB_ARGS_SPLIT, "vid-fgimg", "<file> | clear [<canvas-id>]"},
 	{"vid-bgimg", (void_fn_t) & conference_api_sub_canvas_bgimg, CONF_API_SUB_ARGS_SPLIT, "vid-bgimg", "<file> | clear [<canvas-id>]"},
 	{"vid-bandwidth", (void_fn_t) & conference_api_sub_vid_bandwidth, CONF_API_SUB_ARGS_SPLIT, "vid-bandwidth", "<BW>"},
@@ -375,7 +379,7 @@ switch_status_t conference_api_sub_unmute(conference_member_t *member, switch_st
 		stream->write_function(stream, "OK unmute %u\n", member->id);
 	}
 
-	if (test_eflag(member->conference, EFLAG_UNMUTE_MEMBER) &&
+	if (test_eflag(member->conference, EFLAG_MUTE_MEMBER) &&
 		switch_event_create_subclass(&event, SWITCH_EVENT_CUSTOM, CONF_EVENT_MAINT) == SWITCH_STATUS_SUCCESS) {
 		conference_member_add_event_data(member, event);
 		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Action", "unmute-member");
@@ -508,10 +512,97 @@ switch_status_t conference_api_sub_unvmute(conference_member_t *member, switch_s
 		stream->write_function(stream, "OK unvmute %u\n", member->id);
 	}
 
-	if (test_eflag(member->conference, EFLAG_UNMUTE_MEMBER) &&
+	if (test_eflag(member->conference, EFLAG_MUTE_MEMBER) &&
 		switch_event_create_subclass(&event, SWITCH_EVENT_CUSTOM, CONF_EVENT_MAINT) == SWITCH_STATUS_SUCCESS) {
 		conference_member_add_event_data(member, event);
 		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Action", "unvmute-member");
+		switch_event_fire(&event);
+	}
+
+
+	conference_member_update_status_field(member);
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
+switch_status_t conference_api_sub_vblind(conference_member_t *member, switch_stream_handle_t *stream, void *data)
+{
+	switch_event_t *event;
+
+	if (member == NULL)
+		return SWITCH_STATUS_GENERR;
+
+	if (switch_core_session_media_flow(member->session, SWITCH_MEDIA_TYPE_VIDEO) == SWITCH_MEDIA_FLOW_SENDONLY) {
+		return SWITCH_STATUS_SUCCESS;
+	}
+
+	switch_core_session_write_blank_video(member->session, 50);
+	conference_utils_member_clear_flag_locked(member, MFLAG_CAN_SEE);
+	conference_video_reset_video_bitrate_counters(member);
+
+	if (!(data) || !strstr((char *) data, "quiet")) {
+		conference_utils_member_set_flag(member, MFLAG_INDICATE_BLIND);
+	}
+
+	if (stream != NULL) {
+		stream->write_function(stream, "OK vblind %u\n", member->id);
+	}
+
+	if (test_eflag(member->conference, EFLAG_BLIND_MEMBER) &&
+		switch_event_create_subclass(&event, SWITCH_EVENT_CUSTOM, CONF_EVENT_MAINT) == SWITCH_STATUS_SUCCESS) {
+		conference_member_add_event_data(member, event);
+		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Action", "vblind-member");
+		switch_event_fire(&event);
+	}
+
+	conference_member_update_status_field(member);
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
+
+switch_status_t conference_api_sub_tvblind(conference_member_t *member, switch_stream_handle_t *stream, void *data)
+{
+
+	if (member == NULL)
+		return SWITCH_STATUS_GENERR;
+
+	if (conference_utils_member_test_flag(member, MFLAG_CAN_SEE)) {
+		return conference_api_sub_vblind(member, stream, data);
+	}
+
+	return conference_api_sub_unvblind(member, stream, data);
+}
+
+
+switch_status_t conference_api_sub_unvblind(conference_member_t *member, switch_stream_handle_t *stream, void *data)
+{
+	switch_event_t *event;
+
+	if (member == NULL)
+		return SWITCH_STATUS_GENERR;
+
+	if (switch_core_session_media_flow(member->session, SWITCH_MEDIA_TYPE_VIDEO) == SWITCH_MEDIA_FLOW_SENDONLY) {
+		return SWITCH_STATUS_SUCCESS;
+	}
+
+	conference_utils_member_set_flag_locked(member, MFLAG_CAN_SEE);
+	conference_video_reset_video_bitrate_counters(member);
+
+	switch_channel_set_flag(member->channel, CF_VIDEO_REFRESH_REQ);
+
+	if (!(data) || !strstr((char *) data, "quiet")) {
+		conference_utils_member_set_flag(member, MFLAG_INDICATE_UNBLIND);
+	}
+
+	if (stream != NULL) {
+		stream->write_function(stream, "OK unvblind %u\n", member->id);
+	}
+
+	if (test_eflag(member->conference, EFLAG_BLIND_MEMBER) &&
+		switch_event_create_subclass(&event, SWITCH_EVENT_CUSTOM, CONF_EVENT_MAINT) == SWITCH_STATUS_SUCCESS) {
+		conference_member_add_event_data(member, event);
+		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Action", "unvblind-member");
 		switch_event_fire(&event);
 	}
 
@@ -1507,6 +1598,64 @@ switch_status_t conference_api_sub_canvas_fgimg(conference_obj_t *conference, sw
 		stream->write_function(stream, "Error Setting FGimg %s\n", file);
 	}
 
+	return SWITCH_STATUS_SUCCESS;
+}
+
+switch_status_t conference_api_sub_vid_res(conference_obj_t *conference, switch_stream_handle_t *stream, int argc, char **argv)
+{
+	int canvas_w = 0, canvas_h = 0, id = 0;
+	char *video_canvas_size = argv[2];
+
+	
+	if (!conference->canvases[0]) {
+		stream->write_function(stream, "Conference is not in mixing mode\n");
+		return SWITCH_STATUS_SUCCESS;
+	}
+
+	if (zstr(video_canvas_size)) {
+		stream->write_function(stream, "Invalid size\n");
+		return SWITCH_STATUS_SUCCESS;
+	} else {
+		char *p;
+
+		if ((canvas_w = atoi(video_canvas_size))) {
+			if ((p = strchr(video_canvas_size, 'x'))) {
+				p++;
+				if (*p) {
+					canvas_h = atoi(p);
+				}
+			}
+		}
+	}
+
+	if (canvas_w < 320 || canvas_h < 180) {
+		stream->write_function(stream, "Invalid size\n");
+		return SWITCH_STATUS_SUCCESS;
+	}
+
+
+	if (argv[3]) {
+
+		id = atoi(argv[3]);
+		
+		if (id < 1 || id > MAX_CANVASES+1) {
+			id = -1;
+		}
+
+		if (id < 1) {
+			stream->write_function(stream, "-ERR Invalid canvas\n");
+		}
+
+	}
+
+	if (id == 0 && conference->canvases[0]) id = 1;
+
+	if (id > conference->canvas_count + 1) {
+		id = 1;
+	}
+
+	conference_video_change_res(conference, canvas_w, canvas_h, id - 1);
+	
 	return SWITCH_STATUS_SUCCESS;
 }
 
@@ -3211,9 +3360,7 @@ switch_status_t conference_api_sub_record(conference_obj_t *conference, switch_s
 
 	if (argv[3]) {
 
-		if (argv[3]) {
-			id = atoi(argv[3]);
-		}
+		id = atoi(argv[3]);
 
 		if (id < 1 || id > MAX_CANVASES+1) {
 			id = -1;
@@ -3230,6 +3377,7 @@ switch_status_t conference_api_sub_record(conference_obj_t *conference, switch_s
 	if (id > conference->canvas_count + 1) {
 		id = 1;
 	}
+
 
 	switch_mutex_lock(conference->flag_mutex);
 	for (rec = conference->rec_node_head; rec; rec = rec->next) {

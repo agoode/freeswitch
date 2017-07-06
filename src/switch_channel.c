@@ -3323,24 +3323,25 @@ SWITCH_DECLARE(switch_status_t) switch_channel_perform_mark_ring_ready_value(swi
 		switch_log_printf(SWITCH_CHANNEL_ID_LOG, file, func, line, switch_channel_get_uuid(channel), SWITCH_LOG_NOTICE, "Ring-Ready %s!\n", channel->name);
 		switch_channel_set_flag_value(channel, CF_RING_READY, rv);
 
-
-		if (channel->caller_profile && channel->caller_profile->times) {
-			switch_mutex_lock(channel->profile_mutex);
+		switch_mutex_lock(channel->profile_mutex);
+		if (channel->caller_profile && channel->caller_profile->times && !channel->caller_profile->times->progress) {
 			channel->caller_profile->times->progress = switch_micro_time_now();
 			if (channel->caller_profile->originator_caller_profile) {
 				switch_core_session_t *other_session;
 				if ((other_session = switch_core_session_locate(channel->caller_profile->originator_caller_profile->uuid))) {
 					switch_channel_t *other_channel;
 					other_channel = switch_core_session_get_channel(other_session);
-					if (other_channel->caller_profile) {
+					switch_mutex_lock(other_channel->profile_mutex);
+					if (other_channel->caller_profile && !other_channel->caller_profile->times->progress) {
 						other_channel->caller_profile->times->progress = channel->caller_profile->times->progress;
 					}
+					switch_mutex_unlock(other_channel->profile_mutex);
 					switch_core_session_rwunlock(other_session);
 				}
 				channel->caller_profile->originator_caller_profile->times->progress = channel->caller_profile->times->progress;
 			}
-			switch_mutex_unlock(channel->profile_mutex);
 		}
+		switch_mutex_unlock(channel->profile_mutex);
 
 		if (switch_event_create(&event, SWITCH_EVENT_CHANNEL_PROGRESS) == SWITCH_STATUS_SUCCESS) {
 			switch_channel_event_set_data(channel, event);
@@ -4406,15 +4407,17 @@ SWITCH_DECLARE(switch_status_t) switch_channel_set_timestamps(switch_channel_t *
 				X = malloc(len);
 
 				for (i = 0; i < proceed; i++) {
-					if (pcre_get_substring(dtstr, ovector, proceed, i, &replace) > 0) {
-						switch_size_t plen = strlen(replace);
-						memset(X, 'X', plen);
-						*(X+plen) = '\0';
-
-						switch_safe_free(substituted);
-						substituted = switch_string_replace(substituted ? substituted : dtstr, replace, X);
-
-						pcre_free_substring(replace);
+					if (pcre_get_substring(dtstr, ovector, proceed, i, &replace) >= 0) {
+						if (replace) {
+							switch_size_t plen = strlen(replace);
+							memset(X, 'X', plen);
+							*(X+plen) = '\0';
+							
+							switch_safe_free(substituted);
+							substituted = switch_string_replace(substituted ? substituted : dtstr, replace, X);
+							
+							pcre_free_substring(replace);
+						}
 					}
 				}
 
@@ -4683,6 +4686,25 @@ SWITCH_DECLARE(switch_status_t) switch_channel_set_timestamps(switch_channel_t *
 
 	return status;
 }
+
+SWITCH_DECLARE(const char *) switch_channel_get_partner_uuid_copy(switch_channel_t *channel, char *buf, switch_size_t blen)
+{
+	const char *uuid = NULL;
+
+	switch_mutex_lock(channel->profile_mutex);
+	if (!(uuid = switch_channel_get_variable_dup(channel, SWITCH_SIGNAL_BOND_VARIABLE, SWITCH_TRUE, -1))) {
+		uuid = switch_channel_get_variable_dup(channel, SWITCH_ORIGINATE_SIGNAL_BOND_VARIABLE, SWITCH_TRUE, -1);
+	}
+
+	if (uuid) {
+		strncpy(buf, uuid, blen);
+		uuid = (const char *) buf;
+	}
+	switch_mutex_unlock(channel->profile_mutex);
+
+	return uuid;
+}
+
 
 SWITCH_DECLARE(const char *) switch_channel_get_partner_uuid(switch_channel_t *channel)
 {

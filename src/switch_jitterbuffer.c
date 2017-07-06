@@ -505,9 +505,9 @@ static void jb_frame_inc_line(switch_jb_t *jb, int i, int line)
 
 	if (old_frame_len != jb->frame_len) {
 		jb_debug(jb, 2, "%d Change framelen from %u to %u\n", line, old_frame_len, jb->frame_len);
-		if (jb->session) {
-			switch_core_session_request_video_refresh(jb->session);
-		}
+		//if (jb->session) {
+		//	switch_core_session_request_video_refresh(jb->session);
+		//}
 	}
 
 }
@@ -1221,9 +1221,6 @@ SWITCH_DECLARE(switch_status_t) switch_jb_put_packet(switch_jb_t *jb, switch_rtp
 			if (got - want > jb->max_frame_len && got - want > 17) {
 				jb_debug(jb, 2, "Missing %u frames, Resetting\n", got - want);
 				switch_jb_reset(jb);
-				if (jb->session) {
-					switch_core_session_request_video_refresh(jb->session);
-				}
 			} else {
 
 				if (jb->frame_len < got - want) {

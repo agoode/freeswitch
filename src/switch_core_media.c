@@ -1173,10 +1173,12 @@ static switch_status_t switch_core_media_build_crypto(switch_media_handle_t *smh
 #endif
 
 	switch_b64_encode(key, SUITES[ctype].keylen, b64_key, sizeof(b64_key));
-	p = strrchr((char *) b64_key, '=');
+	if (!switch_channel_var_true(channel, "rtp_pad_srtp_keys")) {
+		p = strrchr((char *) b64_key, '=');
 
-	while (p && *p && *p == '=') {
-		*p-- = '\0';
+		while (p && *p && *p == '=') {
+			*p-- = '\0';
+		}
 	}
 
 	if (index == SWITCH_NO_CRYPTO_TAG) index = ctype + 1;
@@ -1804,9 +1806,9 @@ SWITCH_DECLARE(switch_status_t) switch_media_handle_create(switch_media_handle_t
 
 		session->media_handle->mparams = params;
 
-		if (!session->media_handle->mparams->video_key_freq) {
-			session->media_handle->mparams->video_key_freq = 10000000;
-		}
+		//if (!session->media_handle->mparams->video_key_freq) {
+		//	session->media_handle->mparams->video_key_freq = 10000000;
+		//}
 
 		if (!session->media_handle->mparams->video_key_first) {
 			session->media_handle->mparams->video_key_first = 1000000;
@@ -2256,12 +2258,13 @@ static void check_jb_sync(switch_core_session_t *session)
 
 
 	if (!frames) {
+		sync_audio = 1;
+
 		if (cur_frames && min_frames && cur_frames >= min_frames) {
 			frames = cur_frames;
 		} else {
 			frames = fps / 15;
 			if (frames < 1) frames = 1;
-			sync_audio = 1;
 		}
 	}
 
@@ -11994,13 +11997,15 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_receive_message(switch_core_se
 	case SWITCH_MESSAGE_INDICATE_VIDEO_REFRESH_REQ:
 		{
 			if (v_engine->rtp_session) {
-				if (switch_rtp_test_flag(v_engine->rtp_session, SWITCH_RTP_FLAG_FIR)) {
-					switch_rtp_video_refresh(v_engine->rtp_session);
-				}// else {
+				if (msg->numeric_arg || !switch_channel_test_flag(session->channel, CF_MANUAL_VID_REFRESH)) {
+					if (switch_rtp_test_flag(v_engine->rtp_session, SWITCH_RTP_FLAG_FIR)) {
+						switch_rtp_video_refresh(v_engine->rtp_session);
+					}// else {
 					if (switch_rtp_test_flag(v_engine->rtp_session, SWITCH_RTP_FLAG_PLI)) {
 						switch_rtp_video_loss(v_engine->rtp_session);
 					}
-					//				}
+					//}
+				}
 			}
 		}
 
@@ -12177,7 +12182,8 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_receive_message(switch_core_se
 				const char *val;
 				int ok = 0;
 
-				if ((!(val = switch_channel_get_variable(session->channel, "rtp_jitter_buffer_during_bridge")) || switch_false(val))) {
+				if (!switch_channel_test_flag(session->channel, CF_VIDEO_READY) && 
+					(!(val = switch_channel_get_variable(session->channel, "rtp_jitter_buffer_during_bridge")) || switch_false(val))) {
 					if (switch_channel_test_flag(session->channel, CF_JITTERBUFFER) && switch_channel_test_cap_partner(session->channel, CC_FS_RTP)) {
 						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,
 										  "%s PAUSE Jitterbuffer\n", switch_channel_get_name(session->channel));
@@ -13716,7 +13722,7 @@ SWITCH_DECLARE(switch_timer_t *) switch_core_media_get_timer(switch_core_session
 
 }
 
-SWITCH_DECLARE(switch_status_t) switch_core_session_request_video_refresh(switch_core_session_t *session)
+SWITCH_DECLARE(switch_status_t) _switch_core_session_request_video_refresh(switch_core_session_t *session, int force, const char *file, const char *func, int line)
 {
 	switch_channel_t *channel = switch_core_session_get_channel(session);
 	switch_media_handle_t *smh = NULL;
@@ -13731,12 +13737,21 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_request_video_refresh(switch
 		switch_core_session_message_t msg = { 0 };
 		switch_time_t now = switch_micro_time_now();
 
-		if (smh->last_video_refresh_req && (now - smh->last_video_refresh_req) < VIDEO_REFRESH_FREQ) {
+		if (!force && (smh->last_video_refresh_req && (now - smh->last_video_refresh_req) < VIDEO_REFRESH_FREQ)) {
 			return SWITCH_STATUS_BREAK;
 		}
 
 		smh->last_video_refresh_req = now;
 
+		if (force) {
+			msg.numeric_arg = 1;
+		}
+
+		msg._file = file;
+		msg._func = func;
+		msg._line = line;
+		switch_log_printf(SWITCH_CHANNEL_ID_LOG, file, func, line, switch_core_session_get_uuid(session), 
+						  SWITCH_LOG_DEBUG1, "%s Video refresh requested.\n", switch_channel_get_name(session->channel));
 		msg.from = __FILE__;
 		msg.message_id = SWITCH_MESSAGE_INDICATE_VIDEO_REFRESH_REQ;
 		switch_core_session_receive_message(session, &msg);

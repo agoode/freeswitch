@@ -35,22 +35,56 @@
 #include "switch.h"
 #include "private/switch_core_pvt.h"
 
-static void switch_core_media_bug_destroy(switch_media_bug_t *bug)
+static void switch_core_media_bug_destroy(switch_media_bug_t **bug)
 {
 	switch_event_t *event = NULL;
+	switch_media_bug_t *bp = *bug;
 
-	if (bug->raw_read_buffer) {
-		switch_buffer_destroy(&bug->raw_read_buffer);
+	*bug = NULL;
+
+	if (bp->text_buffer) {
+		switch_buffer_destroy(&bp->text_buffer);
+		switch_safe_free(bp->text_framedata);
 	}
 
-	if (bug->raw_write_buffer) {
-		switch_buffer_destroy(&bug->raw_write_buffer);
+	switch_img_free(&bp->spy_img[0]);
+	switch_img_free(&bp->spy_img[1]);
+
+	if (bp->video_bug_thread) {
+		switch_status_t st;
+		int i;
+
+		for (i = 0; i < 2; i++) {
+			void *pop;
+			switch_image_t *img;
+
+			if (bp->spy_video_queue[i]) {
+				while (switch_queue_trypop(bp->spy_video_queue[i], &pop) == SWITCH_STATUS_SUCCESS && pop) {
+					img = (switch_image_t *) pop;
+					switch_img_free(&img);
+				}
+			}
+		}
+
+		switch_thread_join(&st, bp->video_bug_thread);
+	}
+
+	if (switch_test_flag(bp, SMBF_READ_VIDEO_PATCH) && bp->session->video_read_codec) {
+		switch_clear_flag(bp->session->video_read_codec, SWITCH_CODEC_FLAG_VIDEO_PATCHING);
+	}
+
+	if (bp->raw_read_buffer) {
+		switch_buffer_destroy(&bp->raw_read_buffer);
+	}
+
+	if (bp->raw_write_buffer) {
+		switch_buffer_destroy(&bp->raw_write_buffer);
 	}
 
 	if (switch_event_create(&event, SWITCH_EVENT_MEDIA_BUG_STOP) == SWITCH_STATUS_SUCCESS) {
-		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Media-Bug-Function", "%s", bug->function);
-		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Media-Bug-Target", "%s", bug->target);
-		if (bug->session) switch_channel_event_set_data(bug->session->channel, event);
+		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Media-Bug-Function", "%s", bp->function);
+		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Media-Bug-Target", "%s", bp->target);
+		if (bp->session) switch_channel_event_set_data(bp->session->channel, event);
 		switch_event_fire(&event);
 	}
 }
@@ -566,6 +600,11 @@ static void *SWITCH_THREAD_FUNC video_bug_thread(switch_thread_t *thread, void *
 	switch_timer_t timer = { 0 };
 	switch_mm_t mm = { 0 };
 	int fps = 15;
+	int vw = 1280;
+	int vh = 720;
+	int last_w = 0, last_h = 0, other_last_w = 0, other_last_h = 0;
+	switch_rgb_color_t color = { 0 };
+	switch_color_set_rgb(&color, "#000000");
 
 	buf = switch_core_session_alloc(bug->session, buflen);
 	frame.packet = buf;
@@ -592,6 +631,9 @@ static void *SWITCH_THREAD_FUNC video_bug_thread(switch_thread_t *thread, void *
 		fps = (int) mm.fps;
 	}
 
+	if (mm.vw) vw = mm.vw;
+	if (mm.vh) vh = mm.vh;
+
 	switch_core_timer_init(&timer, "soft", 1000 / fps, (90000 / (1000 / fps)), NULL);
 
 	while (bug->ready) {
@@ -608,6 +650,9 @@ static void *SWITCH_THREAD_FUNC video_bug_thread(switch_thread_t *thread, void *
 
 		flush_video_queue(main_q, 1);
 
+		w = vw / 2;
+		h = vh;
+
 		if ((status = switch_queue_trypop(main_q, &pop)) == SWITCH_STATUS_SUCCESS) {
 			switch_img_free(&img);
 
@@ -618,65 +663,62 @@ static void *SWITCH_THREAD_FUNC video_bug_thread(switch_thread_t *thread, void *
 			img = (switch_image_t *) pop;
 			new_main = 1;
 
-			w = img->d_w;
-			h = img->d_h;
+			if (IMG && !(last_w == img->d_w && last_h == img->d_h)) {
+				switch_img_fill(IMG, 0, 0, w, h, &color);
+			}
+
+			last_w = img->d_w;
+			last_h = img->d_h;
 		}
 		
 		if (other_q) {
 			flush_video_queue(other_q, 1);
-			
+
 			if ((status = switch_queue_trypop(other_q, &other_pop)) == SWITCH_STATUS_SUCCESS) {
 				switch_img_free(&other_img);
 				other_img = (switch_image_t *) other_pop;
+
+				if (IMG && !(other_last_w == other_img->d_w && other_last_h == other_img->d_h)) {
+					switch_img_fill(IMG, w, 0, w, h, &color);
+				}
+
+				other_last_w = other_img->d_w;
+				other_last_h = other_img->d_h;
 				new_other = 1;
 			}
 
-			if (other_img) {
-				if (!w) w = other_img->d_w;
-				if (!h) h = other_img->d_h;
-				
-				if (other_img->d_w != w || other_img->d_h != h) {
-					switch_image_t *tmp_img = NULL;
-
-					switch_img_scale(other_img, &tmp_img, w, h);
-					switch_img_free(&other_img);
-					other_img = tmp_img;
-				}
-			}
-
-			if (!(w&&h)) continue;
-
-			if (img) {
-				if (img->d_w != w || img->d_h != h) {
-					switch_image_t *tmp_img = NULL;
-					
-					switch_img_scale(img, &tmp_img, w, h);
-					switch_img_free(&img);
-					img = tmp_img;
-				}
-			}
 			
-			w *= 2;
+			if (img && new_main) {
+				switch_img_fit(&img, w, h, SWITCH_FIT_SIZE);
+			}
 
-			if (!IMG || IMG->d_h != h || IMG->d_w != w) {
-				switch_rgb_color_t color = { 0 };
+			if (other_img && new_other) {
+				switch_img_fit(&other_img, w, h, SWITCH_FIT_SIZE);
+			}
 
-				switch_img_free(&IMG);
-				IMG = switch_img_alloc(NULL, SWITCH_IMG_FMT_I420, w, h, 1);
+			if (!IMG) {
+				IMG = switch_img_alloc(NULL, SWITCH_IMG_FMT_I420, vw, vh, 1);
 				new_canvas = 1;
-				switch_color_set_rgb(&color, "#000000");
 				switch_img_fill(IMG, 0, 0, IMG->d_w, IMG->d_h, &color);
 			}
 		}
 
 		
 		if (IMG) {
+
+
 			if (img && (new_canvas || new_main)) {
-				switch_img_patch(IMG, img, 0, 0);
+				int x = 0, y = 0;
+				switch_img_find_position(POS_CENTER_MID, w, h, img->d_w, img->d_h, &x, &y);
+
+				switch_img_patch(IMG, img, x, y);
 			}
 		
 			if (other_img && (new_canvas || new_other)) {
-				switch_img_patch(IMG, other_img, w / 2, 0);
+				int x = 0, y = 0;
+				switch_img_find_position(POS_CENTER_MID, w, h, other_img->d_w, other_img->d_h, &x, &y);
+
+				switch_img_patch(IMG, other_img, w + x, y);
 			}
 		}
 		
@@ -899,7 +941,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_bug_add(switch_core_session_t 
 	if (bug->callback) {
 		switch_bool_t result = bug->callback(bug, bug->user_data, SWITCH_ABC_TYPE_INIT);
 		if (result == SWITCH_FALSE) {
-			switch_core_media_bug_destroy(bug);
+			switch_core_media_bug_destroy(&bug);
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Error attaching BUG to %s\n",
 							  switch_channel_get_name(session->channel));
 			return SWITCH_STATUS_GENERR;
@@ -1043,7 +1085,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_bug_transfer_callback(switch_c
 			switch_core_media_bug_add(new_session, cur->function, cur->target, cur->callback,
 									  user_data_dup_func(new_session, cur->user_data),
 									  cur->stop_time, cur->flags, &new_bug);
-			switch_core_media_bug_destroy(cur);
+			switch_core_media_bug_destroy(&cur);
 			total++;
 		} else {
 			last = cur;
@@ -1193,9 +1235,10 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_bug_remove_all_function(switch
 {
 	switch_media_bug_t *bp, *last = NULL, *next = NULL;
 	switch_status_t status = SWITCH_STATUS_FALSE;
+	switch_media_bug_t *closed = NULL;
 
+	switch_thread_rwlock_wrlock(session->bug_rwlock);
 	if (session->bugs) {
-		switch_thread_rwlock_wrlock(session->bug_rwlock);
 		for (bp = session->bugs; bp; bp = next) {
 			next = bp->next;
 
@@ -1217,10 +1260,21 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_bug_remove_all_function(switch
 				session->bugs = bp->next;
 			}
 
-			switch_core_media_bug_close(&bp);
+			bp->next = closed;
+			closed = bp;
+
+			switch_core_media_bug_close(&bp, SWITCH_FALSE);
 		}
-		switch_thread_rwlock_unlock(session->bug_rwlock);
 		status = SWITCH_STATUS_SUCCESS;
+	}
+	switch_thread_rwlock_unlock(session->bug_rwlock);
+
+		
+	if (closed) {
+		for (bp = closed; bp; bp = next) {
+			next = bp->next;
+			switch_core_media_bug_destroy(&bp);
+		}
 	}
 
 	if (switch_core_codec_ready(&session->bug_codec)) {
@@ -1230,7 +1284,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_bug_remove_all_function(switch
 	return status;
 }
 
-SWITCH_DECLARE(switch_status_t) switch_core_media_bug_close(switch_media_bug_t **bug)
+SWITCH_DECLARE(switch_status_t) switch_core_media_bug_close(switch_media_bug_t **bug, switch_bool_t destroy)
 {
 	switch_media_bug_t *bp = *bug;
 
@@ -1244,55 +1298,27 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_bug_close(switch_media_bug_t *
 			bp->callback(bp, bp->user_data, SWITCH_ABC_TYPE_CLOSE);
 		}
 
-		if (bp->text_buffer) {
-			switch_buffer_destroy(&bp->text_buffer);
-			switch_safe_free(bp->text_framedata);
-		}
-
 		if (switch_test_flag(bp, SMBF_READ_VIDEO_STREAM) || switch_test_flag(bp, SMBF_WRITE_VIDEO_STREAM) || switch_test_flag(bp, SMBF_READ_VIDEO_PING) || switch_test_flag(bp, SMBF_WRITE_VIDEO_PING)) {
 			switch_channel_clear_flag_recursive(bp->session->channel, CF_VIDEO_DECODED_READ);
 		}
 
 		bp->ready = 0;
 
-		switch_img_free(&bp->spy_img[0]);
-		switch_img_free(&bp->spy_img[1]);
-
-		if (bp->video_bug_thread) {
-			switch_status_t st;
-			int i;
-
-			for (i = 0; i < 2; i++) {
-				void *pop;
-				switch_image_t *img;
-
-				if (bp->spy_video_queue[i]) {
-					while (switch_queue_trypop(bp->spy_video_queue[i], &pop) == SWITCH_STATUS_SUCCESS && pop) {
-						img = (switch_image_t *) pop;
-						switch_img_free(&img);
-					}
-				}
-			}
-
-			if (bp->read_video_queue) {
-				switch_queue_push(bp->read_video_queue, NULL);
-			}
-
-			if (bp->write_video_queue) {
-				switch_queue_push(bp->write_video_queue, NULL);
-			}
-
-			switch_thread_join(&st, bp->video_bug_thread);
+		if (bp->read_video_queue) {
+			switch_queue_push(bp->read_video_queue, NULL);
 		}
 
-		if (switch_test_flag(bp, SMBF_READ_VIDEO_PATCH) && bp->session->video_read_codec) {
-			switch_clear_flag(bp->session->video_read_codec, SWITCH_CODEC_FLAG_VIDEO_PATCHING);
+		if (bp->write_video_queue) {
+			switch_queue_push(bp->write_video_queue, NULL);
 		}
 
-		switch_core_media_bug_destroy(bp);
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(switch_core_media_bug_get_session(*bug)), SWITCH_LOG_DEBUG, "Removing BUG from %s\n",
 						  switch_channel_get_name(bp->session->channel));
-		*bug = NULL;
+
+		if (destroy) {
+			switch_core_media_bug_destroy(bug);
+		}
+
 		return SWITCH_STATUS_SUCCESS;
 	}
 
@@ -1346,7 +1372,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_bug_remove(switch_core_session
 	switch_thread_rwlock_unlock(session->bug_rwlock);
 
 	if (bp) {
-		status = switch_core_media_bug_close(&bp);
+		status = switch_core_media_bug_close(&bp, SWITCH_TRUE);
 	}
 
 	return status;
@@ -1386,7 +1412,7 @@ SWITCH_DECLARE(uint32_t) switch_core_media_bug_prune(switch_core_session_t *sess
 	if (bp) {
 		switch_clear_flag(bp, SMBF_LOCK);
 		bp->thread_id = 0;
-		switch_core_media_bug_close(&bp);
+		switch_core_media_bug_close(&bp, SWITCH_TRUE);
 		ttl++;
 		goto top;
 	}
@@ -1397,7 +1423,7 @@ SWITCH_DECLARE(uint32_t) switch_core_media_bug_prune(switch_core_session_t *sess
 
 SWITCH_DECLARE(switch_status_t) switch_core_media_bug_remove_callback(switch_core_session_t *session, switch_media_bug_callback_t callback)
 {
-	switch_media_bug_t *cur = NULL, *bp = NULL, *last = NULL;
+	switch_media_bug_t *cur = NULL, *bp = NULL, *last = NULL, *closed = NULL, *next = NULL;
 	int total = 0;
 
 	switch_thread_rwlock_wrlock(session->bug_rwlock);
@@ -1413,21 +1439,30 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_bug_remove_callback(switch_cor
 				} else {
 					session->bugs = cur->next;
 				}
-				if (switch_core_media_bug_close(&cur) == SWITCH_STATUS_SUCCESS) {
+				if (switch_core_media_bug_close(&cur, SWITCH_FALSE) == SWITCH_STATUS_SUCCESS) {
 					total++;
 				}
+
+				cur->next = closed;
+				closed = cur;
+
 			} else {
 				last = cur;
 			}
+		}
+	}
+	switch_thread_rwlock_unlock(session->bug_rwlock);
+	
+	if (closed) {
+		for (bp = closed; bp; bp = next) {
+			next = bp->next;
+			switch_core_media_bug_destroy(&bp);
 		}
 	}
 
 	if (!session->bugs && switch_core_codec_ready(&session->bug_codec)) {
 		switch_core_codec_destroy(&session->bug_codec);
 	}
-
-	switch_thread_rwlock_unlock(session->bug_rwlock);
-
 
 	return total ? SWITCH_STATUS_SUCCESS : SWITCH_STATUS_FALSE;
 }
