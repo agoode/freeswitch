@@ -463,6 +463,7 @@ static int parse_exten(switch_core_session_t *session, switch_caller_profile_t *
 				const char *inline_ = switch_xml_attr_soft(xaction, "inline");
 				int xinline = switch_true(inline_);
 				int loop_count = 1;
+				int loop_at;
 
 				if (!zstr(xaction->txt)) {
 					data = xaction->txt;
@@ -482,15 +483,29 @@ static int parse_exten(switch_core_session_t *session, switch_caller_profile_t *
 					loop_count = atoi(loop);
 				}
 
-				for (;loop_count > 0; loop_count--) {
+				for (loop_at = 1; loop_at <= loop_count; loop_at++) {
 					if ( switch_core_test_flag(SCF_DIALPLAN_TIMESTAMPS) ) {
-						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,
-									  "%sDialplan: %s ANTI-Action %s(%s) %s\n", space,
-									  switch_channel_get_name(channel), application, data, xinline ? "INLINE" : "");
+						if (loop_count == 1) {
+							switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,
+									"%sDialplan: %s ANTI-Action %d/%d %s(%s) %s\n", space,
+									switch_channel_get_name(channel), loop_at, loop_count, application, data, xinline ? "INLINE" : "");
+						} else {
+							switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,
+									"%sDialplan: %s ANTI-Action %s(%s) %s\n", space,
+									switch_channel_get_name(channel), application, data, xinline ? "INLINE" : "");
+
+						}
 					} else {
-						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG_CLEAN(session), SWITCH_LOG_DEBUG,
-									  "%sDialplan: %s ANTI-Action %s(%s) %s\n", space,
-									  switch_channel_get_name(channel), application, data, xinline ? "INLINE" : "");
+						if (loop_count == 1) {
+							switch_log_printf(SWITCH_CHANNEL_SESSION_LOG_CLEAN(session), SWITCH_LOG_DEBUG,
+									"%sDialplan: %s ANTI-Action %d/%d %s(%s) %s\n", space,
+									switch_channel_get_name(channel), loop_at, loop_count, application, data, xinline ? "INLINE" : "");
+						} else {
+							switch_log_printf(SWITCH_CHANNEL_SESSION_LOG_CLEAN(session), SWITCH_LOG_DEBUG,
+									"%sDialplan: %s ANTI-Action %s(%s) %s\n", space,
+									switch_channel_get_name(channel), application, data, xinline ? "INLINE" : "");
+
+						}
 					}
 
 					if (xinline) {
@@ -517,6 +532,7 @@ static int parse_exten(switch_core_session_t *session, switch_caller_profile_t *
 				const char *inline_ = switch_xml_attr_soft(xaction, "inline");
 				int xinline = switch_true(inline_);
 				int loop_count = 1;
+				int loop_at;
 
 				if (!zstr(xaction->txt)) {
 					data = xaction->txt;
@@ -549,15 +565,30 @@ static int parse_exten(switch_core_session_t *session, switch_caller_profile_t *
 				if (loop) {
 					loop_count = atoi(loop);
 				}
-				for (;loop_count > 0; loop_count--) {
+
+				for (loop_at = 1; loop_at <= loop_count; loop_at++) {
 					if ( switch_core_test_flag(SCF_DIALPLAN_TIMESTAMPS) ) {
-						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,
-									  "%sDialplan: %s Action %s(%s) %s\n", space,
-									  switch_channel_get_name(channel), application, app_data, xinline ? "INLINE" : "");
+						if (loop_count == 1) {
+							switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,
+									"%sDialplan: %s Action %d/%d  %s(%s) %s\n", space,
+									switch_channel_get_name(channel), loop_at, loop_count, application, app_data, xinline ? "INLINE" : "");
+						} else {
+							switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,
+									"%sDialplan: %s Action %s(%s) %s\n", space,
+									switch_channel_get_name(channel), application, app_data, xinline ? "INLINE" : "");
+						}
+
 					} else {
-						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG_CLEAN(session), SWITCH_LOG_DEBUG,
-									  "%sDialplan: %s Action %s(%s) %s\n", space,
-									  switch_channel_get_name(channel), application, app_data, xinline ? "INLINE" : "");
+						if (loop_count == 1) {
+							switch_log_printf(SWITCH_CHANNEL_SESSION_LOG_CLEAN(session), SWITCH_LOG_DEBUG,
+									"%sDialplan: %s Action %d/%d %s(%s) %s\n", space,
+									switch_channel_get_name(channel), loop_at, loop_count, application, app_data, xinline ? "INLINE" : "");
+						} else {
+							switch_log_printf(SWITCH_CHANNEL_SESSION_LOG_CLEAN(session), SWITCH_LOG_DEBUG,
+									"%sDialplan: %s Action %s(%s) %s\n", space,
+									switch_channel_get_name(channel), application, app_data, xinline ? "INLINE" : "");
+
+						}
 					}
 
 					if (xinline) {
