@@ -1913,7 +1913,7 @@ GCC_DIAG_ON(deprecated-declarations)
 							int diff;
 							int sleep = 66000;
 #endif
-CC_DIAG_OFF(deprecated-declarations)
+GCC_DIAG_OFF(deprecated-declarations)
 							*pts = vframe->pkt_pts;
 GCC_DIAG_ON(deprecated-declarations)
 							avframe2img(vframe, img);
