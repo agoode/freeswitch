@@ -46,15 +46,18 @@ avoid_mods=(
   codecs/mod_ilbc
   codecs/mod_openh264
   codecs/mod_siren
+  codecs/mod_sangoma_codec
   codecs/mod_skel_codec
   endpoints/mod_gsmopen
   endpoints/mod_h323
   endpoints/mod_khomp
   endpoints/mod_opal
   endpoints/mod_reference
+  endpoints/mod_skypopen
   endpoints/mod_unicall
   event_handlers/mod_smpp
   formats/mod_webm
+  languages/mod_v8
   sdk/autotools
   xml_int/mod_xml_ldap
   xml_int/mod_xml_radius
@@ -79,18 +82,15 @@ avoid_mods_wheezy=(
 )
 avoid_mods_trusty=(
   event_handlers/mod_amqp
-  codecs/mod_sangoma_codec
   loggers/mod_raven
 )
 avoid_mods_utopic=(
   directories/mod_ldap
-  codecs/mod_sangoma_codec
   loggers/mod_raven
 )
 avoid_mods_xenial=(
   event_handlers/mod_ldap
   event_handlers/mod_amqp
-  codecs/mod_sangoma_codec
   asr_tts/mod_flite
   loggers/mod_raven
 )
@@ -343,7 +343,7 @@ print_core_control () {
 cat <<EOF
 Package: freeswitch-all
 Architecture: any
-Depends: freeswitch-meta-all (= \${binary:Version})
+Depends: freeswitch-meta-all (= \${binary:Version}), freeswitch-meta-all-dbg (= \${binary:Version})
 Conflicts: freeswitch-all (<= 1.6.7)
 Description: Cross-Platform Scalable Multi-Protocol Soft Switch
  $(debian_wrap "${fs_description}")
@@ -650,7 +650,6 @@ Depends: \${misc:Depends}, freeswitch (= \${binary:Version}),
  freeswitch-mod-rtc (= \${binary:Version}),
  freeswitch-mod-rtmp (= \${binary:Version}),
  freeswitch-mod-skinny (= \${binary:Version}),
- freeswitch-mod-skypopen (= \${binary:Version}),
  freeswitch-mod-sofia (= \${binary:Version}),
  freeswitch-mod-verto (= \${binary:Version}),
  freeswitch-mod-cdr-csv (= \${binary:Version}),
@@ -889,7 +888,6 @@ Depends: \${misc:Depends}, freeswitch (= \${binary:Version}),
  freeswitch-mod-rtc-dbg (= \${binary:Version}),
  freeswitch-mod-rtmp-dbg (= \${binary:Version}),
  freeswitch-mod-skinny-dbg (= \${binary:Version}),
- freeswitch-mod-skypopen-dbg (= \${binary:Version}),
  freeswitch-mod-sofia-dbg (= \${binary:Version}),
  freeswitch-mod-verto-dbg (= \${binary:Version}),
  freeswitch-mod-cdr-csv-dbg (= \${binary:Version}),

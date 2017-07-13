@@ -2603,7 +2603,9 @@ static switch_status_t fetch_cache_data(http_file_context_t *context, const char
 	}
 
 	if (headers) {
-		switch_event_create(&client->headers, SWITCH_EVENT_CLONE);
+		if (!client->headers) {
+			switch_event_create(&client->headers, SWITCH_EVENT_CLONE);
+		}
 		if (save_path) {
 			switch_curl_easy_setopt(curl_handle, CURLOPT_HEADERFUNCTION, get_header_callback);
 			switch_curl_easy_setopt(curl_handle, CURLOPT_WRITEHEADER, (void *) client);
@@ -2986,7 +2988,7 @@ static switch_status_t file_open(switch_file_handle_t *handle, const char *path,
 		if (switch_test_flag(&context->fh, SWITCH_FILE_FLAG_VIDEO)) {
 			switch_set_flag(handle, SWITCH_FILE_FLAG_VIDEO);
 		} else {
-			switch_set_flag(handle, SWITCH_FILE_FLAG_VIDEO);
+			switch_clear_flag(handle, SWITCH_FILE_FLAG_VIDEO);
 		}
 	}
 

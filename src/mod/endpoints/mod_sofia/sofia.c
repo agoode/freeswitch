@@ -6607,6 +6607,42 @@ static void sofia_handle_sip_r_invite(switch_core_session_t *session, int status
 			const char *v;
 
 			if ((v = switch_channel_get_variable(channel, "outbound_redirect_fatal")) && switch_true(v)) {
+				su_home_t *home = su_home_new(sizeof(*home));
+				switch_assert(home != NULL);
+
+				for (p_contact = sip->sip_contact; p_contact; p_contact = p_contact->m_next) {
+					full_contact = sip_header_as_string(home, (void *) p_contact);
+					invite_contact = sofia_glue_strip_uri(full_contact);
+
+					switch_snprintf(var_name, sizeof(var_name), "sip_redirect_contact_%d", i);
+					switch_channel_set_variable(channel, var_name, full_contact);
+
+					if (i == 0) {
+							switch_channel_set_variable(channel, "sip_redirected_to", full_contact);
+					}
+
+					if (p_contact->m_url->url_user) {
+						switch_snprintf(var_name, sizeof(var_name), "sip_redirect_contact_user_%d", i);
+						switch_channel_set_variable(channel, var_name, p_contact->m_url->url_user);
+					}
+					if (p_contact->m_url->url_host) {
+						switch_snprintf(var_name, sizeof(var_name), "sip_redirect_contact_host_%d", i);
+						switch_channel_set_variable(channel, var_name, p_contact->m_url->url_host);
+					}
+					if (p_contact->m_url->url_params) {
+						switch_snprintf(var_name, sizeof(var_name), "sip_redirect_contact_params_%d", i);
+						switch_channel_set_variable(channel, var_name, p_contact->m_url->url_params);
+					}
+
+					free(invite_contact);
+					i++;
+				}
+				if (home) {
+					su_home_unref(home);
+					home = NULL;
+				}
+				switch_snprintf(var_name, sizeof(var_name), "sip:%d", status);
+				switch_channel_set_variable(channel, SWITCH_PROTO_SPECIFIC_HANGUP_CAUSE_VARIABLE, var_name);
 				switch_channel_hangup(channel, SWITCH_CAUSE_REQUESTED_CHAN_UNAVAIL);
 				goto end;
 			}
@@ -8660,6 +8696,9 @@ void sofia_handle_sip_i_refer(nua_t *nua, sofia_profile_t *profile, nua_handle_t
 		goto done;
 	}
 
+	home = su_home_new(sizeof(*home));
+	switch_assert(home != NULL);
+
 	if ((refer_to = sip->sip_refer_to)) {
 		full_ref_to = sip_header_as_string(home, (void *) sip->sip_refer_to);
 	}
@@ -8678,9 +8717,6 @@ void sofia_handle_sip_i_refer(nua_t *nua, sofia_profile_t *profile, nua_handle_t
 
 	from = sip->sip_from;
 	//to = sip->sip_to;
-
-	home = su_home_new(sizeof(*home));
-	switch_assert(home != NULL);
 
 	nua_respond(nh, SIP_202_ACCEPTED, NUTAG_WITH_THIS_MSG(de->data->e_msg), SIPTAG_EXPIRES_STR("60"), TAG_END());
 
@@ -9981,6 +10017,7 @@ void sofia_handle_sip_i_invite(switch_core_session_t *session, nua_t *nua, sofia
 	char *name_params = NULL;
 	const char *req_uri = NULL;
 	char *req_user = NULL;
+	switch_time_t sip_invite_time;
 
 	if (sip && sip->sip_contact && sip->sip_contact->m_url->url_params) {
 		uparams = sip->sip_contact->m_url->url_params;
@@ -10009,6 +10046,8 @@ void sofia_handle_sip_i_invite(switch_core_session_t *session, nua_t *nua, sofia
 	}
 
 	tech_pvt = switch_core_session_get_private(session);
+
+	sip_invite_time = switch_micro_time_now();
 
 	if (!sip || !sip->sip_request || !sip->sip_request->rq_method_name) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Received an invalid packet!\n");
@@ -10274,6 +10313,7 @@ void sofia_handle_sip_i_invite(switch_core_session_t *session, nua_t *nua, sofia
 	switch_channel_set_variable_printf(channel, "sip_local_network_addr", "%s", profile->extsipip ? profile->extsipip : profile->sipip);
 	switch_channel_set_variable_printf(channel, "sip_network_ip", "%s", network_ip);
 	switch_channel_set_variable_printf(channel, "sip_network_port", "%d", network_port);
+	switch_channel_set_variable_printf(channel, "sip_invite_stamp", "%" SWITCH_TIME_T_FMT, sip_invite_time);
 
 	if (*acl_token) {
 		switch_channel_set_variable(channel, "acl_token", acl_token);

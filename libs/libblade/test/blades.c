@@ -16,30 +16,110 @@ struct command_def_s {
 };
 
 void command_quit(blade_handle_t *bh, char *args);
+void command_publish(blade_handle_t *bh, char *args);
+void command_broadcast(blade_handle_t *bh, char *args);
 
 static const struct command_def_s command_defs[] = {
 	{ "quit", command_quit },
+	{ "publish", command_publish },
+	{ "broadcast", command_broadcast },
 
 	{ NULL, NULL }
 };
+
+
+
+ks_bool_t blade_publish_response_handler(blade_rpc_response_t *brpcres, void *data)
+{
+	blade_handle_t *bh = NULL;
+	blade_session_t *bs = NULL;
+
+	ks_assert(brpcres);
+
+	bh = blade_rpc_response_handle_get(brpcres);
+	ks_assert(bh);
+
+	bs = blade_sessionmgr_session_lookup(blade_handle_sessionmgr_get(bh), blade_rpc_response_sessionid_get(brpcres));
+	ks_assert(bs);
+
+	ks_log(KS_LOG_DEBUG, "Session (%s) blade.publish response processing\n", blade_session_id_get(bs));
+
+	blade_session_read_unlock(bs);
+
+	return KS_FALSE;
+}
+
+ks_bool_t test_echo_request_handler(blade_rpc_request_t *brpcreq, void *data)
+{
+	blade_handle_t *bh = NULL;
+	blade_session_t *bs = NULL;
+	cJSON *params = NULL;
+	cJSON *result = NULL;
+	const char *text = NULL;
+
+	ks_assert(brpcreq);
+
+	bh = blade_rpc_request_handle_get(brpcreq);
+	ks_assert(bh);
+
+	bs = blade_sessionmgr_session_lookup(blade_handle_sessionmgr_get(bh), blade_rpc_request_sessionid_get(brpcreq));
+	ks_assert(bs);
+
+	// @todo get the inner parameters of a blade.execute request for protocolrpcs
+	params = blade_rpcexecute_request_params_get(brpcreq);
+	ks_assert(params);
+
+	text = cJSON_GetObjectCstr(params, "text");
+	ks_assert(text);
+
+	ks_log(KS_LOG_DEBUG, "Session (%s) test.echo request processing\n", blade_session_id_get(bs));
+
+	blade_session_read_unlock(bs);
+
+	// @todo build and send response
+	result = cJSON_CreateObject();
+	cJSON_AddStringToObject(result, "text", text);
+
+	blade_rpcexecute_response_send(brpcreq, result);
+
+	return KS_FALSE;
+}
+
+ks_bool_t test_event_response_handler(blade_rpc_response_t *brpcres, void *data)
+{
+	blade_handle_t *bh = NULL;
+	blade_session_t *bs = NULL;
+
+	ks_assert(brpcres);
+
+	bh = blade_rpc_response_handle_get(brpcres);
+	ks_assert(bh);
+
+	bs = blade_sessionmgr_session_lookup(blade_handle_sessionmgr_get(bh), blade_rpc_response_sessionid_get(brpcres));
+	ks_assert(bs);
+
+	ks_log(KS_LOG_DEBUG, "Session (%s) test.event response processing\n", blade_session_id_get(bs));
+
+	blade_session_read_unlock(bs);
+
+	return KS_FALSE;
+}
 
 int main(int argc, char **argv)
 {
 	blade_handle_t *bh = NULL;
 	config_t config;
 	config_setting_t *config_blade = NULL;
-	blade_module_t *mod_wss = NULL;
-	blade_module_t *mod_chat = NULL;
-	//blade_identity_t *id = NULL;
 	const char *cfgpath = "blades.cfg";
+	const char *autoconnect = NULL;
 
 	ks_global_set_default_logger(KS_LOG_LEVEL_DEBUG);
 
 	blade_init();
 
-	blade_handle_create(&bh, NULL, NULL);
+	blade_handle_create(&bh);
 
-	if (argc > 1) cfgpath = argv[1];
+	if (argc > 1) autoconnect = argv[1];
 
 	config_init(&config);
 	if (!config_read_file(&config, cfgpath)) {
@@ -63,28 +143,24 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 	}
 
-	if (blade_module_wss_on_load(&mod_wss, bh) != KS_STATUS_SUCCESS) {
-		ks_log(KS_LOG_ERROR, "Blade WSS module load failed\n");
-		return EXIT_FAILURE;
-	}
-	if (blade_module_wss_on_startup(mod_wss, config_blade) != KS_STATUS_SUCCESS) {
-		ks_log(KS_LOG_ERROR, "Blade WSS module startup failed\n");
-		return EXIT_FAILURE;
-	}
+	if (autoconnect) {
+		blade_connection_t *bc = NULL;
+		blade_identity_t *target = NULL;
 
-	//blade_module_chat_on_load(&mod_chat, bh);
-	//blade_module_chat_on_startup(mod_chat, config_blade);
+		blade_identity_create(&target, blade_handle_pool_get(bh));
+
+		if (blade_identity_parse(target, autoconnect) == KS_STATUS_SUCCESS) blade_handle_connect(bh, &bc, target, NULL);
+
+		blade_identity_destroy(&target);
+
+		ks_sleep_ms(3000); // @todo use session state change callback to know when the session is ready, this hack temporarily ensures it's ready before trying to publish upstream
+	}
 
 	loop(bh);
 
-	//blade_module_chat_on_shutdown(mod_chat);
-	//blade_module_chat_on_unload(mod_chat);
-
-	blade_module_wss_on_shutdown(mod_wss);
-
-	blade_module_wss_on_unload(mod_wss);
-
 	blade_handle_destroy(&bh);
+
+	config_destroy(&config);
 
 	blade_shutdown();
 
@@ -155,3 +231,37 @@ void command_quit(blade_handle_t *bh, char *args)
 	ks_log(KS_LOG_DEBUG, "Shutting down\n");
 	g_shutdown = KS_TRUE;
 }
+
+void command_publish(blade_handle_t *bh, char *args)
+{
+	blade_rpc_t *brpc = NULL;
+
+	ks_assert(bh);
+	ks_assert(args);
+
+	blade_rpc_create(&brpc, bh, "test.echo", "test", "mydomain.com", test_echo_request_handler, NULL);
+	blade_rpcmgr_protocolrpc_add(blade_handle_rpcmgr_get(bh), brpc);
+
+	// @todo build up json-based method schema for each protocolrpc registered above, and pass into blade_handle_rpcpublish() to attach to the request, to be stored in the blade_protocol_t tracked by the master node
+	blade_handle_rpcpublish(bh, "test", "mydomain.com", blade_publish_response_handler, NULL);
+}
+
+void command_broadcast(blade_handle_t *bh, char *args)
+{
+	ks_assert(bh);
+	ks_assert(args);
+
+	blade_handle_rpcbroadcast(bh, NULL, "test.event", "test", "mydomain.com", NULL, test_event_response_handler, NULL);
+}
+
+
+/* For Emacs:
+* Local Variables:
+* mode:c
+* indent-tabs-mode:t
+* tab-width:4
+* c-basic-offset:4
+* End:
+* For VIM:
+* vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
+*/

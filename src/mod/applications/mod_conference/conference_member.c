@@ -712,9 +712,9 @@ switch_status_t conference_member_add(conference_obj_t *conference, conference_m
 	conference_utils_member_set_flag_locked(member, MFLAG_INTREE);
 	conference_cdr_add(member);
 
-	conference_api_set_agc(member, NULL);
-
 	if (!conference_utils_member_test_flag(member, MFLAG_NOCHANNEL)) {
+
+		conference_api_set_agc(member, NULL);
 
 		if (switch_core_session_media_flow(member->session, SWITCH_MEDIA_TYPE_VIDEO) == SWITCH_MEDIA_FLOW_SENDONLY) {
 			conference_utils_member_clear_flag_locked(member, MFLAG_CAN_BE_SEEN);
@@ -743,6 +743,10 @@ switch_status_t conference_member_add(conference_obj_t *conference, conference_m
 
 		if ((var = switch_channel_get_variable_dup(member->channel, "video_logo_path", SWITCH_FALSE, -1))) {
 			conference_member_set_logo(member, var);
+		}
+
+		if ((var = switch_channel_get_variable_dup(member->channel, "video_codec_group", SWITCH_FALSE, -1))) {
+			member->video_codec_group = switch_core_strdup(member->pool, var);
 		}
 
 		if ((var = switch_channel_get_variable_dup(member->channel, "conference_join_volume_in", SWITCH_FALSE, -1))) {
@@ -1157,9 +1161,6 @@ switch_status_t conference_member_del(conference_obj_t *conference, conference_m
 	}
 
 	member->avatar_patched = 0;
-	switch_img_free(&member->avatar_png_img);
-	switch_img_free(&member->video_mute_img);
-	switch_img_free(&member->pcanvas_img);
 	switch_mutex_lock(conference->mutex);
 	switch_mutex_lock(conference->member_mutex);
 	switch_mutex_lock(member->audio_in_mutex);
@@ -1189,6 +1190,10 @@ switch_status_t conference_member_del(conference_obj_t *conference, conference_m
 		}
 		last = imember;
 	}
+
+	switch_img_free(&member->avatar_png_img);
+	switch_img_free(&member->video_mute_img);
+	switch_img_free(&member->pcanvas_img);
 
 	switch_thread_rwlock_unlock(member->rwlock);
 

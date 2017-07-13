@@ -263,7 +263,10 @@ vertoService.service('verto', ['$rootScope', '$cookieStore', '$location', 'stora
           id: 'screen',
           label: 'Screen'
         }];
-        data.audioDevices = [];
+        data.audioDevices = [{
+          id: 'none',
+          label: 'No Microphone'
+        }];
         data.speakerDevices = [];
 
         if(!storage.data.selectedShare) {
@@ -818,8 +821,6 @@ vertoService.service('verto', ['$rootScope', '$cookieStore', '$location', 'stora
         data.mutedMic = false;
         data.mutedVideo = false;
 
-        this.refreshDevices();
-
         if (angular.isFunction(callback)) {
           callback(data.instance, call);
         }
@@ -882,22 +883,22 @@ vertoService.service('verto', ['$rootScope', '$cookieStore', '$location', 'stora
 	  }
 
 
-        console.log('share screen from plugin');
+        console.log('share screen from plugin ' + storage.data.selectedShare);
 
-        getScreenId(function(error, sourceId, screen_constraints) {
+        var screenfunc = function(error, sourceId, screen_constraints) {
 
           if(error) {
             $rootScope.$emit('ScreenShareExtensionStatus', error);
             return;
           }
 
-          var call = data.instance.newCall({
+          var share_call = data.instance.newCall({
             destination_number: destination + '-screen',
             caller_id_name: data.name + ' (Screen)',
             caller_id_number: data.login + ' (Screen)',
             outgoingBandwidth: storage.data.outgoingBandwidth,
             incomingBandwidth: storage.data.incomingBandwidth,
-            videoParams: screen_constraints.video.mandatory,
+            videoParams: screen_constraints ? screen_constraints.video.mandatory : {},
             useVideo: true,
             screenShare: true,
             dedEnc: storage.data.useDedenc,
@@ -909,7 +910,7 @@ vertoService.service('verto', ['$rootScope', '$cookieStore', '$location', 'stora
           });
 
           // Override onStream callback in $.FSRTC instance
-          call.rtc.options.callbacks.onStream = function(rtc, stream) {
+          share_call.rtc.options.callbacks.onStream = function(rtc, stream) {
             if(stream) {
               var StreamTrack = stream.getVideoTracks()[0];
               StreamTrack.addEventListener('ended', stopSharing);
@@ -926,16 +927,19 @@ vertoService.service('verto', ['$rootScope', '$cookieStore', '$location', 'stora
             }
           };
 
-          data.shareCall = call;
+          data.shareCall = share_call;
 
           console.log('shareCall', data);
 
           data.mutedMic = false;
           data.mutedVideo = false;
+        };
 
-          that.refreshDevices();
-
-        });
+	  if (!!navigator.mozGetUserMedia) {
+	      screenfunc();
+	  } else {
+              getScreenId(screenfunc);
+	  }
 
       },
 

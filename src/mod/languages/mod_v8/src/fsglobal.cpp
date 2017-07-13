@@ -478,7 +478,11 @@ JS_GLOBAL_FUNCTION_IMPL_STATIC(Include)
 
 				if (js_file.length() > 0) {
 					Handle<String> source = String::NewFromUtf8(info.GetIsolate(), js_file.c_str());
+#if defined(V8_MAJOR_VERSION) && V8_MAJOR_VERSION >=5
+					Handle<Script> script = Script::Compile(source, info[i]->ToString());
+#else
 					Handle<Script> script = Script::Compile(source, info[i]);
+#endif
 					info.GetReturnValue().Set(script->Run());
 					switch_safe_free(path);
 					return;
@@ -682,12 +686,13 @@ JS_GLOBAL_FUNCTION_IMPL_STATIC(Bridge)
 			cb_state.session_obj_a.Reset(info.GetIsolate(), obj_a);
 			cb_state.session_obj_b.Reset(info.GetIsolate(), obj_b);
 			cb_state.session_state = jss_a;
+			cb_state.context.Reset(info.GetIsolate(), info.GetIsolate()->GetCurrentContext());
 			dtmf_func = FSSession::CollectInputCallback;
 			bp = &cb_state;
 		}
 	}
 
-	switch_ivr_multi_threaded_bridge(jss_a->GetSession(), jss_b->GetSession(), dtmf_func, bp, bp);
+	JS_EXECUTE_LONG_RUNNING_C_CALL_WITH_UNLOCKER(switch_ivr_multi_threaded_bridge(jss_a->GetSession(), jss_b->GetSession(), dtmf_func, bp, bp));
 
 	info.GetReturnValue().Set(true);
 }

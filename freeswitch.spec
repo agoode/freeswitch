@@ -965,20 +965,6 @@ Sangoma SMG-SS7 drivers for FreeTDM
 
 %endif
 
-%package endpoint-skypopen
-Summary:	Skype Endpoint
-Group:          System/Libraries
-Requires:       %{name} = %{version}-%{release}
-Requires:	libX11
-BuildRequires:	libX11-devel
-
-%description endpoint-skypopen
-This software (Skypopen) uses the Skype API but is not endorsed, certified or 
-otherwise approved in any way by Skype.  Skypopen is an endpoint (channel 
-driver) that uses the Skype client as an interface to the Skype network, and 
-allows incoming and outgoing Skype calls to/from FreeSWITCH (that can be 
-bridged, originated, answered, etc. as in all other endpoints, e.g. Sofia-SIP).
-
 ######################################################################################################################
 #				FreeSWITCH Event Handler Modules
 ######################################################################################################################
@@ -1336,6 +1322,24 @@ Requires:        %{name} = %{version}-%{release}
 Provides XML-RPC interface for the FreeSWITCH Open Source telephone platform.
 
 ######################################################################################################################
+#			FreeSWITCH ESL language modules
+######################################################################################################################
+
+%package	-n perl-ESL
+Summary:	The Perl ESL module allows for native interaction with FreeSWITCH over the event socket interface.
+Group:		System Environment/Libraries
+
+%description	-n perl-ESL
+The Perl ESL module allows for native interaction with FreeSWITCH over the event socket interface.
+
+%package	-n python-ESL
+Summary:	The Python ESL module allows for native interaction with FreeSWITCH over the event socket interface.
+Group:		System Environment/Libraries
+
+%description	-n python-ESL
+The Python ESL module allows for native interaction with FreeSWITCH over the event socket interface.
+
+######################################################################################################################
 #				FreeSWITCH basic config module
 ######################################################################################################################
 
@@ -1502,7 +1506,7 @@ DIRECTORIES_MODULES=""
 ######################################################################################################################
 ENDPOINTS_MODULES="endpoints/mod_dingaling ../../libs/freetdm/mod_freetdm \
 			endpoints/mod_loopback endpoints/mod_portaudio endpoints/mod_rtmp \
-			endpoints/mod_skinny endpoints/mod_verto endpoints/mod_rtc endpoints/mod_skypopen endpoints/mod_sofia"
+			endpoints/mod_skinny endpoints/mod_verto endpoints/mod_rtc endpoints/mod_sofia"
 
 ## DISABLED MODULES DUE TO BUILD ISSUES endpoints/mod_gsmopen endpoints/mod_h323 endpoints/mod_khomp 
  
@@ -1646,6 +1650,7 @@ unset MODULES
 
 cd libs/esl
 %{__make} pymod
+%{__make} perlmod
 
 
 ######################################################################################################################
@@ -1665,6 +1670,7 @@ cd libs/esl
 #install the esl stuff
 cd libs/esl
 %{__make} DESTDIR=%{buildroot} pymod-install
+%{__make} DESTDIR=%{buildroot} perlmod-install
 
 %if %{build_py26_esl}
 #install esl for python 26
@@ -2255,9 +2261,6 @@ fi
 %files endpoint-rtc
 %{MODINSTDIR}/mod_rtc.so*
 
-%files endpoint-skypopen
-%{MODINSTDIR}/mod_skypopen.so*
-
 ######################################################################################################################
 #
 #						FreeTDM Module for TDM Interaction
@@ -2378,9 +2381,6 @@ fi
 
 %files python
 %{MODINSTDIR}/mod_python*.so*
-%attr(0644, root, bin) /usr/lib*/python*/site-packages/freeswitch.py*
-%attr(0755, root, bin) /usr/lib*/python*/site-packages/_ESL.so*
-%attr(0755, root, bin) /usr/lib*/python*/site-packages/ESL.py*
 %dir %attr(0750, freeswitch, daemon) %{sysconfdir}/autoload_configs
 %config(noreplace) %attr(0640, freeswitch, daemon) %{sysconfdir}/autoload_configs/python.conf.xml
 
@@ -2517,11 +2517,31 @@ fi
 %{MODINSTDIR}/mod_xml_curl.so*
 
 ######################################################################################################################
+#			FreeSWITCH ESL language modules
+######################################################################################################################
+
+%files	-n perl-ESL
+%defattr(644,root,root,755)
+%{perl_archlib}/ESL.pm
+%{perl_archlib}/ESL.so
+%{perl_archlib}/ESL.la
+%dir %{perl_archlib}/ESL
+%{perl_archlib}/ESL/Dispatch.pm
+%{perl_archlib}/ESL/IVR.pm
+
+%files	-n python-ESL
+%attr(0644, root, bin) /usr/lib*/python*/site-packages/freeswitch.py*
+%attr(0755, root, bin) /usr/lib*/python*/site-packages/_ESL.so*
+%attr(0755, root, bin) /usr/lib*/python*/site-packages/ESL.py*
+
+######################################################################################################################
 #
 #						Changelog
 #
 ######################################################################################################################
 %changelog
+* Sun Mar 13 2016 - Matthew Vale
+- add perl and python ESL language module packages
 * Thu Jul 09 2015 - Artur Zaprzała
 - add systemd service file for CentOS 7
 * Thu Jun 25 2015 - s.safarov@gmail.com

@@ -1,23 +1,23 @@
 /*
  * Copyright (c) 2017, Shane Bryldt
  * All rights reserved.
- *
+ * 
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
- *
+ * 
  * * Redistributions of source code must retain the above copyright
  * notice, this list of conditions and the following disclaimer.
- *
+ * 
  * * Redistributions in binary form must reproduce the above copyright
  * notice, this list of conditions and the following disclaimer in the
  * documentation and/or other materials provided with the distribution.
- *
+ * 
  * * Neither the name of the original author; nor the names of any contributors
  * may be used to endorse or promote products derived from this software
  * without specific prior written permission.
- *
- *
+ * 
+ * 
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -36,20 +36,11 @@
 #include <blade.h>
 
 KS_BEGIN_EXTERN_C
-KS_DECLARE(ks_status_t) blade_request_create(blade_request_t **breqP,
-											 blade_handle_t *bh,
-											 const char *session_id,
-											 cJSON *json,
-											 blade_response_callback_t callback);
-KS_DECLARE(ks_status_t) blade_request_destroy(blade_request_t **breqP);
-KS_DECLARE(ks_status_t) blade_response_create(blade_response_t **bresP, blade_handle_t *bh, const char *session_id, blade_request_t *breq, cJSON *json);
-KS_DECLARE(ks_status_t) blade_response_destroy(blade_response_t **bresP);
-KS_DECLARE(ks_status_t) blade_event_create(blade_event_t **bevP, blade_handle_t *bh, const char *session_id, cJSON *json);
-KS_DECLARE(ks_status_t) blade_event_destroy(blade_event_t **bevP);
-KS_DECLARE(ks_status_t) blade_rpc_request_create(ks_pool_t *pool, cJSON **json, cJSON **params, const char **id, const char *method);
-KS_DECLARE(ks_status_t) blade_rpc_response_create(ks_pool_t *pool, cJSON **json, cJSON **result, const char *id);
-KS_DECLARE(ks_status_t) blade_rpc_error_create(ks_pool_t *pool, cJSON **json, cJSON **error, const char *id, int32_t code, const char *message);
-KS_DECLARE(ks_status_t) blade_rpc_event_create(ks_pool_t *pool, cJSON **json, cJSON **result, const char *event);
+KS_DECLARE(ks_status_t) blade_protocol_create(blade_protocol_t **bpP, ks_pool_t *pool, const char *name, const char *realm);
+KS_DECLARE(ks_status_t) blade_protocol_destroy(blade_protocol_t **bpP);
+KS_DECLARE(ks_hash_t *) blade_protocol_controllers_get(blade_protocol_t *bp);
+KS_DECLARE(ks_status_t) blade_protocol_controllers_add(blade_protocol_t *bp, const char *nodeid);
+KS_DECLARE(ks_status_t) blade_protocol_controllers_remove(blade_protocol_t *bp, const char *nodeid);
 KS_END_EXTERN_C
 
 #endif

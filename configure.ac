@@ -604,9 +604,6 @@ done
 if test x"${LUA_LIBS}" = x"" ; then
    LUA_LIBS="-llua"
 fi
-#AC_ARG_ENABLE([system-lua],[AS_HELP_STRING([--enable-system-lua],[use system lib for lua])],,[enable_system_lua="no"])
-enable_system_lua=yes
-AM_CONDITIONAL([SYSTEM_LUA],[test "${enable_system_lua}" = "yes"])
 
 AC_ARG_ENABLE(srtp,
 [AC_HELP_STRING([--disable-srtp],[build without srtp support])],[enable_srtp="$enableval"],[enable_srtp="yes"])
@@ -1080,7 +1077,7 @@ if test "x${ax_cv_c_compiler_vendor}" = "xclang" ; then
 fi
 
 # Tested and fixed lot of modules, but some are untested.  Will be added back when the core team decide it ready
-# Untested modules : mod_osp mod_soundtouch mod_sangoma_codec mod_dingaling mod_opal mod_skypopen mod_h323 mod_khomp 
+# Untested modules : mod_osp mod_soundtouch mod_sangoma_codec mod_dingaling mod_opal mod_h323 mod_khomp 
 #                    mod_unimrcp mod_cepstral mod_erlang_event mod_snmp mod_perl mod_java mod_managed
 #
 #saved_CFLAGS="$CFLAGS"
@@ -1553,6 +1550,13 @@ AC_ARG_ENABLE(parallel-build-v8,
 [AS_HELP_STRING([--disable-parallel-build-v8], [Disable parallel build of V8])], [enable_parallel_build_v8="$enableval"], [enable_parallel_build_v8="yes"])
 AM_CONDITIONAL([ENABLE_PARALLEL_BUILD_V8],[test "x$enable_parallel_build_v8" != "xno"])
 
+if test "`uname -m`" = "x86_64"; then
+	V8_TARGET="x64"
+else
+	V8_TARGET="x86"
+fi
+AC_SUBST(V8_TARGET)
+   
 AM_CONDITIONAL([HAVE_ODBC],[test "x$enable_core_odbc_support" != "xno"])
 AM_CONDITIONAL([HAVE_MYSQL],[test "$found_mysql" = "yes"])
 
@@ -1863,7 +1867,6 @@ AC_CONFIG_FILES([Makefile
 		src/mod/endpoints/mod_reference/Makefile
 		src/mod/endpoints/mod_rtmp/Makefile
 		src/mod/endpoints/mod_skinny/Makefile
-		src/mod/endpoints/mod_skypopen/Makefile
 		src/mod/endpoints/mod_sofia/Makefile
 		src/mod/endpoints/mod_unicall/Makefile
 		src/mod/endpoints/mod_rtc/Makefile

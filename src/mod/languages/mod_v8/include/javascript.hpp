@@ -33,6 +33,10 @@
 
 #include <stdint.h>
 #include <v8.h>
+#if defined(V8_MAJOR_VERSION) && V8_MAJOR_VERSION >=5
+#include <libplatform/libplatform.h>
+#include <v8-util.h>
+#endif
 
 #include <string>
 #include <vector>
@@ -126,6 +130,16 @@
 	if (v8::V8::IsExecutionTerminating(info.GetIsolate())) return;\
 	if (JSMain::GetScriptInstanceFromIsolate(info.GetIsolate()) && JSMain::GetScriptInstanceFromIsolate(info.GetIsolate())->GetForcedTermination()) return
 
+/* Macro for easy unlocking an isolate on a long running c call */
+#define JS_EXECUTE_LONG_RUNNING_C_CALL_WITH_UNLOCKER(call) {\
+		/* Unlock isolate on a long running c call to let another thread execute the callback */\
+		info.GetIsolate()->Exit();\
+		Unlocker unlock(info.GetIsolate());\
+		call;\
+	}\
+	/* Lock it back */\
+	info.GetIsolate()->Enter();
+
 /* strdup function for all platforms */
 #ifdef NDEBUG
 #if (_MSC_VER >= 1500)			// VC9+
@@ -202,7 +216,11 @@ private:
 	JSMain *js;										/* The "owner" of this instance */
 
 	/* The callback that happens when the V8 GC cleans up object instances */
+#if defined(V8_MAJOR_VERSION) && V8_MAJOR_VERSION >=5
+	static void WeakCallback(const v8::WeakCallbackInfo<JSBase>& data);
+#else
 	static void WeakCallback(const v8::WeakCallbackData<v8::Object, JSBase>& data);
+#endif	
 
 	/* Internal basic constructor when creating a new instance from JS. It will call the actual user code inside */
 	static void CreateInstance(const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -305,7 +323,12 @@ public:
 	const std::string ExecuteScript(const std::string& filename, bool *resultIsError);
 	const std::string ExecuteString(const std::string& scriptData, const std::string& fileName, bool *resultIsError);
 
+#if defined(V8_MAJOR_VERSION) && V8_MAJOR_VERSION >=5
+	static void Initialize(v8::Platform **platform);					/* Initialize the V8 engine */
+#else
 	static void Initialize();											/* Initialize the V8 engine */
+#endif
+
 	static void Dispose();												/* Deinitialize the V8 engine */
 
 	static void Include(const v8::FunctionCallbackInfo<v8::Value>& args);		/* Adds functionality to include another JavaScript from the running script */

@@ -638,7 +638,9 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_get_vid_params(switch_core_ses
 		return SWITCH_STATUS_FALSE;
 	}
 
+	switch_mutex_lock(smh->control_mutex);
 	*vid_params = smh->vid_params;
+	switch_mutex_unlock(smh->control_mutex);
 
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -1173,10 +1175,12 @@ static switch_status_t switch_core_media_build_crypto(switch_media_handle_t *smh
 #endif
 
 	switch_b64_encode(key, SUITES[ctype].keylen, b64_key, sizeof(b64_key));
-	p = strrchr((char *) b64_key, '=');
+	if (!switch_channel_var_true(channel, "rtp_pad_srtp_keys")) {
+		p = strrchr((char *) b64_key, '=');
 
-	while (p && *p && *p == '=') {
-		*p-- = '\0';
+		while (p && *p && *p == '=') {
+			*p-- = '\0';
+		}
 	}
 
 	if (index == SWITCH_NO_CRYPTO_TAG) index = ctype + 1;
@@ -1804,9 +1808,9 @@ SWITCH_DECLARE(switch_status_t) switch_media_handle_create(switch_media_handle_t
 
 		session->media_handle->mparams = params;
 
-		if (!session->media_handle->mparams->video_key_freq) {
-			session->media_handle->mparams->video_key_freq = 10000000;
-		}
+		//if (!session->media_handle->mparams->video_key_freq) {
+		//	session->media_handle->mparams->video_key_freq = 10000000;
+		//}
 
 		if (!session->media_handle->mparams->video_key_first) {
 			session->media_handle->mparams->video_key_first = 1000000;
@@ -2256,12 +2260,13 @@ static void check_jb_sync(switch_core_session_t *session)
 
 
 	if (!frames) {
+		sync_audio = 1;
+
 		if (cur_frames && min_frames && cur_frames >= min_frames) {
 			frames = cur_frames;
 		} else {
 			frames = fps / 15;
 			if (frames < 1) frames = 1;
-			sync_audio = 1;
 		}
 	}
 
@@ -3625,17 +3630,28 @@ static int dtls_ok(switch_core_session_t *session)
 #endif
 
 //?
-SWITCH_DECLARE(switch_call_direction_t) switch_ice_direction(switch_core_session_t *session)
+static switch_call_direction_t switch_ice_direction(switch_rtp_engine_t *engine, switch_core_session_t *session)
 {
 	switch_call_direction_t r = switch_channel_direction(session->channel);
+	switch_media_handle_t *smh;
 
+	switch_assert(session);
+
+	if (!(smh = session->media_handle)) {
+		return SWITCH_CALL_DIRECTION_OUTBOUND;
+	}
+	
 	if (switch_channel_test_flag(session->channel, CF_3PCC)) {
 		r = (r == SWITCH_CALL_DIRECTION_INBOUND) ? SWITCH_CALL_DIRECTION_OUTBOUND : SWITCH_CALL_DIRECTION_INBOUND;
 	}
 
-	if ((switch_channel_test_flag(session->channel, CF_REINVITE) || switch_channel_test_flag(session->channel, CF_RECOVERING))
-		&& switch_channel_test_flag(session->channel, CF_AVPF)) {
-		r = SWITCH_CALL_DIRECTION_OUTBOUND;
+	if (switch_rtp_has_dtls() && dtls_ok(smh->session)) {
+		r = engine->dtls_controller ? SWITCH_CALL_DIRECTION_INBOUND : SWITCH_CALL_DIRECTION_OUTBOUND;
+	} else {
+		if ((switch_channel_test_flag(session->channel, CF_REINVITE) || switch_channel_test_flag(session->channel, CF_RECOVERING))
+			&& switch_channel_test_flag(session->channel, CF_AVPF)) {
+			r = SWITCH_CALL_DIRECTION_OUTBOUND;
+		}
 	}
 
 	return r;
@@ -3745,7 +3761,8 @@ static switch_status_t check_ice(switch_media_handle_t *smh, switch_media_type_t
 			} else if (!strcasecmp(attr->a_name, "ice-options")) {
 				engine->ice_in.options = switch_core_session_strdup(smh->session, attr->a_value);
 			} else if (!strcasecmp(attr->a_name, "setup")) {
-				if (!strcasecmp(attr->a_value, "passive") || !strcasecmp(attr->a_value, "actpass")) {
+				if (!strcasecmp(attr->a_value, "passive") ||
+					(!strcasecmp(attr->a_value, "actpass") && !switch_channel_test_flag(smh->session->channel, CF_REINVITE))) {
 					if (!engine->dtls_controller) {
 						engine->new_dtls = 1;
 						engine->new_ice = 1;
@@ -4011,8 +4028,8 @@ static switch_status_t check_ice(switch_media_handle_t *smh, switch_media_type_t
 		engine->rtcp_mux = -1;
 	}
 
-	if (switch_channel_test_flag(smh->session->channel, CF_REINVITE)) {
-		if (switch_rtp_ready(engine->rtp_session) && engine->ice_in.cands[engine->ice_in.chosen[0]][0].ready && engine->new_ice) {
+	if (engine->new_ice) {
+		if (switch_rtp_ready(engine->rtp_session) && engine->ice_in.cands[engine->ice_in.chosen[0]][0].ready) {
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(smh->session), SWITCH_LOG_INFO, "RE-Activating %s ICE\n", type2str(type));
 
 			switch_rtp_activate_ice(engine->rtp_session,
@@ -4025,7 +4042,7 @@ static switch_status_t check_ice(switch_media_handle_t *smh, switch_media_type_t
 									ICE_GOOGLE_JINGLE,
 									NULL
 #else
-									switch_ice_direction(smh->session) ==
+									switch_ice_direction(engine, smh->session) ==
 									SWITCH_CALL_DIRECTION_OUTBOUND ? ICE_VANILLA : (ICE_VANILLA | ICE_CONTROLLED),
 									&engine->ice_in
 #endif
@@ -4080,7 +4097,7 @@ static switch_status_t check_ice(switch_media_handle_t *smh, switch_media_type_t
 										ICE_GOOGLE_JINGLE,
 										NULL
 #else
-										switch_ice_direction(smh->session) ==
+										switch_ice_direction(engine, smh->session) ==
 										SWITCH_CALL_DIRECTION_OUTBOUND ? ICE_VANILLA : (ICE_VANILLA | ICE_CONTROLLED),
 										&engine->ice_in
 #endif
@@ -4391,6 +4408,9 @@ SWITCH_DECLARE(uint8_t) switch_core_media_negotiate_sdp(switch_core_session_t *s
 	v_engine = &smh->engines[SWITCH_MEDIA_TYPE_VIDEO];
 	t_engine = &smh->engines[SWITCH_MEDIA_TYPE_TEXT];
 
+	smh->mparams->num_codecs = 0;
+	smh->num_negotiated_codecs = 0;
+	switch_core_media_prepare_codecs(session, SWITCH_TRUE);
 	codec_array = smh->codecs;
 	total_codecs = smh->mparams->num_codecs;
 
@@ -4913,13 +4933,6 @@ SWITCH_DECLARE(uint8_t) switch_core_media_negotiate_sdp(switch_core_session_t *s
 			}
 
 
-			smh->mparams->num_codecs = 0;
-			smh->num_negotiated_codecs = 0;
-			switch_core_media_prepare_codecs(session, SWITCH_TRUE);
-			codec_array = smh->codecs;
-			total_codecs = smh->mparams->num_codecs;
-
-
 			if (switch_rtp_has_dtls() && dtls_ok(session)) {
 				for (attr = m->m_attributes; attr; attr = attr->a_next) {
 
@@ -5231,7 +5244,7 @@ SWITCH_DECLARE(uint8_t) switch_core_media_negotiate_sdp(switch_core_session_t *s
 				match = 1;
 				a_engine->codec_negotiated = 1;
 
-				for(j = 0; j < m_idx; j++) {
+				for(j = 0; j < m_idx && smh->num_negotiated_codecs < SWITCH_MAX_CODECS; j++) {
 					payload_map_t *pmap = switch_core_media_add_payload_map(session,
 																			SWITCH_MEDIA_TYPE_AUDIO,
 																			matches[j].map->rm_encoding,
@@ -5386,8 +5399,7 @@ SWITCH_DECLARE(uint8_t) switch_core_media_negotiate_sdp(switch_core_session_t *s
 				best_te_rate = 8000;
 			}
 
-			if (!best_te && (switch_media_handle_test_media_flag(smh, SCMF_LIBERAL_DTMF) ||
-							 switch_channel_test_flag(session->channel, CF_LIBERAL_DTMF))) {
+			if (!best_te && (switch_channel_test_flag(session->channel, CF_LIBERAL_DTMF))) {
 				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,
 								  "No 2833 in SDP. Liberal DTMF mode adding %d as telephone-event.\n", smh->mparams->te);
 				best_te = smh->mparams->te;
@@ -5397,7 +5409,7 @@ SWITCH_DECLARE(uint8_t) switch_core_media_negotiate_sdp(switch_core_session_t *s
 				smh->mparams->te_rate = best_te_rate;
 
 				if (smh->mparams->dtmf_type == DTMF_AUTO || smh->mparams->dtmf_type == DTMF_2833 ||
-					switch_media_handle_test_media_flag(smh, SCMF_LIBERAL_DTMF)) {
+					switch_channel_test_flag(session->channel, CF_LIBERAL_DTMF)) {
 					if (sdp_type == SDP_TYPE_REQUEST) {
 						smh->mparams->te = smh->mparams->recv_te = (switch_payload_t) best_te;
 						switch_channel_set_variable(session->channel, "dtmf_type", "rfc2833");
@@ -5774,7 +5786,7 @@ SWITCH_DECLARE(uint8_t) switch_core_media_negotiate_sdp(switch_core_session_t *s
 				vmatch = 1;
 				v_engine->codec_negotiated = 1;
 
-				for(j = 0; j < m_idx; j++) {
+				for(j = 0; j < m_idx && smh->num_negotiated_codecs < SWITCH_MAX_CODECS; j++) {
 					payload_map_t *pmap = switch_core_media_add_payload_map(session,
 																			SWITCH_MEDIA_TYPE_VIDEO,
 																			matches[j].map->rm_encoding,
@@ -8325,7 +8337,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_activate_rtp(switch_core_sessi
 									ICE_GOOGLE_JINGLE,
 									NULL
 #else
-									switch_ice_direction(session) ==
+									switch_ice_direction(a_engine, session) ==
 									SWITCH_CALL_DIRECTION_OUTBOUND ? ICE_VANILLA : (ICE_VANILLA | ICE_CONTROLLED),
 									&a_engine->ice_in
 #endif
@@ -8378,7 +8390,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_activate_rtp(switch_core_sessi
 											ICE_GOOGLE_JINGLE,
 											NULL
 #else
-											switch_ice_direction(session) ==
+											switch_ice_direction(a_engine, session) ==
 											SWITCH_CALL_DIRECTION_OUTBOUND ? ICE_VANILLA : (ICE_VANILLA | ICE_CONTROLLED),
 											&a_engine->ice_in
 #endif
@@ -8690,7 +8702,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_activate_rtp(switch_core_sessi
 											ICE_GOOGLE_JINGLE,
 											NULL
 #else
-											switch_ice_direction(session) ==
+											switch_ice_direction(t_engine, session) ==
 											SWITCH_CALL_DIRECTION_OUTBOUND ? ICE_VANILLA : (ICE_VANILLA | ICE_CONTROLLED),
 											&t_engine->ice_in
 #endif
@@ -8740,7 +8752,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_activate_rtp(switch_core_sessi
 													ICE_GOOGLE_JINGLE,
 													NULL
 #else
-													switch_ice_direction(session) ==
+													switch_ice_direction(t_engine, session) ==
 													SWITCH_CALL_DIRECTION_OUTBOUND ? ICE_VANILLA : (ICE_VANILLA | ICE_CONTROLLED),
 													&t_engine->ice_in
 #endif
@@ -9016,7 +9028,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_activate_rtp(switch_core_sessi
 											ICE_GOOGLE_JINGLE,
 											NULL
 #else
-											switch_ice_direction(session) ==
+											switch_ice_direction(v_engine, session) ==
 											SWITCH_CALL_DIRECTION_OUTBOUND ? ICE_VANILLA : (ICE_VANILLA | ICE_CONTROLLED),
 											&v_engine->ice_in
 #endif
@@ -9067,7 +9079,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_activate_rtp(switch_core_sessi
 													ICE_GOOGLE_JINGLE,
 													NULL
 #else
-													switch_ice_direction(session) ==
+													switch_ice_direction(v_engine, session) ==
 													SWITCH_CALL_DIRECTION_OUTBOUND ? ICE_VANILLA : (ICE_VANILLA | ICE_CONTROLLED),
 													&v_engine->ice_in
 #endif
@@ -9350,8 +9362,7 @@ static void generate_m(switch_core_session_t *session, char *buf, size_t buflen,
 	}
 
 
-	if ((smh->mparams->dtmf_type == DTMF_2833 || switch_media_handle_test_media_flag(smh, SCMF_LIBERAL_DTMF) ||
-		 switch_channel_test_flag(session->channel, CF_LIBERAL_DTMF)) && smh->mparams->te > 95) {
+	if ((smh->mparams->dtmf_type == DTMF_2833 || switch_channel_test_flag(session->channel, CF_LIBERAL_DTMF)) && smh->mparams->te > 95) {
 
 		for (i = 0; i < smh->num_rates; i++) {
 			if (switch_channel_test_flag(session->channel, CF_AVPF)) {
@@ -9419,7 +9430,7 @@ static void generate_m(switch_core_session_t *session, char *buf, size_t buflen,
 						);
 
 		if (include_external && !zstr(smh->mparams->extsipip)) {
-			switch_snprintf(buf + strlen(buf), buflen - strlen(buf), "a=candidate:%s 1 %s %u %s %d typ host generation 0\n",
+			switch_snprintf(buf + strlen(buf), buflen - strlen(buf), "a=candidate:%s 1 %s %u %s %d typ host generation 0\r\n",
 				tmp3, ice_out->cands[0][0].transport, c1,
 				smh->mparams->extsipip, ice_out->cands[0][0].con_port
 				);
@@ -9445,7 +9456,7 @@ static void generate_m(switch_core_session_t *session, char *buf, size_t buflen,
 							);
 			
 			if (include_external && !zstr(smh->mparams->extsipip)) {
-				switch_snprintf(buf + strlen(buf), buflen - strlen(buf), "a=candidate:%s 2 %s %u %s %d typ host generation 0\n",
+				switch_snprintf(buf + strlen(buf), buflen - strlen(buf), "a=candidate:%s 2 %s %u %s %d typ host generation 0\r\n",
 					tmp3, ice_out->cands[0][0].transport, c1,
 					smh->mparams->extsipip, ice_out->cands[0][0].con_port
 					);
@@ -10015,8 +10026,7 @@ SWITCH_DECLARE(void) switch_core_media_gen_local_sdp(switch_core_session_t *sess
 			switch_mutex_unlock(smh->sdp_mutex);
 		}
 
-		if ((smh->mparams->dtmf_type == DTMF_2833 || switch_media_handle_test_media_flag(smh, SCMF_LIBERAL_DTMF) ||
-			 switch_channel_test_flag(session->channel, CF_LIBERAL_DTMF)) && smh->mparams->te > 95) {
+		if ((smh->mparams->dtmf_type == DTMF_2833 || switch_channel_test_flag(session->channel, CF_LIBERAL_DTMF)) && smh->mparams->te > 95) {
 			switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf), " %d", smh->mparams->te);
 		}
 
@@ -10063,8 +10073,7 @@ SWITCH_DECLARE(void) switch_core_media_gen_local_sdp(switch_core_session_t *sess
 		}
 
 
-		if ((smh->mparams->dtmf_type == DTMF_2833 || switch_media_handle_test_media_flag(smh, SCMF_LIBERAL_DTMF) ||
-			 switch_channel_test_flag(session->channel, CF_LIBERAL_DTMF))
+		if ((smh->mparams->dtmf_type == DTMF_2833 || switch_channel_test_flag(session->channel, CF_LIBERAL_DTMF))
 			&& smh->mparams->te > 95) {
 
 			if (switch_channel_test_flag(session->channel, CF_AVPF)) {
@@ -10108,7 +10117,7 @@ SWITCH_DECLARE(void) switch_core_media_gen_local_sdp(switch_core_session_t *sess
 
 
 		if (!zstr(a_engine->local_dtls_fingerprint.type)) {
-			switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf), "a=fingerprint:%s %s\na=setup:%s\r\n",
+			switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf), "a=fingerprint:%s %s\r\na=setup:%s\r\n",
 							a_engine->local_dtls_fingerprint.type,
 							a_engine->local_dtls_fingerprint.str, get_setup(a_engine, session, sdp_type));
 		}
@@ -10157,7 +10166,7 @@ SWITCH_DECLARE(void) switch_core_media_gen_local_sdp(switch_core_session_t *sess
 							);
 
 			if (include_external && !zstr(smh->mparams->extsipip)) {
-				switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf), "a=candidate:%s 1 %s %u %s %d typ host generation 0\n",
+				switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf), "a=candidate:%s 1 %s %u %s %d typ host generation 0\r\n",
 					tmp3, ice_out->cands[0][0].transport, c1,
 					smh->mparams->extsipip, ice_out->cands[0][0].con_port
 					);
@@ -10183,7 +10192,7 @@ SWITCH_DECLARE(void) switch_core_media_gen_local_sdp(switch_core_session_t *sess
 								);
 
 				if (include_external && !zstr(smh->mparams->extsipip)) {
-					switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf), "a=candidate:%s 2 %s %u %s %d typ host generation 0\n",
+					switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf), "a=candidate:%s 2 %s %u %s %d typ host generation 0\r\n",
 						tmp3, ice_out->cands[0][0].transport, c2,
 						smh->mparams->extsipip, ice_out->cands[0][0].con_port + (a_engine->rtcp_mux > 0 ? 0 : 1)
 						);
@@ -10490,6 +10499,7 @@ SWITCH_DECLARE(void) switch_core_media_gen_local_sdp(switch_core_session_t *sess
 						}
 					}
 
+
 					if (pass_fmtp) {
 						switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf), "a=fmtp:%d %s\r\n", v_engine->cur_payload_map->pt, pass_fmtp);
 					}
@@ -10713,7 +10723,7 @@ SWITCH_DECLARE(void) switch_core_media_gen_local_sdp(switch_core_session_t *sess
 									);
 
 					if (include_external && !zstr(smh->mparams->extsipip)) {
-						switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf), "a=candidate:%s 1 %s %u %s %d typ host generation 0\n",
+						switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf), "a=candidate:%s 1 %s %u %s %d typ host generation 0\r\n",
 							tmp3, ice_out->cands[0][0].transport, c1,
 							smh->mparams->extsipip, ice_out->cands[0][0].con_port
 							);
@@ -10739,7 +10749,7 @@ SWITCH_DECLARE(void) switch_core_media_gen_local_sdp(switch_core_session_t *sess
 										);
 
 					if (include_external && !zstr(smh->mparams->extsipip)) {
-							switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf), "a=candidate:%s 2 %s %u %s %d typ host generation 0\n",
+							switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf), "a=candidate:%s 2 %s %u %s %d typ host generation 0\r\n",
 								tmp3, ice_out->cands[0][0].transport, c2,
 								smh->mparams->extsipip, ice_out->cands[0][0].con_port + (v_engine->rtcp_mux > 0 ? 0 : 1)
 								);
@@ -10840,11 +10850,11 @@ SWITCH_DECLARE(void) switch_core_media_gen_local_sdp(switch_core_session_t *sess
 			}
 
 			switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf),
-				"m=message %d TCP/%sMSRP *\n"
-				"a=path:%s\n"
-				"a=accept-types:%s\n"
-				"a=accept-wrapped-types:%s\n"
-				"a=setup:%s\n",
+				"m=message %d TCP/%sMSRP *\r\n"
+				"a=path:%s\r\n"
+				"a=accept-types:%s\r\n"
+				"a=accept-wrapped-types:%s\r\n"
+				"a=setup:%s\r\n",
 				msrp_session->local_port,
 				msrp_session->secure ? "TLS/" : "",
 				msrp_session->local_path,
@@ -10869,11 +10879,11 @@ SWITCH_DECLARE(void) switch_core_media_gen_local_sdp(switch_core_session_t *sess
 			}
 
 			switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf),
-				"m=message %d TCP/%sMSRP *\n"
-				"a=path:%s\n"
-				"a=accept-types:message/cpim text/* application/im-iscomposing+xml\n"
-				"a=accept-wrapped-types:*\n"
-				"a=setup:%s\n",
+				"m=message %d TCP/%sMSRP *\r\n"
+				"a=path:%s\r\n"
+				"a=accept-types:message/cpim text/* application/im-iscomposing+xml\r\n"
+				"a=accept-wrapped-types:*\r\n"
+				"a=setup:%s\r\n",
 				msrp_session->local_port,
 				msrp_session->secure ? "TLS/" : "",
 				msrp_session->local_path,
@@ -10881,7 +10891,7 @@ SWITCH_DECLARE(void) switch_core_media_gen_local_sdp(switch_core_session_t *sess
 
 			if (!zstr(file_selector)) {
 				switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf),
-					"a=sendonly\na=file-selector:%s\n", file_selector);
+					"a=sendonly\r\na=file-selector:%s\r\n", file_selector);
 			}
 		}
 	}
@@ -11026,7 +11036,7 @@ SWITCH_DECLARE(void) switch_core_media_gen_local_sdp(switch_core_session_t *sess
 
 
 				if (!zstr(t_engine->local_dtls_fingerprint.type)) {
-					switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf), "a=fingerprint:%s %s\na=setup:%s\r\n", t_engine->local_dtls_fingerprint.type,
+					switch_snprintf(buf + strlen(buf), SDPBUFLEN - strlen(buf), "a=fingerprint:%s %s\r\na=setup:%s\r\n", t_engine->local_dtls_fingerprint.type,
 									t_engine->local_dtls_fingerprint.str, get_setup(t_engine, session, sdp_type));
 				}
 
@@ -11989,13 +11999,15 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_receive_message(switch_core_se
 	case SWITCH_MESSAGE_INDICATE_VIDEO_REFRESH_REQ:
 		{
 			if (v_engine->rtp_session) {
-				if (switch_rtp_test_flag(v_engine->rtp_session, SWITCH_RTP_FLAG_FIR)) {
-					switch_rtp_video_refresh(v_engine->rtp_session);
-				}// else {
+				if (msg->numeric_arg || !switch_channel_test_flag(session->channel, CF_MANUAL_VID_REFRESH)) {
+					if (switch_rtp_test_flag(v_engine->rtp_session, SWITCH_RTP_FLAG_FIR)) {
+						switch_rtp_video_refresh(v_engine->rtp_session);
+					}// else {
 					if (switch_rtp_test_flag(v_engine->rtp_session, SWITCH_RTP_FLAG_PLI)) {
 						switch_rtp_video_loss(v_engine->rtp_session);
 					}
-					//				}
+					//}
+				}
 			}
 		}
 
@@ -12172,7 +12184,8 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_receive_message(switch_core_se
 				const char *val;
 				int ok = 0;
 
-				if ((!(val = switch_channel_get_variable(session->channel, "rtp_jitter_buffer_during_bridge")) || switch_false(val))) {
+				if (!switch_channel_test_flag(session->channel, CF_VIDEO_READY) && 
+					(!(val = switch_channel_get_variable(session->channel, "rtp_jitter_buffer_during_bridge")) || switch_false(val))) {
 					if (switch_channel_test_flag(session->channel, CF_JITTERBUFFER) && switch_channel_test_cap_partner(session->channel, CC_FS_RTP)) {
 						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,
 										  "%s PAUSE Jitterbuffer\n", switch_channel_get_name(session->channel));
@@ -13711,7 +13724,7 @@ SWITCH_DECLARE(switch_timer_t *) switch_core_media_get_timer(switch_core_session
 
 }
 
-SWITCH_DECLARE(switch_status_t) switch_core_session_request_video_refresh(switch_core_session_t *session)
+SWITCH_DECLARE(switch_status_t) _switch_core_session_request_video_refresh(switch_core_session_t *session, int force, const char *file, const char *func, int line)
 {
 	switch_channel_t *channel = switch_core_session_get_channel(session);
 	switch_media_handle_t *smh = NULL;
@@ -13722,16 +13735,25 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_request_video_refresh(switch
 		return SWITCH_STATUS_FALSE;
 	}
 
-	if (switch_channel_test_flag(channel, CF_VIDEO)) {
+	if (switch_channel_media_up(channel) && switch_channel_test_flag(channel, CF_VIDEO)) {
 		switch_core_session_message_t msg = { 0 };
 		switch_time_t now = switch_micro_time_now();
 
-		if (smh->last_video_refresh_req && (now - smh->last_video_refresh_req) < VIDEO_REFRESH_FREQ) {
+		if (!force && (smh->last_video_refresh_req && (now - smh->last_video_refresh_req) < VIDEO_REFRESH_FREQ)) {
 			return SWITCH_STATUS_BREAK;
 		}
 
 		smh->last_video_refresh_req = now;
 
+		if (force) {
+			msg.numeric_arg = 1;
+		}
+
+		msg._file = file;
+		msg._func = func;
+		msg._line = line;
+		switch_log_printf(SWITCH_CHANNEL_ID_LOG, file, func, line, switch_core_session_get_uuid(session), 
+						  SWITCH_LOG_DEBUG1, "%s Video refresh requested.\n", switch_channel_get_name(session->channel));
 		msg.from = __FILE__;
 		msg.message_id = SWITCH_MESSAGE_INDICATE_VIDEO_REFRESH_REQ;
 		switch_core_session_receive_message(session, &msg);
@@ -13956,14 +13978,19 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_write_video_frame(switch_cor
 	}
 
 
-	/* When desired, scale video to match the input signal (if output is bigger) */
-	if (switch_channel_test_flag(session->channel, CF_VIDEO_READY) && smh->vid_params.width &&
-		switch_channel_test_flag(session->channel, CF_VIDEO_MIRROR_INPUT) &&
-		((smh->vid_params.width != img->d_w) || (smh->vid_params.height != img->d_h))) {
+    /* When desired, scale video to match the input signal (if output is bigger) */
+	if (switch_channel_test_flag(session->channel, CF_VIDEO_READY) &&
+		switch_channel_test_flag(session->channel, CF_VIDEO_MIRROR_INPUT)) {
+		switch_vid_params_t vid_params = { 0 };
 
-		switch_img_letterbox(img, &dup_img, smh->vid_params.width, smh->vid_params.height, "#000000f");
+		switch_core_media_get_vid_params(session, &vid_params);
 
-		img = dup_img;
+		if (vid_params.width && vid_params.height && ((vid_params.width != img->d_w) || (vid_params.height != img->d_h))) {
+			switch_img_letterbox(img, &dup_img, vid_params.width, vid_params.height, "#000000f");
+			if (!(img = dup_img)) {
+				return SWITCH_STATUS_INUSE;
+			}
+		}
 	}
 
 	if (!switch_channel_test_flag(session->channel, CF_VIDEO_WRITING)) {
@@ -14294,15 +14321,20 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_read_video_frame(switch_core
 		}
 
 		if ((*frame)->img && (*frame)->img->d_w && (*frame)->img->d_h) {
+			int new_w = 0, new_h = 0;
+			
+			if ((*frame)->img->d_w != smh->vid_params.width || (*frame)->img->d_h != smh->vid_params.height) {
+				new_w = (*frame)->img->d_w;
+				new_h = (*frame)->img->d_h;
 
-			if ((*frame)->img->d_w != smh->vid_params.width) {
-				switch_channel_set_variable_printf(session->channel, "video_width", "%d", (*frame)->img->d_w);
-				smh->vid_params.width = (*frame)->img->d_w;
-			}
-
-			if ((*frame)->img->d_h != smh->vid_params.height) {
-				switch_channel_set_variable_printf(session->channel, "video_height", "%d", (*frame)->img->d_h);
-				smh->vid_params.height = (*frame)->img->d_h;
+				if (new_w && new_h) {
+					switch_mutex_lock(smh->control_mutex);
+					smh->vid_params.width = new_w;
+					smh->vid_params.height = new_h;
+					switch_channel_set_variable_printf(session->channel, "video_width", "%d", new_w);
+					switch_channel_set_variable_printf(session->channel, "video_height", "%d", new_h);
+					switch_mutex_unlock(smh->control_mutex);
+				}
 			}
 		}
 

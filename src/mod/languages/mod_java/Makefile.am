@@ -18,16 +18,17 @@ CLASSES=src/org/freeswitch/Launcher.java \
 	src/org/freeswitch/Event.java \
 	src/org/freeswitch/swig/*
 
-BUILT_SOURCES=classes
+BUILT_SOURCES=classes freeswitch.jar
 
 classes:
 	mkdir -p classes
 	javac -sourcepath src -d classes $(CLASSES)
+freeswitch.jar: classes
 	jar cf freeswitch.jar -C classes org
 
 reswig:
 	rm -f switch_swig_wrap.cpp
-	swig2.0 -java -c++ -I../../../include -package org.freeswitch.swig -outdir src/org/freeswitch/swig -o switch_swig_wrap.cpp mod_java.i
+	swig3.0 -java -c++ -I../../../include -package org.freeswitch.swig -outdir src/org/freeswitch/swig -o switch_swig_wrap.cpp mod_java.i
 
 install-data-local:
 	cp freeswitch.jar $(DESTDIR)@scriptdir@

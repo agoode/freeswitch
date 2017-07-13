@@ -505,7 +505,7 @@ tls_t *tls_init_master(tls_issues_t *ti)
     return NULL;
   }
 
-  RAND_pseudo_bytes(sessionId, sizeof(sessionId));
+  RAND_bytes(sessionId, sizeof(sessionId));
 
   if (!SSL_CTX_set_session_id_context(tls->ctx,
                                  (void*) sessionId,
@@ -516,7 +516,11 @@ tls_t *tls_init_master(tls_issues_t *ti)
   if (ti->CAfile != NULL) {
     SSL_CTX_set_client_CA_list(tls->ctx,
                                SSL_load_client_CA_file(ti->CAfile));
-    if (tls->ctx->client_CA == NULL)
+#if OPENSSL_VERSION_NUMBER >= 0x10100000
+	if (SSL_CTX_get_client_CA_list(tls->ctx) == NULL)
+#else
+	if (tls->ctx->client_CA == NULL)
+#endif
       tls_log_errors(3, "tls_init_master", 0);
   }
 
@@ -765,6 +769,7 @@ int tls_error(tls_t *tls, int ret, char const *who,
     return 0;
 
   case SSL_ERROR_SYSCALL:
+    ERR_clear_error();
     if (SSL_get_shutdown(tls->con) & SSL_RECEIVED_SHUTDOWN)
       return 0;			/* EOS */
     if (errno == 0)
@@ -893,7 +898,7 @@ ssize_t tls_write(tls_t *tls, void *buf, size_t size)
   tls->write_events = 0;
 
   ret = SSL_write(tls->con, buf, size);
-  if (ret < 0)
+  if (ret <= 0)
     return tls_error(tls, ret, "tls_write: SSL_write", buf, size);
 
   return ret;
@@ -1016,6 +1021,8 @@ int tls_connect(su_root_magic_t *magic, su_wait_t *w, tport_t *self)
           if ((su_wait_create(wait, self->tp_socket, self->tp_events) == -1) ||
              ((self->tp_index = su_root_register(mr->mr_root, wait, tport_wakeup,
                                                            self, 0)) == -1)) {
+
+            tls_log_errors(3, "TLS post handshake error", status);
             tport_close(self);
             tport_set_secondary_timer(self);
 	    return 0;
@@ -1037,12 +1044,7 @@ int tls_connect(su_root_magic_t *magic, su_wait_t *w, tport_t *self)
 	break;
 
       default:
-        {
-	  char errbuf[64];
-	  ERR_error_string_n(status, errbuf, 64);
-          SU_DEBUG_3(("%s(%p): TLS setup failed (%s)\n",
-					  __func__, (void *)self, errbuf));
-        }
+        tls_log_errors(3, "TLS setup failed", status);
         break;
     }
   }

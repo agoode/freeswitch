@@ -516,7 +516,7 @@ static void *SWITCH_THREAD_FUNC read_stream_thread(switch_thread_t *thread, void
 					if (switch_core_has_video() && switch_core_file_has_video(use_fh, SWITCH_TRUE)) {
 						switch_frame_t vid_frame = { 0 };
 
-						if (use_fh == &source->chime_fh && switch_core_file_has_video(&fh, SWITCH_TRUE)) {
+						if (use_fh == &source->chime_fh && switch_test_flag(&fh, SWITCH_FILE_OPEN) && switch_core_file_has_video(&fh, SWITCH_TRUE)) {
 							if (switch_core_file_read_video(&fh, &vid_frame, svr) == SWITCH_STATUS_SUCCESS) {
 								switch_img_free(&vid_frame.img);
 							}
@@ -543,9 +543,11 @@ static void *SWITCH_THREAD_FUNC read_stream_thread(switch_thread_t *thread, void
 						source->has_video = 0;
 					}
 
-					if (use_fh == &source->chime_fh) {
+					if (switch_test_flag(&fh, SWITCH_FILE_OPEN) && use_fh == &source->chime_fh) {
 						olen = source->samples;
-						switch_core_file_read(&fh, source->abuf, &olen);
+						if (switch_core_file_read(&fh, source->abuf, &olen) != SWITCH_STATUS_SUCCESS || !olen) {
+							switch_core_file_close(&fh);
+						}
 						olen = source->samples;
 					}
 
@@ -757,13 +759,16 @@ static void *SWITCH_THREAD_FUNC read_stream_thread(switch_thread_t *thread, void
 					}
 					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "local_stream://%s partially reloaded.\n",source->name);
 					source->part_reload = 0;
-					if (source->timer.interval) {
-						switch_core_timer_destroy(&source->timer);
-					}
+					source->full_reload = 0;
 				}
 			} else {
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "local_stream://%s fully reloaded.\n",source->name);
 				switch_thread_rwlock_unlock(source->rwlock);
+				source->full_reload = 0;
+				source->part_reload = 0;
+				if (source->timer.interval) {
+					switch_core_timer_destroy(&source->timer);
+				}
 				launch_streams(source->name);
 				goto done;
 			}
@@ -1408,6 +1413,10 @@ SWITCH_STANDARD_API(local_stream_function)
 				} else {
 					source->vol = atoi(argv[2]);
 					switch_normalize_volume_granular(source->vol);
+					if (source->agc) {
+						switch_agc_destroy(&source->agc);
+					}
+					source->energy_avg = 0;
 				}
 			}
 
@@ -1430,6 +1439,7 @@ SWITCH_STANDARD_API(local_stream_function)
 		if ((source = get_source(local_stream_name))) {
 			source->full_reload = 1;
 			source->part_reload = 1;
+			source->hup = 1;
 			stream->write_function(stream, "+OK");
 			switch_thread_rwlock_unlock(source->rwlock);
 		} else {

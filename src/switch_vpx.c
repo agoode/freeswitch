@@ -259,6 +259,10 @@ static inline int IS_VP8_KEY_FRAME(uint8_t *data)
 #define IS_VP9_KEY_FRAME(byte) ((((byte) & 0x40) == 0) && ((byte) & 0x0A))
 #define IS_VP9_START_PKT(byte) ((byte) & 0x08)
 
+#ifdef WIN32
+#undef SWITCH_MOD_DECLARE_DATA
+#define SWITCH_MOD_DECLARE_DATA __declspec(dllexport)
+#endif
 SWITCH_MODULE_LOAD_FUNCTION(mod_vpx_load);
 SWITCH_MODULE_DEFINITION(CORE_VPX_MODULE, mod_vpx_load, NULL, NULL);
 
@@ -406,14 +410,14 @@ static switch_status_t init_encoder(switch_codec_t *codec)
 	context->start_time = switch_micro_time_now();
 
 	config->g_timebase.num = 1;
-	config->g_timebase.den = 1000;
+	config->g_timebase.den = 1000;//90000;
 	config->g_pass = VPX_RC_ONE_PASS;
 	config->g_w = context->codec_settings.video.width;
 	config->g_h = context->codec_settings.video.height;
 	config->rc_target_bitrate = context->bandwidth;
 	config->g_lag_in_frames = 0;
 	config->kf_max_dist = 360;//2000;
-	threads = cpus / 4;
+	threads = cpus / 2;
 	if (threads < 1) threads = 1;
 	config->g_threads = threads;
 
@@ -564,7 +568,7 @@ static switch_status_t init_encoder(switch_codec_t *codec)
 			// The static threshold imposes a change threshold on blocks below which they will be skipped by the encoder.
 			vpx_codec_control(&context->encoder, VP8E_SET_STATIC_THRESHOLD, 100);
 			//Set cpu usage, a bit lower than normal (-6) but higher than android (-12)
-			vpx_codec_control(&context->encoder, VP8E_SET_CPUUSED, -6);
+			vpx_codec_control(&context->encoder, VP8E_SET_CPUUSED, -16);
 			vpx_codec_control(&context->encoder, VP8E_SET_TOKEN_PARTITIONS, token_parts);
 
 			// Enable noise reduction
@@ -636,6 +640,7 @@ static switch_status_t consume_partition(vpx_context_t *context, switch_frame_t 
 	uint8_t *body;
 	uint32_t hdrlen = 0, payload_size = 0, packet_size = 0, start = 0, key = 0;
 	switch_size_t remaining_bytes = 0;
+	switch_status_t status;
 
 	if (!context->pkt) {
 		if ((context->pkt = vpx_codec_get_cx_data(&context->encoder, &context->enc_iter))) {
@@ -756,17 +761,19 @@ static switch_status_t consume_partition(vpx_context_t *context, switch_frame_t 
 		context->pkt = NULL;
 		frame->datalen += remaining_bytes;
 		frame->m = 1;
-		return SWITCH_STATUS_SUCCESS;
+		status = SWITCH_STATUS_SUCCESS;
 	} else {
 		switch_buffer_read(context->pbuffer, body, payload_size);
 		frame->datalen += payload_size;
 		frame->m = 0;
-		return SWITCH_STATUS_MORE_DATA;
+		status = SWITCH_STATUS_MORE_DATA;
 	}
 
 	if (frame->m && context->is_vp9) {
 		payload_descriptor->vp9.end = 1;
 	}
+
+	return status;
 }
 
 static switch_status_t reset_codec_encoder(switch_codec_t *codec)
@@ -853,6 +860,7 @@ static switch_status_t switch_vpx_encode(switch_codec_t *codec, switch_frame_t *
 	context->framecount++;
 
 	pts = (now - context->start_time) / 1000;
+	//pts = frame->timestamp;
 
 	dur = context->last_ms ? (now - context->last_ms) / 1000 : pts;
 

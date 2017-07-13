@@ -351,6 +351,9 @@ SWITCH_DECLARE(void) switch_core_media_bug_set_read_demux_frame(_In_ switch_medi
 */
 SWITCH_DECLARE(switch_core_session_t *) switch_core_media_bug_get_session(_In_ switch_media_bug_t *bug);
 
+SWITCH_DECLARE(void) switch_core_media_bug_set_media_params(switch_media_bug_t *bug, switch_mm_t *mm);
+SWITCH_DECLARE(void) switch_core_media_bug_get_media_params(switch_media_bug_t *bug, switch_mm_t *mm);
+
 SWITCH_DECLARE(const char *) switch_core_media_bug_get_text(switch_media_bug_t *bug);
 
 /*!
@@ -395,7 +398,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_bug_remove_callback(switch_cor
   \param bug bug to remove
   \return SWITCH_STATUS_SUCCESS if the operation was a success
 */
-SWITCH_DECLARE(switch_status_t) switch_core_media_bug_close(_Inout_ switch_media_bug_t **bug);
+SWITCH_DECLARE(switch_status_t) switch_core_media_bug_close(_Inout_ switch_media_bug_t **bug, switch_bool_t destroy);
 /*!
   \brief Remove all media bugs from the session
   \param session the session to remove the bugs from
@@ -2779,13 +2782,15 @@ SWITCH_DECLARE(int) switch_core_gen_certs(const char *prefix);
 SWITCH_DECLARE(int) switch_core_cert_gen_fingerprint(const char *prefix, dtls_fingerprint_t *fp);
 SWITCH_DECLARE(int) switch_core_cert_expand_fingerprint(dtls_fingerprint_t *fp, const char *str);
 SWITCH_DECLARE(int) switch_core_cert_verify(dtls_fingerprint_t *fp);
-SWITCH_DECLARE(switch_status_t) switch_core_session_request_video_refresh(switch_core_session_t *session);
+SWITCH_DECLARE(switch_status_t) _switch_core_session_request_video_refresh(switch_core_session_t *session, int force, const char *file, const char *func, int line);
+#define switch_core_session_request_video_refresh(_s) _switch_core_session_request_video_refresh(_s, 0, __FILE__, __SWITCH_FUNC__, __LINE__)
+#define switch_core_session_force_request_video_refresh(_s) _switch_core_session_request_video_refresh(_s, 1, __FILE__, __SWITCH_FUNC__, __LINE__)
 SWITCH_DECLARE(switch_status_t) switch_core_session_send_and_request_video_refresh(switch_core_session_t *session);
 SWITCH_DECLARE(int) switch_system(const char *cmd, switch_bool_t wait);
 SWITCH_DECLARE(int) switch_stream_system_fork(const char *cmd, switch_stream_handle_t *stream);
 SWITCH_DECLARE(int) switch_stream_system(const char *cmd, switch_stream_handle_t *stream);
 
-SWITCH_DECLARE(switch_call_direction_t) switch_ice_direction(switch_core_session_t *session);
+
 SWITCH_DECLARE(void) switch_core_session_debug_pool(switch_stream_handle_t *stream);
 
 SWITCH_DECLARE(switch_status_t) switch_core_session_override_io_routines(switch_core_session_t *session, switch_io_routines_t *ior);

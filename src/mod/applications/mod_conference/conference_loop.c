@@ -300,7 +300,7 @@ void conference_loop_energy_up(conference_member_t *member, caller_control_actio
 		member->auto_energy_level = 0;
 	}
 
-	if (member->max_energy_level && member->max_energy_level > member->max_energy_level) {
+	if (member->max_energy_level && member->energy_level > member->max_energy_level) {
 		member->max_energy_level = 0;
 	}
 
@@ -342,7 +342,7 @@ void conference_loop_energy_equ_conf(conference_member_t *member, caller_control
 		member->auto_energy_level = 0;
 	}
 
-	if (member->max_energy_level && member->max_energy_level > member->max_energy_level) {
+	if (member->max_energy_level && member->energy_level > member->max_energy_level) {
 		member->max_energy_level = 0;
 	}
 
@@ -382,7 +382,7 @@ void conference_loop_energy_dn(conference_member_t *member, caller_control_actio
 		member->auto_energy_level = 0;
 	}
 
-	if (member->max_energy_level && member->max_energy_level > member->max_energy_level) {
+	if (member->max_energy_level && member->energy_level > member->max_energy_level) {
 		member->max_energy_level = 0;
 	}
 
@@ -932,10 +932,6 @@ void *SWITCH_THREAD_FUNC conference_loop_input(switch_thread_t *thread, void *ob
 				switch_change_sln_volume(read_frame->data, (read_frame->datalen / 2) * member->conference->channels, member->volume_in_level);
 			}
 
-			if (member->agc) {
-				switch_agc_feed(member->agc, (int16_t *)read_frame->data, (read_frame->datalen / 2) * member->conference->channels, 1);
-			}
-
 			if ((samples = read_frame->datalen / sizeof(*data))) {
 				for (i = 0; i < samples; i++) {
 					energy += abs(data[j]);
@@ -950,6 +946,10 @@ void *SWITCH_THREAD_FUNC conference_loop_input(switch_thread_t *thread, void *ob
 			}
 
 			gate_check = conference_member_noise_gate_check(member);
+
+			if (gate_check && member->agc) {
+				switch_agc_feed(member->agc, (int16_t *)read_frame->data, (read_frame->datalen / 2) * member->conference->channels, 1);
+			}
 
 			member->score_iir = (int) (((1.0 - SCORE_DECAY) * (float) member->score) + (SCORE_DECAY * (float) member->score_iir));
 
@@ -1580,6 +1580,20 @@ void conference_loop_output(conference_member_t *member)
 				conference_member_play_file(member, member->conference->undeaf_sound, 0, SWITCH_TRUE);
 			}
 			conference_utils_member_clear_flag(member, MFLAG_INDICATE_UNDEAF);
+		}
+
+		if (conference_utils_member_test_flag(member, MFLAG_INDICATE_BLIND)) {
+			if (!zstr(member->conference->deaf_sound)) {
+				conference_member_play_file(member, member->conference->deaf_sound, 0, SWITCH_TRUE);
+			}
+			conference_utils_member_clear_flag(member, MFLAG_INDICATE_BLIND);
+		}
+
+		if (conference_utils_member_test_flag(member, MFLAG_INDICATE_UNBLIND)) {
+			if (!zstr(member->conference->undeaf_sound)) {
+				conference_member_play_file(member, member->conference->undeaf_sound, 0, SWITCH_TRUE);
+			}
+			conference_utils_member_clear_flag(member, MFLAG_INDICATE_UNBLIND);
 		}
 
 		if (switch_core_session_private_event_count(member->session)) {

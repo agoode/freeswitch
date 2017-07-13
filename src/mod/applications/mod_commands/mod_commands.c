@@ -4167,8 +4167,43 @@ SWITCH_STANDARD_API(uuid_send_info_function)
 	return SWITCH_STATUS_SUCCESS;
 }
 
+#define XFER_ZOMBIE_SYNTAX "<uuid>"
+SWITCH_STANDARD_API(uuid_xfer_zombie)
+{
+	switch_status_t status = SWITCH_STATUS_FALSE;
+	char *mycmd = NULL, *argv[2] = { 0 };
+	int argc = 0;
 
-#define VIDEO_REFRESH_SYNTAX "<uuid>"
+	if (!zstr(cmd) && (mycmd = strdup(cmd))) {
+		argc = switch_separate_string(mycmd, ' ', argv, (sizeof(argv) / sizeof(argv[0])));
+	}
+
+	if (argc < 1) {
+		stream->write_function(stream, "-USAGE: %s\n", XFER_ZOMBIE_SYNTAX);
+	} else {
+		switch_core_session_t *lsession = NULL;
+
+		if ((lsession = switch_core_session_locate(argv[0]))) {
+			switch_channel_t *channel = switch_core_session_get_channel(lsession);
+
+			switch_channel_set_flag(channel, CF_XFER_ZOMBIE);
+			status = SWITCH_STATUS_SUCCESS;
+			switch_core_session_rwunlock(lsession);
+		}
+	}
+
+	if (status == SWITCH_STATUS_SUCCESS) {
+		stream->write_function(stream, "+OK Success\n");
+	} else {
+		stream->write_function(stream, "-ERR Operation Failed\n");
+	}
+
+	switch_safe_free(mycmd);
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
+#define VIDEO_REFRESH_SYNTAX "<uuid> [auto|manual]"
 SWITCH_STANDARD_API(uuid_video_refresh_function)
 {
 	switch_status_t status = SWITCH_STATUS_FALSE;
@@ -4185,9 +4220,28 @@ SWITCH_STANDARD_API(uuid_video_refresh_function)
 		switch_core_session_t *lsession = NULL;
 
 		if ((lsession = switch_core_session_locate(argv[0]))) {
-			switch_core_session_request_video_refresh(lsession);
+			char *cmd = (char *)argv[1];
+	
+			if (!zstr(cmd)) {
+				switch_channel_t *channel = switch_core_session_get_channel(lsession);
+				
+				if (!strcasecmp(cmd, "manual")) {
+					switch_channel_set_flag(channel, CF_MANUAL_VID_REFRESH);
+				} else if (!strcasecmp(cmd, "auto")) {
+					switch_channel_clear_flag(channel, CF_MANUAL_VID_REFRESH);
+				}
+
+				stream->write_function(stream, "%s video refresh now in %s mode.\n", switch_channel_get_name(channel),
+									   switch_channel_test_flag(channel, CF_MANUAL_VID_REFRESH) ? "manual" : "auto");
+
+			} else {
+				switch_core_session_force_request_video_refresh(lsession);
+				switch_core_media_gen_key_frame(lsession);
+			}
+
 			status = SWITCH_STATUS_SUCCESS;
 			switch_core_session_rwunlock(lsession);
+
 		}
 	}
 
@@ -4201,6 +4255,10 @@ SWITCH_STANDARD_API(uuid_video_refresh_function)
 
 	return SWITCH_STATUS_SUCCESS;
 }
+
+typedef enum {
+	BITRATE_INUSE = (1 << 0)
+} uuid_video_bitrate_enum_t;
 
 #define VIDEO_BITRATE_SYNTAX "<uuid> <bitrate>"
 SWITCH_STANDARD_API(uuid_video_bitrate_function)
@@ -4219,12 +4277,28 @@ SWITCH_STANDARD_API(uuid_video_bitrate_function)
 		switch_core_session_t *lsession = NULL;
 
 		if ((lsession = switch_core_session_locate(argv[0]))) {
-			int kps = switch_parse_bandwidth_string(argv[1]);
+			int kps;
 			switch_core_session_message_t msg = { 0 };
+			switch_channel_t *channel = switch_core_session_get_channel(lsession);
+
+			if (argv[1] && !strcasecmp(argv[1], "clear")) {
+				if (switch_channel_test_app_flag_key("uuid_video_bitrate", channel, BITRATE_INUSE)) {
+					switch_channel_clear_flag_recursive(channel, CF_VIDEO_BITRATE_UNMANAGABLE);
+					switch_channel_clear_app_flag_key("uuid_video_bitrate", channel, BITRATE_INUSE);
+				}
+			}
+
+
+			kps = switch_parse_bandwidth_string(argv[1]);
 
 			msg.message_id = SWITCH_MESSAGE_INDICATE_BITRATE_REQ;
 			msg.numeric_arg = kps * 1024;
 			msg.from = __FILE__;
+
+			if (!switch_channel_test_app_flag_key("uuid_video_bitrate", channel, BITRATE_INUSE)) {
+				switch_channel_set_app_flag_key("uuid_video_bitrate", channel, BITRATE_INUSE);
+				switch_channel_set_flag_recursive(channel, CF_VIDEO_BITRATE_UNMANAGABLE);
+			}
 
 			switch_core_session_receive_message(lsession, &msg);
 			switch_core_session_video_reinit(lsession);
@@ -7312,6 +7386,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_commands_load)
 	SWITCH_ADD_API(commands_api_interface, "uuid_simplify", "Try to cut out of a call path / attended xfer", uuid_simplify_function, SIMPLIFY_SYNTAX);
 	SWITCH_ADD_API(commands_api_interface, "uuid_jitterbuffer", "uuid_jitterbuffer", uuid_jitterbuffer_function, JITTERBUFFER_SYNTAX);
 	SWITCH_ADD_API(commands_api_interface, "uuid_zombie_exec", "Set zombie_exec flag on the specified uuid", uuid_zombie_exec_function, "<uuid>");
+	SWITCH_ADD_API(commands_api_interface, "uuid_xfer_zombie", "Allow A leg to hangup and continue originating", uuid_xfer_zombie, XFER_ZOMBIE_SYNTAX);
 	SWITCH_ADD_API(commands_api_interface, "xml_flush_cache", "Clear xml cache", xml_flush_function, "<id> <key> <val>");
 	SWITCH_ADD_API(commands_api_interface, "xml_locate", "Find some xml", xml_locate_function, "[root | <section> <tag> <tag_attr_name> <tag_attr_val>]");
 	SWITCH_ADD_API(commands_api_interface, "xml_wrap", "Wrap another api command in xml", xml_wrap_api_function, "<command> <args>");
@@ -7504,6 +7579,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_commands_load)
 	switch_console_set_complete("add uuid_dual_transfer ::console::list_uuid");
 	switch_console_set_complete("add uuid_video_refresh ::console::list_uuid");
 	switch_console_set_complete("add uuid_video_bitrate ::console::list_uuid");
+	switch_console_set_complete("add uuid_xfer_zombie ::console::list_uuid");
 	switch_console_set_complete("add version");
 	switch_console_set_complete("add uuid_warning ::console::list_uuid");
 	switch_console_set_complete("add ...");

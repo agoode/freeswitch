@@ -462,11 +462,6 @@ Module: endpoints/mod_skinny
 Description: mod_skinny
  Adds mod_skinny.
 
-Module: endpoints/mod_skypopen
-Description: mod_skypopen
- Adds mod_skypopen.
-Build-Depends: libx11-dev
-
 Module: endpoints/mod_sofia
 Description: mod_sofia
  Adds mod_sofia.
@@ -655,11 +650,12 @@ Build-Depends: python-dev
 Module: languages/mod_v8
 Description: mod_v8
  Adds mod_v8.
+Build-Depends: git
 
 Module: languages/mod_yaml
 Description: mod_yaml
  Adds mod_yaml.
-Build-Depends: libyaml-dev
+Build-Depends: libyaml-dev, libglib2.0-dev
 
 ## mod/loggers
 

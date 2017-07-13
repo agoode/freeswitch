@@ -168,22 +168,29 @@ static void launch_listener_thread(listener_t *listener);
 static switch_status_t socket_logger(const switch_log_node_t *node, switch_log_level_t level)
 {
 	listener_t *l;
-
+	switch_status_t qstatus;
 	switch_mutex_lock(globals.listener_mutex);
 	for (l = listen_list.listeners; l; l = l->next) {
 		if (switch_test_flag(l, LFLAG_LOG) && l->level >= node->level) {
 			switch_log_node_t *dnode = switch_log_node_dup(node);
-
-			if (switch_queue_trypush(l->log_queue, dnode) == SWITCH_STATUS_SUCCESS) {
+			qstatus = switch_queue_trypush(l->log_queue, dnode); 
+			if (qstatus == SWITCH_STATUS_SUCCESS) {
 				if (l->lost_logs) {
 					int ll = l->lost_logs;
 					l->lost_logs = 0;
-					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "Lost %d log lines!\n", ll);
+					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "Lost [%d] log lines! Log Queue size: [%u/%u]\n", ll, switch_queue_size(l->log_queue), MAX_QUEUE_LEN);
 				}
 			} else {
+				char errbuf[512] = {0};
+				unsigned int qsize = switch_queue_size(l->log_queue);
+				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, 
+						"Log enqueue ERROR [%d] | [%s] Queue size: [%u/%u] %s\n", 
+						(int)qstatus, switch_strerror(qstatus, errbuf, sizeof(errbuf)), qsize, MAX_QUEUE_LEN, (qsize == MAX_QUEUE_LEN)?"Max queue size reached":"");
 				switch_log_node_free(&dnode);
 				if (++l->lost_logs > MAX_MISSED) {
-					kill_listener(l, NULL);
+					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, 
+							"Killing listener because of too many lost log lines. Lost [%d] Queue size [%u/%u]!\n", l->lost_logs, qsize, MAX_QUEUE_LEN);
+					kill_listener(l, "killed listener because of lost log lines\n");
 				}
 			}
 		}
@@ -264,6 +271,7 @@ static void event_handler(switch_event_t *event)
 	switch_event_t *clone = NULL;
 	listener_t *l, *lp, *last = NULL;
 	time_t now = switch_epoch_time_now(NULL);
+	switch_status_t qstatus;
 
 	switch_assert(event != NULL);
 
@@ -371,15 +379,22 @@ static void event_handler(switch_event_t *event)
 
 		if (send) {
 			if (switch_event_dup(&clone, event) == SWITCH_STATUS_SUCCESS) {
-				if (switch_queue_trypush(l->event_queue, clone) == SWITCH_STATUS_SUCCESS) {
+				qstatus = switch_queue_trypush(l->event_queue, clone); 
+				if (qstatus == SWITCH_STATUS_SUCCESS) {
 					if (l->lost_events) {
 						int le = l->lost_events;
 						l->lost_events = 0;
-						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(l->session), SWITCH_LOG_CRIT, "Lost %d events!\n", le);
+						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(l->session), SWITCH_LOG_CRIT, "Lost [%d] events! Event Queue size: [%u/%u]\n", le, switch_queue_size(l->event_queue), MAX_QUEUE_LEN);
 					}
 				} else {
+					char errbuf[512] = {0};
+					unsigned int qsize = switch_queue_size(l->event_queue);
+					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, 
+							"Event enqueue ERROR [%d] | [%s] | Queue size: [%u/%u] %s\n", 
+							(int)qstatus, switch_strerror(qstatus, errbuf, sizeof(errbuf)), qsize, MAX_QUEUE_LEN, (qsize == MAX_QUEUE_LEN)?"Max queue size reached":"");
 					if (++l->lost_events > MAX_MISSED) {
-						kill_listener(l, NULL);
+						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "Killing listener because of too many lost events. Lost [%d] Queue size[%u/%u]\n", l->lost_events, qsize, MAX_QUEUE_LEN);
+						kill_listener(l, "killed listener because of lost events\n");
 					}
 					switch_event_destroy(&clone);
 				}
@@ -2367,7 +2382,7 @@ static switch_status_t parse_command(listener_t *listener, switch_event_t **even
 		goto done_noreply;
 	} else if (!strncasecmp(cmd, "log", 3)) {
 
-		char *level_s;
+		char *level_s, *p;
 		switch_log_level_t ltype = SWITCH_LOG_DEBUG;
 
 		if (!switch_test_flag(listener, LFLAG_ALLOW_LOG)) {
@@ -2380,11 +2395,14 @@ static switch_status_t parse_command(listener_t *listener, switch_event_t **even
 		//move past the command
 		level_s = cmd + 3;
 
-		//see if we got an argument
-		if (!zstr(level_s)) {
-			//if so move to the argument
+		while(*level_s == ' ') {
 			level_s++;
 		}
+
+		if ((p = strchr(level_s, ' '))) {
+			*p = '\0';
+		}
+
 		//see if we lined up on an argument or not
 		if (!zstr(level_s)) {
 			ltype = switch_log_str2level(level_s);

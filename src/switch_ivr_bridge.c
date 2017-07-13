@@ -860,7 +860,7 @@ static void *audio_bridge_thread(switch_thread_t *thread, void *obj)
 		switch_channel_api_on(chan_a, SWITCH_API_BRIDGE_END_VARIABLE);
 	}
 
-	if (!inner_bridge && switch_channel_up_nosig(chan_a)) {
+	if (!inner_bridge && switch_channel_up_nosig(chan_a) && !switch_channel_test_flag(chan_a, CF_REDIRECT)) {
 		if ((app_name = switch_channel_get_variable(chan_a, SWITCH_EXEC_AFTER_BRIDGE_APP_VARIABLE))) {
 			switch_caller_extension_t *extension = NULL;
 			if ((extension = switch_caller_extension_new(session_a, app_name, app_name)) == 0) {
@@ -1016,7 +1016,20 @@ static switch_status_t audio_bridge_on_exchange_media(switch_core_session_t *ses
 				switch_channel_hangup(channel, SWITCH_CAUSE_PICKED_OFF);
 			} else {
 				if (!switch_channel_test_flag(channel, CF_ANSWERED)) {
-					switch_channel_hangup(channel, SWITCH_CAUSE_ORIGINATOR_CANCEL);
+					int x = 0;
+
+					if (switch_channel_execute_on(channel, "execute_on_orphaned_bleg") == SWITCH_STATUS_SUCCESS) {
+						x++;
+					}
+
+					if (switch_channel_api_on(channel, "api_on_orphaned_bleg") == SWITCH_STATUS_SUCCESS) {
+						x++;
+					}
+
+					if (!x) {
+						switch_channel_hangup(channel, SWITCH_CAUSE_ORIGINATOR_CANCEL);
+					}
+					
 				} else {
 					switch_channel_hangup(channel, SWITCH_CAUSE_NORMAL_CLEARING);
 				}
@@ -1891,7 +1904,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_multi_threaded_bridge(switch_core_ses
 			switch_channel_clear_flag(caller_channel, CF_RESET);
 		} else {
 			state = switch_channel_get_state(caller_channel);
-			if (!(state == CS_RESET || state == CS_PARK || state == CS_ROUTING)) {
+			if (!(state == CS_RESET || state == CS_PARK || state == CS_ROUTING || state == CS_EXECUTE)) {
 				switch_channel_set_state(caller_channel, CS_RESET);
 			}
 		}

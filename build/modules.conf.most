@@ -90,7 +90,6 @@ endpoints/mod_portaudio
 endpoints/mod_rtc
 endpoints/mod_rtmp
 endpoints/mod_skinny
-endpoints/mod_skypopen
 endpoints/mod_sofia
 endpoints/mod_verto
 event_handlers/mod_amqp
@@ -126,7 +125,7 @@ languages/mod_lua
 languages/mod_managed
 languages/mod_perl
 languages/mod_python
-languages/mod_v8
+#languages/mod_v8
 languages/mod_yaml
 loggers/mod_console
 loggers/mod_graylog2
