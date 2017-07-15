@@ -1997,7 +1997,12 @@ AC_SUBST(OUR_DISABLED_INSTALL_MODS)
 AC_SUBST(OUR_DISABLED_UNINSTALL_MODS)
 AC_SUBST(AM_MAKEFLAGS)
 
-ac_configure_args="$ac_configure_args --with-modinstdir=${modulesdir} CONFIGURE_CFLAGS='$CFLAGS $CPPFLAGS' CONFIGURE_CXXFLAGS='$CXXFLAGS $CPPFLAGS' CONFIGURE_LDFLAGS='$LDFLAGS' "
+APR_ADDTO(CONFIGURE_CFLAGS, [$CFLAGS])
+APR_ADDTO(CONFIGURE_CPPFLAGS, [$CPPFLAGS])
+APR_ADDTO(CONFIGURE_CXXFLAGS, [$CXXFLAGS])
+APR_ADDTO(CONFIGURE_LDFLAGS, [$LDFLAGS])
+
+ac_configure_args="$ac_configure_args --with-modinstdir=${modulesdir} CONFIGURE_CFLAGS='$CONFIGURE_CFLAGS' CONFIGURE_CPPFLAGS='$CONFIGURE_CPPFLAGS' CONFIGURE_CXXFLAGS='$CONFIGURE_CXXFLAGS' CONFIGURE_LDFLAGS='$CONFIGURE_LDFLAGS' "
 
 #	--prefix='$prefix' --exec_prefix='$exec_prefix' --libdir='$libdir' --libexecdir='$libexecdir' --bindir='$bindir' --sbindir='$sbindir' \
 #	--localstatedir='$localstatedir' --datadir='$datadir'"
