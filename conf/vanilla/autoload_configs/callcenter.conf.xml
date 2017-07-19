@@ -7,7 +7,7 @@
   <queues>
 
     <queue name="support@default">
-      <param name="strategy" value="longest-idle-agent"/>
+      <param name="strategy" value="longest-tried-agent"/>
       <param name="moh-sound" value="$${hold_music}"/>
       <!--<param name="record-template" value="$${recordings_dir}/${strftime(%Y-%m-%d-%H-%M-%S)}.${destination_number}.${caller_id_number}.${uuid}.wav"/>-->
       <param name="time-base-score" value="system"/>

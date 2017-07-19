@@ -232,6 +232,7 @@ static char agents_sql[] =
 "   last_bridge_start INTEGER NOT NULL DEFAULT 0,\n"
 "   last_bridge_end INTEGER NOT NULL DEFAULT 0,\n"
 "   last_offered_call INTEGER NOT NULL DEFAULT 0,\n"
+"   last_waiting_state INTEGER NOT NULL DEFAULT 0,\n"
 "   last_status_change INTEGER NOT NULL DEFAULT 0,\n"
 "   no_answer_count INTEGER NOT NULL DEFAULT 0,\n"
 "   calls_answered  INTEGER NOT NULL DEFAULT 0,\n"
@@ -556,7 +557,7 @@ cc_queue_t *queue_set_config(cc_queue_t *queue)
 	   SWITCH _CONFIG_SET_ITEM(item, "key", type, flags,
 	   pointer, default, options, help_syntax, help_description)
 	 */
-	SWITCH_CONFIG_SET_ITEM(queue->config[i++], "strategy", SWITCH_CONFIG_STRING, 0, &queue->strategy, "longest-idle-agent", &queue->config_str_pool, NULL, NULL);
+	SWITCH_CONFIG_SET_ITEM(queue->config[i++], "strategy", SWITCH_CONFIG_STRING, 0, &queue->strategy, "longest-tried-agent", &queue->config_str_pool, NULL, NULL);
 	SWITCH_CONFIG_SET_ITEM(queue->config[i++], "moh-sound", SWITCH_CONFIG_STRING, 0, &queue->moh, NULL, &queue->config_str_pool, NULL, NULL);
 	SWITCH_CONFIG_SET_ITEM(queue->config[i++], "announce-sound", SWITCH_CONFIG_STRING, 0, &queue->announce, NULL, &queue->config_str_pool, NULL, NULL);
 	SWITCH_CONFIG_SET_ITEM(queue->config[i++], "announce-frequency", SWITCH_CONFIG_INT, 0, &queue->announce_freq, 0, &config_int_0_86400, NULL, NULL);
@@ -1037,11 +1038,15 @@ cc_status_t cc_agent_update(const char *key, const char *value, const char *agen
 		}
 	} else if (!strcasecmp(key, "state")) {
 		if (cc_agent_str2state(value) != CC_AGENT_STATE_UNKNOWN) {
-			if (cc_agent_str2state(value) != CC_AGENT_STATE_RECEIVING) {
-				sql = switch_mprintf("UPDATE agents SET state = '%q' WHERE name = '%q'", value, agent);
-			} else {
+			if (cc_agent_str2state(value) == CC_AGENT_STATE_RECEIVING) {
 				sql = switch_mprintf("UPDATE agents SET state = '%q', last_offered_call = '%" SWITCH_TIME_T_FMT "' WHERE name = '%q'",
 						value, local_epoch_time_now(NULL), agent);
+
+			} else if (cc_agent_str2state(value) == CC_AGENT_STATE_WAITING) {
+				sql = switch_mprintf("UPDATE agents SET state = '%q', last_waiting_state  = '%" SWITCH_TIME_T_FMT "' WHERE name = '%q'",
+						value, local_epoch_time_now(NULL), agent);
+			} else {
+				sql = switch_mprintf("UPDATE agents SET state = '%q' WHERE name = '%q'", value, agent);
 			}
 			cc_execute_sql(NULL, sql, NULL);
 			switch_safe_free(sql);
@@ -1501,6 +1506,7 @@ static switch_status_t load_config(void)
 	switch_cache_db_test_reactive(dbh, "select count(no_answer_delay_time) from agents", NULL, "alter table agents add no_answer_delay_time integer not null default 0;");
 	switch_cache_db_test_reactive(dbh, "select count(ready_time) from agents", "drop table agents", agents_sql);
 	switch_cache_db_test_reactive(dbh, "select external_calls_count from agents", NULL, "alter table agents add external_calls_count integer not null default 0;");
+	switch_cache_db_test_reactive(dbh, "select count(last_waiting_state) FROM agents", NULL, "alter table agents add last_waiting_state integer not null default 0;");
 	switch_cache_db_test_reactive(dbh, "select count(queue) from tiers", "drop table tiers" , tiers_sql);
 
 	switch_cache_db_release_db_handle(&dbh);
@@ -2549,7 +2555,9 @@ static int members_callback(void *pArg, int argc, char **argv, char **columnName
 
 	} else {
 
-		if (!strcasecmp(queue->strategy, "longest-idle-agent")) {
+		if (!strcasecmp(queue_strategy, "longest-tried-agent")) {
+			sql_order_by = switch_mprintf("level, agents.last_waiting_state, position");
+		} else if (!strcasecmp(queue_strategy, "longest-idle-agent")) {
 			sql_order_by = switch_mprintf("level, agents.last_bridge_end, position");
 		} else if (!strcasecmp(queue_strategy, "agent-with-least-talk-time")) {
 			sql_order_by = switch_mprintf("level, agents.talk_time, position");
