@@ -20,9 +20,10 @@ dnl Generate ./config.nice for reproducing runs of configure
 dnl 
 APR_CONFIG_NICE(config.nice)
 
-CFLAGS="$CFLAGS $CONFIGURE_CFLAGS"
-CXXFLAGS="$CXXFLAGS $CONFIGURE_CXXFLAGS"
-LDFLAGS="$LDFLAGS $CONFIGURE_LDFLAGS"
+APR_ADDTO(CFLAGS, [$CONFIGURE_CFLAGS])
+APR_ADDTO(CPPFLAGS, [$CONFIGURE_CPPFLAGS])
+APR_ADDTO(CXXFLAGS, [$CONFIGURE_CXXFLAGS])
+APR_ADDTO(LDFLAGS, [$CONFIGURE_LDFLAGS])
 
 dnl # Some initial steps for configuration.  We setup the default directory
 dnl # and which files are to be configured.
