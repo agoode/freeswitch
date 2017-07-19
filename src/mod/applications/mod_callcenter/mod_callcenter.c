@@ -2459,6 +2459,7 @@ struct agent_callback {
 	switch_bool_t agent_found;
 	switch_bool_t skip_agents_with_external_calls;
 	cc_agent_status_t agent_no_answer_status;
+	switch_time_t loop_start_epoch;
 
 	int tier;
 	int tier_agent_available;
@@ -2702,6 +2703,7 @@ static int members_callback(void *pArg, int argc, char **argv, char **columnName
 	serving_agent = argv[9];
 	cbt.member_system = argv[10];
 	profile_name = argv[11];
+	cbt.loop_start_epoch = atoll(argv[12]);
 
 	if (!profile_name || !(profile = get_profile(profile_name))) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Profile %s not found locally, skip this member\n", profile_name);
@@ -2843,19 +2845,25 @@ static int members_callback(void *pArg, int argc, char **argv, char **columnName
 				" AND (agents.status = '%q' OR agents.status = '%q' OR agents.status = '%q' OR agents.status = '%q')"
 				" AND tiers.position > %d"
 				" AND tiers.level = %d"
+				" AND (last_waiting_state <= %" SWITCH_TIME_T_FMT " OR last_waiting_state is null) "
+				" AND (last_status_change <= %" SWITCH_TIME_T_FMT " OR last_status_change is null) "
 				" UNION "
 				"SELECT system, name, status, contact, no_answer_count, max_no_answer, reject_delay_time, busy_delay_time, no_answer_delay_time, tiers.state, agents.last_bridge_end, agents.wrap_up_time, agents.state, agents.ready_time, tiers.position as tiers_position, tiers.level as tiers_level, agents.type, agents.uuid, external_calls_count, agents.last_offered_call as agents_last_offered_call, 2 as dyn_order FROM agents LEFT JOIN tiers ON (agents.name = tiers.agent)"
 				" WHERE tiers.queue = '%q'"
 				" AND (agents.status = '%q' OR agents.status = '%q' OR agents.status = '%q' OR agents.status = '%q')"
 				" AND tiers.level > %d"
+				" AND (last_waiting_state <= %" SWITCH_TIME_T_FMT " OR last_waiting_state is null) "
+				" AND (last_status_change <= %" SWITCH_TIME_T_FMT " OR last_status_change is null) "
 				" ORDER BY dyn_order asc, tiers_level, tiers_position, agents_last_offered_call",
 				queue_name,
 				cc_agent_status2str(CC_AGENT_STATUS_AVAILABLE), cc_agent_status2str(CC_AGENT_STATUS_ON_BREAK), cc_agent_status2str(CC_AGENT_STATUS_ON_EXTERNAL_CALL), cc_agent_status2str(CC_AGENT_STATUS_AVAILABLE_ON_DEMAND),
 				position,
 				level,
+				cbt.loop_start_epoch, cbt.loop_start_epoch,
 				queue_name,
 				cc_agent_status2str(CC_AGENT_STATUS_AVAILABLE), cc_agent_status2str(CC_AGENT_STATUS_ON_BREAK), cc_agent_status2str(CC_AGENT_STATUS_ON_EXTERNAL_CALL), cc_agent_status2str(CC_AGENT_STATUS_AVAILABLE_ON_DEMAND),
-				level
+				level,
+				cbt.loop_start_epoch, cbt.loop_start_epoch
 				);
 	} else if (!strcasecmp(queue_strategy, "round-robin")) {
 		sql = switch_mprintf("SELECT system, name, status, contact, no_answer_count, max_no_answer, reject_delay_time, busy_delay_time, no_answer_delay_time, tiers.state, agents.last_bridge_end, agents.wrap_up_time, agents.state, agents.ready_time, tiers.position as tiers_position, tiers.level as tiers_level, agents.type, agents.uuid, external_calls_count, agents.last_offered_call as agents_last_offered_call, 1 as dyn_order FROM agents LEFT JOIN tiers ON (agents.name = tiers.agent)"
@@ -2863,17 +2871,25 @@ static int members_callback(void *pArg, int argc, char **argv, char **columnName
 				" AND (agents.status = '%q' OR agents.status = '%q' OR agents.status = '%q' OR agents.status = '%q')"
 				" AND tiers.position > (SELECT tiers.position FROM agents LEFT JOIN tiers ON (agents.name = tiers.agent) WHERE tiers.queue = '%q' AND agents.last_offered_call > 0 ORDER BY agents.last_offered_call DESC LIMIT 1)"
 				" AND tiers.level = (SELECT tiers.level FROM agents LEFT JOIN tiers ON (agents.name = tiers.agent) WHERE tiers.queue = '%q' AND agents.last_offered_call > 0 ORDER BY agents.last_offered_call DESC LIMIT 1)"
+				" AND (last_waiting_state <= %" SWITCH_TIME_T_FMT " OR last_waiting_state is null) "
+				" AND (last_status_change <= %" SWITCH_TIME_T_FMT " OR last_status_change is null) "
 				" UNION "
 				"SELECT system, name, status, contact, no_answer_count, max_no_answer, reject_delay_time, busy_delay_time, no_answer_delay_time, tiers.state, agents.last_bridge_end, agents.wrap_up_time, agents.state, agents.ready_time, tiers.position as tiers_position, tiers.level as tiers_level, agents.type, agents.uuid, external_calls_count, agents.last_offered_call as agents_last_offered_call, 2 as dyn_order FROM agents LEFT JOIN tiers ON (agents.name = tiers.agent)"
 				" WHERE tiers.queue = '%q'"
 				" AND (agents.status = '%q' OR agents.status = '%q' OR agents.status = '%q' OR agents.status = '%q')"
+				" AND (last_waiting_state <= %" SWITCH_TIME_T_FMT " OR last_waiting_state is null) "
+				" AND (last_status_change <= %" SWITCH_TIME_T_FMT " OR last_status_change is null) "
+
 				" ORDER BY dyn_order asc, tiers_level, tiers_position, agents_last_offered_call",
 				queue_name,
 				cc_agent_status2str(CC_AGENT_STATUS_AVAILABLE), cc_agent_status2str(CC_AGENT_STATUS_ON_BREAK), cc_agent_status2str(CC_AGENT_STATUS_ON_EXTERNAL_CALL), cc_agent_status2str(CC_AGENT_STATUS_AVAILABLE_ON_DEMAND),
 				queue_name,
 				queue_name,
+				cbt.loop_start_epoch, cbt.loop_start_epoch,
 				queue_name,
-				cc_agent_status2str(CC_AGENT_STATUS_AVAILABLE), cc_agent_status2str(CC_AGENT_STATUS_ON_BREAK), cc_agent_status2str(CC_AGENT_STATUS_ON_EXTERNAL_CALL), cc_agent_status2str(CC_AGENT_STATUS_AVAILABLE_ON_DEMAND)
+				cc_agent_status2str(CC_AGENT_STATUS_AVAILABLE), cc_agent_status2str(CC_AGENT_STATUS_ON_BREAK), cc_agent_status2str(CC_AGENT_STATUS_ON_EXTERNAL_CALL), cc_agent_status2str(CC_AGENT_STATUS_AVAILABLE_ON_DEMAND),
+				cbt.loop_start_epoch, cbt.loop_start_epoch
+
 				);
 
 	} else {
@@ -2904,9 +2920,12 @@ static int members_callback(void *pArg, int argc, char **argv, char **columnName
 		sql = switch_mprintf("SELECT system, name, status, contact, no_answer_count, max_no_answer, reject_delay_time, busy_delay_time, no_answer_delay_time, tiers.state, agents.last_bridge_end, agents.wrap_up_time, agents.state, agents.ready_time, tiers.position, tiers.level, agents.type, agents.uuid, external_calls_count FROM agents LEFT JOIN tiers ON (agents.name = tiers.agent)"
 				" WHERE tiers.queue = '%q'"
 				" AND (agents.status = '%q' OR agents.status = '%q' OR agents.status = '%q' OR agents.status = '%q')"
+				" AND (last_waiting_state <= %" SWITCH_TIME_T_FMT " OR last_waiting_state is null) "
+				" AND (last_status_change <= %" SWITCH_TIME_T_FMT " OR last_status_change is null) "
 				" ORDER BY %q",
 				queue_name,
 				cc_agent_status2str(CC_AGENT_STATUS_AVAILABLE), cc_agent_status2str(CC_AGENT_STATUS_ON_BREAK), cc_agent_status2str(CC_AGENT_STATUS_ON_EXTERNAL_CALL), cc_agent_status2str(CC_AGENT_STATUS_AVAILABLE_ON_DEMAND),
+				cbt.loop_start_epoch, cbt.loop_start_epoch,
 				sql_order_by);
 		switch_safe_free(sql_order_by);
 
@@ -3008,9 +3027,9 @@ void *SWITCH_THREAD_FUNC cc_agent_dispatch_thread_run(switch_thread_t *thread, v
 
 	while (globals.running == 1 && !(profile->threads == 1 && switch_test_flag(profile, PFLAG_DESTROY))) {
 		char *sql = NULL;
-		sql = switch_mprintf("SELECT queue,uuid,session_uuid,cid_number,cid_name,joined_epoch,(%" SWITCH_TIME_T_FMT "-joined_epoch)+base_score+skill_score AS score, state, abandoned_epoch, serving_agent, system, '%q' as profile FROM members"
+		sql = switch_mprintf("SELECT queue,uuid,session_uuid,cid_number,cid_name,joined_epoch,(%" SWITCH_TIME_T_FMT "-joined_epoch)+base_score+skill_score AS score, state, abandoned_epoch, serving_agent, system, '%q' as profile, %" SWITCH_TIME_T_FMT " as epoch_time FROM members"
 				" WHERE (state = '%q' OR state = '%q' OR (serving_agent = 'ring-all' AND state = '%q') OR (serving_agent = 'ring-progressively' AND state = '%q')) AND system = '%q' ORDER BY score DESC",
-				local_epoch_time_now(NULL), profile->name,
+				local_epoch_time_now(NULL), profile->name, local_epoch_time_now(NULL),
 				cc_member_state2str(CC_MEMBER_STATE_WAITING), cc_member_state2str(CC_MEMBER_STATE_ABANDONED), cc_member_state2str(CC_MEMBER_STATE_TRYING), cc_member_state2str(CC_MEMBER_STATE_TRYING), globals.core_uuid);
 
 		cc_execute_sql_callback(profile, NULL /* queue */, NULL /* mutex */, sql, members_callback, NULL /* Call back variables */);
