@@ -142,7 +142,8 @@ typedef enum {
 	CC_MEMBER_STATE_WAITING = 1,
 	CC_MEMBER_STATE_TRYING = 2,
 	CC_MEMBER_STATE_ANSWERED = 3,
-	CC_MEMBER_STATE_ABANDONED = 4
+	CC_MEMBER_STATE_ABANDONED = 4,
+	CC_MEMBER_STATE_EXIT_WITH_KEY = 5
 } cc_member_state_t;
 
 static struct cc_state_table MEMBER_STATE_CHART[] = {
@@ -151,6 +152,7 @@ static struct cc_state_table MEMBER_STATE_CHART[] = {
 	{"Trying", CC_MEMBER_STATE_TRYING},
 	{"Answered", CC_MEMBER_STATE_ANSWERED},
 	{"Abandoned", CC_MEMBER_STATE_ABANDONED},
+	{"Exit with key", CC_MEMBER_STATE_EXIT_WITH_KEY},
 	{NULL, 0}
 
 };
@@ -1918,8 +1920,8 @@ static void *SWITCH_THREAD_FUNC outbound_agent_thread_run(switch_thread_t *threa
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Member %s <%s> with uuid %s in queue %s is gone just before we assigned an agent\n", h->member_cid_name, h->member_cid_number, h->member_session_uuid, h->queue_name);
 
 
-		 sql = switch_mprintf("UPDATE members SET state = '%q', session_uuid = '', abandoned_epoch = '%" SWITCH_TIME_T_FMT "' WHERE uuid = '%q' AND system = '%q' AND state != '%q'",
-				cc_member_state2str(CC_MEMBER_STATE_ABANDONED), local_epoch_time_now(NULL), h->member_uuid, globals.core_uuid, cc_member_state2str(CC_MEMBER_STATE_ABANDONED));
+		sql = switch_mprintf("UPDATE members SET state = '%q', session_uuid = '', abandoned_epoch = '%" SWITCH_TIME_T_FMT "' WHERE uuid = '%q' AND system = '%q' AND state != '%q' and state != '%q'",
+				cc_member_state2str(CC_MEMBER_STATE_ABANDONED), local_epoch_time_now(NULL), h->member_uuid, globals.core_uuid, cc_member_state2str(CC_MEMBER_STATE_ABANDONED), cc_member_state2str(CC_MEMBER_STATE_EXIT_WITH_KEY));
 
 		cc_execute_sql(profile, NULL, sql, NULL);
 		switch_safe_free(sql);
@@ -2744,8 +2746,19 @@ static int members_callback(void *pArg, int argc, char **argv, char **columnName
 		queue_rwunlock(queue);
 	}
 
+	/* Remove Exit with key from the list */
+	/*
+	if (!strcasecmp(member_state, cc_member_state2str(CC_MEMBER_STATE_EXIT_WITH_KEY))) {
+		sql = switch_mprintf("DELETE FROM members WHERE system = '%q' AND uuid = '%q' AND state = '%q'", cbt.member_system, cbt.member_uuid, cc_member_state2str(CC_MEMBER_STATE_EXIT_WITH_KEY));
+		cc_execute_sql(NULL, sql, NULL);
+		switch_safe_free(sql);
+		// Skip this member
+		goto end;
+	}
+	*/
+
 	/* Checking for cleanup Abandonded calls from the db */
-	if (!strcasecmp(member_state, cc_member_state2str(CC_MEMBER_STATE_ABANDONED))) {
+	if (!strcasecmp(member_state, cc_member_state2str(CC_MEMBER_STATE_ABANDONED)) || !strcasecmp(member_state, cc_member_state2str(CC_MEMBER_STATE_EXIT_WITH_KEY))) {
 		switch_time_t abandoned_epoch = atoll(member_abandoned_epoch);
 		if (abandoned_epoch == 0) {
 			abandoned_epoch = atoll(cbt.member_joined_epoch);
@@ -3032,9 +3045,9 @@ void *SWITCH_THREAD_FUNC cc_agent_dispatch_thread_run(switch_thread_t *thread, v
 	while (globals.running == 1 && !(profile->threads == 1 && switch_test_flag(profile, PFLAG_DESTROY))) {
 		char *sql = NULL;
 		sql = switch_mprintf("SELECT queue,uuid,session_uuid,cid_number,cid_name,joined_epoch,(%" SWITCH_TIME_T_FMT "-joined_epoch)+base_score+skill_score AS score, state, abandoned_epoch, serving_agent, system, '%q' as profile, %" SWITCH_TIME_T_FMT " as epoch_time FROM members"
-				" WHERE (state = '%q' OR state = '%q' OR (serving_agent = 'ring-all' AND state = '%q') OR (serving_agent = 'ring-progressively' AND state = '%q')) AND system = '%q' ORDER BY score DESC",
+				" WHERE (state = '%q' OR state = '%q' OR state = '%q' OR (serving_agent = 'ring-all' AND state = '%q') OR (serving_agent = 'ring-progressively' AND state = '%q')) AND system = '%q' ORDER BY score DESC",
 				local_epoch_time_now(NULL), profile->name, local_epoch_time_now(NULL),
-				cc_member_state2str(CC_MEMBER_STATE_WAITING), cc_member_state2str(CC_MEMBER_STATE_ABANDONED), cc_member_state2str(CC_MEMBER_STATE_TRYING), cc_member_state2str(CC_MEMBER_STATE_TRYING), globals.core_uuid);
+				cc_member_state2str(CC_MEMBER_STATE_WAITING), cc_member_state2str(CC_MEMBER_STATE_ABANDONED), cc_member_state2str(CC_MEMBER_STATE_EXIT_WITH_KEY), cc_member_state2str(CC_MEMBER_STATE_TRYING), cc_member_state2str(CC_MEMBER_STATE_TRYING), globals.core_uuid);
 
 		cc_execute_sql_callback(profile, NULL /* queue */, NULL /* mutex */, sql, members_callback, NULL /* Call back variables */);
 		switch_safe_free(sql);
@@ -3542,18 +3555,25 @@ SWITCH_STANDARD_APP(callcenter_function)
 				moh_valid = SWITCH_FALSE;
 			} else if (status == SWITCH_STATUS_BREAK) {
 				char buf[2] = { ht.dtmf, 0 };
-				switch_channel_set_variable(member_channel, "cc_exit_key", buf);
-				h->member_cancel_reason = CC_MEMBER_CANCEL_REASON_EXIT_WITH_KEY;
-				break;
+
+				if (ht.exit_keys && *(ht.exit_keys) && strchr(ht.exit_keys, ht.dtmf)) {
+					switch_channel_set_variable(member_channel, "cc_exit_key", buf);
+					h->member_cancel_reason = CC_MEMBER_CANCEL_REASON_EXIT_WITH_KEY;
+					break;
+				}
 			} else if (!SWITCH_READ_ACCEPTABLE(status)) {
 				break;
 			}
 		} else {
 			if ((switch_ivr_collect_digits_callback(member_session, &args, 0, 0)) == SWITCH_STATUS_BREAK) {
 				char buf[2] = { ht.dtmf, 0 };
-				switch_channel_set_variable(member_channel, "cc_exit_key", buf);
-				h->member_cancel_reason = CC_MEMBER_CANCEL_REASON_EXIT_WITH_KEY;
-				break;
+
+				if (ht.exit_keys && *(ht.exit_keys) && strchr(ht.exit_keys, ht.dtmf)) {
+					switch_channel_set_variable(member_channel, "cc_exit_key", buf);
+					h->member_cancel_reason = CC_MEMBER_CANCEL_REASON_EXIT_WITH_KEY;
+					break;
+
+				}
 			}
 		}
 		switch_yield(1000);
@@ -3584,7 +3604,7 @@ SWITCH_STANDARD_APP(callcenter_function)
 
 		/* Update member state */
 		sql = switch_mprintf("UPDATE members SET state = '%q', session_uuid = '', abandoned_epoch = '%" SWITCH_TIME_T_FMT "' WHERE uuid = '%q' AND system = '%q'",
-				cc_member_state2str(CC_MEMBER_STATE_ABANDONED), local_epoch_time_now(NULL), member_uuid, globals.core_uuid);
+				cc_member_state2str((h->member_cancel_reason == CC_MEMBER_CANCEL_REASON_EXIT_WITH_KEY?CC_MEMBER_CANCEL_REASON_EXIT_WITH_KEY:CC_MEMBER_STATE_ABANDONED)), local_epoch_time_now(NULL), member_uuid, globals.core_uuid);
 				cc_execute_sql(profile, NULL, sql, NULL);
 		switch_safe_free(sql);
 
