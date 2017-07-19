@@ -3123,6 +3123,7 @@ void *SWITCH_THREAD_FUNC cc_member_thread_run(switch_thread_t *thread, void *obj
 	switch_channel_t *member_channel = NULL;
 	switch_time_t last_announce = local_epoch_time_now(NULL);
 	switch_bool_t announce_valid = SWITCH_TRUE;
+	const char *cc_max_wait_time = NULL;
 
 	switch_mutex_lock(globals.mutex);
 	globals.threads++;
@@ -3133,6 +3134,8 @@ void *SWITCH_THREAD_FUNC cc_member_thread_run(switch_thread_t *thread, void *obj
 	} else {
 		goto done;
 	}
+
+	cc_max_wait_time = switch_channel_get_variable(member_channel, "cc_max_wait_time");
 
 	if (!m->profile_name || !(profile = get_profile(m->profile_name))) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Profile %s not found\n", m->profile_name);
@@ -3147,13 +3150,24 @@ void *SWITCH_THREAD_FUNC cc_member_thread_run(switch_thread_t *thread, void *obj
 	while(switch_channel_ready(member_channel) && m->running && globals.running) {
 		cc_queue_t *queue = NULL;
 		switch_time_t time_now = local_epoch_time_now(NULL);
+		uint32_t wait_time = time_now - m->t_member_called;
+		uint32_t max_wait_time = 0;
 
 		if (!m->queue_name || !(queue = get_queue(profile, m->queue_name))) {
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(member_session), SWITCH_LOG_WARNING, "Queue %s not found\n", m->queue_name);
 			break;
 		}
+
+		/* We can't define this before queue is populated */
+		max_wait_time = queue->max_wait_time;
+
+		/* If a channel variable is set, override the queue max_limit */
+		if (cc_max_wait_time) {
+			max_wait_time = atoi(cc_max_wait_time);
+		}
+
 		/* Make the Caller Leave if he went over his max wait time */
-		if (queue->max_wait_time > 0 && queue->max_wait_time <=  time_now - m->t_member_called) {
+		if (max_wait_time > 0 && max_wait_time <=  wait_time) {
 			/* timeout reached, check if we're originating at this time and give caller a one more chance */
 			if (switch_channel_test_app_flag_key(CC_APP_KEY, member_channel, CC_APP_AGENT_CONNECTING)) {
 				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(member_channel), SWITCH_LOG_DEBUG, "Member %s <%s> in queue '%s' reached max wait time and we're connecting, waiting for agent to be connected...\n", m->member_cid_name, m->member_cid_number, m->queue_name);
