@@ -513,7 +513,9 @@ struct cc_queue {
 typedef struct cc_queue cc_queue_t;
 
 static cc_profile_t *get_profile(const char *profile_name);
-static void cc_send_presence(cc_profile_t *profile, const char *queue_name);
+static void cc_send_presence_queue(cc_profile_t *profile, const char *queue_name);
+static void cc_send_presence_agent(cc_profile_t *profile, const char *agent_name, const char *status);
+
 static switch_status_t load_agent(cc_profile_t *profile, const char *agent_name, switch_event_t *params, switch_xml_t x_agents_cfg);
 static switch_status_t load_tiers(cc_profile_t *profile, switch_bool_t load_all, const char *queue_name, const char *agent_name, switch_event_t *params, switch_xml_t x_tiers_cfg);
 void cc_agent_dispatch_thread_start(const char *profile_name);
@@ -1348,6 +1350,8 @@ cc_status_t cc_agent_update(cc_profile_t *profile, const char *key, const char *
 
 
 			result = CC_STATUS_SUCCESS;
+
+			cc_send_presence_agent(profile, agent, value);
 
 			if (switch_event_create_subclass(&event, SWITCH_EVENT_CUSTOM, CALLCENTER_EVENT) == SWITCH_STATUS_SUCCESS) {
 				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "CC-Profile", profile->name);
@@ -3464,7 +3468,7 @@ SWITCH_STANDARD_APP(callcenter_function)
 
 	/* Send Event with queue count */
 	cc_queue_count(profile, queue_name);
-	cc_send_presence(profile, queue_name);
+	cc_send_presence_queue(profile, queue_name);
 
 	/* Start Thread that will playback different prompt to the channel */
 	switch_core_new_memory_pool(&pool);
@@ -3624,7 +3628,7 @@ SWITCH_STANDARD_APP(callcenter_function)
 
 	/* Send Event with queue count */
 	cc_queue_count(profile, queue_name);
-	cc_send_presence(profile, queue_name);
+	cc_send_presence_queue(profile, queue_name);
 
 end:
 	profile_rwunlock(profile);
@@ -3767,8 +3771,50 @@ end:
 
 	return;
 }
+static void cc_send_presence_agent(cc_profile_t *profile, const char *agent_name, const char *status) {
+	switch_event_t *send_event;
+	char agent_status[255];
+	switch_bool_t avail = SWITCH_FALSE;
 
-static void cc_send_presence(cc_profile_t *profile, const char *queue_name) {
+	if (status) {
+		avail = !strcasecmp(status, cc_agent_status2str(CC_AGENT_STATUS_AVAILABLE));
+	} else {
+		if (cc_agent_get(profile, "status", agent_name, agent_status, sizeof(agent_status)) != CC_STATUS_SUCCESS) {
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Invalid agent %s", agent_name);
+			goto end;
+		}
+		avail = !strcasecmp(agent_status, cc_agent_status2str(CC_AGENT_STATUS_AVAILABLE));
+	}
+
+	if (switch_event_create(&send_event, SWITCH_EVENT_PRESENCE_IN) == SWITCH_STATUS_SUCCESS) {
+		switch_event_add_header_string(send_event, SWITCH_STACK_BOTTOM, "proto", "callcenter-agent");
+		switch_event_add_header(send_event, SWITCH_STACK_BOTTOM, "login", "%s", agent_name);
+		switch_event_add_header_string(send_event, SWITCH_STACK_BOTTOM, "from", agent_name);
+
+		if (avail) {
+			switch_event_add_header_string(send_event, SWITCH_STACK_BOTTOM, "force-status", "Active");
+		} else {
+			switch_event_add_header_string(send_event, SWITCH_STACK_BOTTOM, "force-status", "Idle");
+		}
+
+		switch_event_add_header_string(send_event, SWITCH_STACK_BOTTOM, "rpid", "unknown");
+		switch_event_add_header_string(send_event, SWITCH_STACK_BOTTOM, "event_type", "presence");
+		switch_event_add_header_string(send_event, SWITCH_STACK_BOTTOM, "alt_event_type", "dialog");
+		switch_event_add_header(send_event, SWITCH_STACK_BOTTOM, "event_count", "%d", 0);
+
+		switch_event_add_header_string(send_event, SWITCH_STACK_BOTTOM, "channel-state", avail ? "CS_ROUTING" : "CS_HANGUP");
+		switch_event_add_header_string(send_event, SWITCH_STACK_BOTTOM, "unique-id", agent_name);
+		switch_event_add_header_string(send_event, SWITCH_STACK_BOTTOM, "answer-state", avail ? "confirmed" : "terminated");
+		switch_event_add_header_string(send_event, SWITCH_STACK_BOTTOM, "presence-call-direction", "inbound");
+		switch_event_fire(&send_event);
+
+	} else {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Failed to create presence in event\n");
+	}
+end:
+	return;
+}
+static void cc_send_presence_queue(cc_profile_t *profile, const char *queue_name) {
 	char *sql;
 	char res[256] = "";
 	int count = 0;
@@ -3809,7 +3855,6 @@ static void cc_send_presence(cc_profile_t *profile, const char *queue_name) {
 
 static void cc_presence_event_handler(switch_event_t *event) {
 	char *to = switch_event_get_header(event, "to");
-	char *queue_name;
 	cc_queue_t *queue;
 	char *p, *dup = NULL;
 	char *profile_name = "default";
@@ -3819,33 +3864,57 @@ static void cc_presence_event_handler(switch_event_t *event) {
 		goto end;
 	}
 //	DUMP_EVENT(event);
-	if (!to || strncasecmp(to, "callcenter+", 11) || !strchr(to, '@')) {
+	if (!to || (strncasecmp(to, "callcenter+", 11) && strncasecmp(to, "callcenter-agent+", 17) ) || !strchr(to, '@')) {
 		goto end;
 	}
+	if (!strncasecmp(to, "callcenter+", 11)) {
+		char *queue_name;
+		queue_name = dup = switch_safe_strdup(to + 11);
 
-	queue_name = dup = switch_safe_strdup(to + 11);
+		if ((p = strchr(dup, '/'))) {
+			*p++ = '\0';
+			queue_name = p;
+			profile_name = dup;
+		}
 
-	if ((p = strchr(dup, '/'))) {
-		*p++ = '\0';
-		queue_name = p;
-		profile_name = dup;
+		if (!profile_name || !(profile = get_profile(profile_name))) {
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Profile %s not found\n", profile_name);
+			goto end;
+
+		}
+
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Searching queue %s\n", queue_name);
+		queue = get_queue(profile, queue_name);
+
+		if (!queue) {
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Queue not found, exit!\n");
+			goto end;
+		}
+		cc_send_presence_queue(profile, queue_name);
+		queue_rwunlock(queue);
+	}
+	if (!strncasecmp(to, "callcenter-agent+", 17)) {
+		char *agent_name;
+		agent_name  = dup = switch_safe_strdup(to + 17);
+
+		if ((p = strchr(dup, '/'))) {
+			*p++ = '\0';
+			agent_name = p;
+			profile_name = dup;
+		}
+
+		if (!profile_name || !(profile = get_profile(profile_name))) {
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Profile %s not found\n", profile_name);
+			goto end;
+
+		}
+
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Searching agent %s\n", agent_name);
+
+		cc_send_presence_agent(profile, agent_name, NULL);
+
 	}
 
-	if (!profile_name || !(profile = get_profile(profile_name))) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Profile %s not found\n", profile_name);
-		goto end;
-
-	}
-
-	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Searching queue %s\n", queue_name);
-	queue = get_queue(profile, queue_name);
-
-	if (!queue) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Queue not found, exit!\n");
-		goto end;
-	}
-	cc_send_presence(profile, queue_name);
-	queue_rwunlock(queue);
 end:
 	profile_rwunlock(profile);
 	switch_safe_free(dup);
