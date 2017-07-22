@@ -1987,7 +1987,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_originate(switch_core_session_t *sess
 	if (session) {
 		caller_channel = switch_core_session_get_channel(session);
 
-		if (switch_false(switch_channel_get_variable(caller_channel, "preserve_originated_vars"))) {
+		if (switch_channel_var_false(caller_channel, "preserve_originated_vars")) {
 			switch_channel_set_variable(caller_channel, "originated_legs", NULL);
 			switch_channel_set_variable(caller_channel, "originate_causes", NULL);
 		}
@@ -2132,7 +2132,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_originate(switch_core_session_t *sess
 	}
 
 	if ((ovars && switch_true(switch_event_get_header(ovars,"origination_nested_vars"))) ||
-		(caller_channel && switch_true(switch_channel_get_variable(caller_channel, "origination_nested_vars")))
+		(caller_channel && switch_channel_var_true(caller_channel, "origination_nested_vars"))
 		|| switch_true(switch_core_get_variable("origination_nested_vars")) || switch_stristr("origination_nested_vars=true", data)) {
 		oglobals.check_vars = SWITCH_FALSE;
 	}
@@ -2850,7 +2850,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_originate(switch_core_session_t *sess
 				switch_event_add_header_string(var_event, SWITCH_STACK_BOTTOM, "originate_early_media", oglobals.early_ok ? "true" : "false");
 
 
-				if (caller_channel && switch_true(switch_channel_get_variable(caller_channel, "push_channel_name"))) {
+				if (caller_channel && switch_channel_var_true(caller_channel, "push_channel_name")) {
 					char *new_name = switch_core_session_sprintf(session, "%s__B", switch_channel_get_name(caller_channel));
 					switch_event_add_header_string(var_event, SWITCH_STACK_BOTTOM, "origination_channel_name", new_name);
 					new_name = switch_core_session_sprintf(session, "_%s", switch_channel_get_name(caller_channel));
@@ -2955,7 +2955,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_originate(switch_core_session_t *sess
 				if (originate_status[i].peer_channel) {
 					const char *vvar;
 
-					if (switch_true(switch_channel_get_variable(originate_status[i].peer_channel, "leg_required"))) {
+					if (switch_channel_var_true(originate_status[i].peer_channel, "leg_required")) {
 						originate_status[i].tagged = 1;
 					}
 
@@ -3607,11 +3607,11 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_originate(switch_core_session_t *sess
 
 								switch_channel_set_variable(holding_channel, SWITCH_HANGUP_AFTER_BRIDGE_VARIABLE, "true");
 
-								if (caller_channel && switch_true(switch_channel_get_variable(caller_channel, "recording_follow_transfer"))) {
+								if (caller_channel && switch_channel_var_true(caller_channel, "recording_follow_transfer")) {
 									switch_core_media_bug_transfer_recordings(session, originate_status[i].peer_session);
 								}
 
-								if (switch_true(switch_channel_get_variable(holding_channel, "recording_follow_transfer"))) {
+								if (switch_channel_var_true(holding_channel, "recording_follow_transfer")) {
 									switch_core_media_bug_transfer_recordings(holding_session, originate_status[i].peer_session);
 								}
 

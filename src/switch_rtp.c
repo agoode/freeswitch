@@ -1380,7 +1380,7 @@ static void zrtp_event_callback(zrtp_stream_t *stream, unsigned event)
 							abort();
 						}
 						zrtp_stream_set_userdata(video_rtp_session->zrtp_stream, video_rtp_session);
-						if (switch_true(switch_channel_get_variable(channel, "zrtp_enrollment"))) {
+						if (switch_channel_var_true(channel, "zrtp_enrollment")) {
 							zrtp_stream_registration_start(video_rtp_session->zrtp_stream, video_rtp_session->ssrc);
 						} else {
 							zrtp_stream_start(video_rtp_session->zrtp_stream, video_rtp_session->ssrc);
@@ -4249,7 +4249,7 @@ SWITCH_DECLARE(switch_status_t) switch_rtp_create(switch_rtp_t **new_rtp_session
 
 				zrtp_stream_set_userdata(rtp_session->zrtp_stream, rtp_session);
 
-				if (switch_true(switch_channel_get_variable(channel, "zrtp_enrollment"))) {
+				if (switch_channel_var_true(channel, "zrtp_enrollment")) {
 					zrtp_stream_registration_start(rtp_session->zrtp_stream, rtp_session->ssrc);
 				} else {
 					zrtp_stream_start(rtp_session->zrtp_stream, rtp_session->ssrc);
@@ -8389,11 +8389,11 @@ SWITCH_DECLARE(switch_status_t) switch_rtp_enable_vad(switch_rtp_t *rtp_session,
 
 	memset(&rtp_session->vad_data, 0, sizeof(rtp_session->vad_data));
 
-	if (switch_true(switch_channel_get_variable(switch_core_session_get_channel(rtp_session->session), "fire_talk_events"))) {
+	if (switch_channel_var_true(switch_core_session_get_channel(rtp_session->session), "fire_talk_events")) {
 		rtp_session->vad_data.fire_events |= VAD_FIRE_TALK;
 	}
 
-	if (switch_true(switch_channel_get_variable(switch_core_session_get_channel(rtp_session->session), "fire_not_talk_events"))) {
+	if (switch_channel_var_true(switch_core_session_get_channel(rtp_session->session), "fire_not_talk_events")) {
 		rtp_session->vad_data.fire_events |= VAD_FIRE_NOT_TALK;
 	}
 

@@ -320,10 +320,13 @@ SWITCH_DECLARE(switch_status_t) switch_channel_get_variables(switch_channel_t *c
 
 SWITCH_DECLARE(switch_status_t) switch_channel_pass_callee_id(switch_channel_t *channel, switch_channel_t *other_channel);
 
+SWITCH_DECLARE(int) switch_channel_var_exist(switch_channel_t *channel, const char *variable);
 
-static inline int switch_channel_var_true(switch_channel_t *channel, const char *variable) {
-	return switch_true(switch_channel_get_variable_dup(channel, variable, SWITCH_FALSE, -1));
-}
+SWITCH_DECLARE(int) switch_channel_var_true(switch_channel_t *channel, const char *variable);
+SWITCH_DECLARE(int) switch_channel_var_true_or_default(switch_channel_t *channel, const char *variable, int default_if_not_set);
+
+SWITCH_DECLARE(int) switch_channel_var_false(switch_channel_t *channel, const char *variable);
+SWITCH_DECLARE(int) switch_channel_var_false_or_default(switch_channel_t *channel, const char *variable, int default_if_not_set);
 
 /*!
  * \brief Start iterating over the entries in the channel variable list.

@@ -539,7 +539,6 @@ static inline int switch_false(const char *expr)
 					   (switch_is_number(expr) && !atoi(expr)))) ? SWITCH_TRUE : SWITCH_FALSE);
 }
 
-
 SWITCH_DECLARE(switch_status_t) switch_resolve_host(const char *host, char *buf, size_t buflen);
 
 
