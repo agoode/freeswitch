@@ -416,10 +416,10 @@ static switch_status_t http_put(url_cache_t *cache, http_profile_t *profile, swi
 			if (!zstr(cache->ssl_cacert)) {
 				switch_curl_easy_setopt(curl_handle, CURLOPT_CAINFO, cache->ssl_cacert);
 			}
-			/* verify that the host name matches the cert */
-			if (!cache->ssl_verifyhost) {
-				switch_curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYHOST, 0L);
-			}
+		}
+		/* verify that the host name matches the cert */
+		if (!cache->ssl_verifyhost) {
+			switch_curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYHOST, 0L);
 		}
 		switch_curl_easy_perform(curl_handle);
 		switch_curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, httpRes);
