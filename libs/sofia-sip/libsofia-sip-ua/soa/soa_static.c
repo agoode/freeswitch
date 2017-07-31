@@ -1408,6 +1408,8 @@ static int offer_answer_step(soa_session_t *ss,
       bump = 1;
       break;
     case process_answer:
+      bump = sdp_session_cmp(local, sss->sss_latest);
+      break;
     default:
       bump = 0;
       break;
@@ -1426,7 +1428,7 @@ static int offer_answer_step(soa_session_t *ss,
     if (!local->sdp_time)	/* t= is mandatory */
       local->sdp_time = t;
 
-    if (action == generate_offer) {
+    if (action == generate_offer || action == process_answer) {
       /* Keep a copy of previous session state */
       int *previous_u2s = u2s_alloc(ss->ss_home, sss->sss_u2s);
       int *previous_s2u = u2s_alloc(ss->ss_home, sss->sss_s2u);
@@ -1447,7 +1449,7 @@ static int offer_answer_step(soa_session_t *ss,
 
     /* Update the unparsed and pretty-printed descriptions  */
     if (soa_description_set(ss, ss->ss_local, local, NULL, 0) < 0) {
-      if (action == generate_offer) {
+      if (action == generate_offer || action == process_answer) {
 	/* Remove 2nd reference to local session state */
 	memset(ss->ss_previous, 0, (sizeof *ss->ss_previous));
 	ss->ss_previous_user_version = 0;
@@ -1485,6 +1487,7 @@ static int offer_answer_step(soa_session_t *ss,
     break;
   case process_answer:
     ss->ss_local_remote_version = remote_version;
+    sss->sss_latest = latest;
   default:
     break;
   }
