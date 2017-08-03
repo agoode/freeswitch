@@ -1498,31 +1498,49 @@ ESL_DECLARE(esl_status_t) esl_recv_event(esl_handle_t *handle, int check_q, esl_
 
 ESL_DECLARE(esl_status_t) esl_send(esl_handle_t *handle, const char *cmd)
 {
-	const char *e = cmd + strlen(cmd) -1;
-	
+	const char *e_cmd, *e, *e_cr;
 
 	if (!handle || !handle->connected || handle->sock == ESL_SOCK_INVALID) {
 		return ESL_FAIL;
 	}
 
-	esl_log(ESL_LOG_DEBUG, "SEND\n%s\n", cmd);
-	
-	if (send(handle->sock, cmd, strlen(cmd), 0) != (int)strlen(cmd)) {
+	// quick check cmd is not empty
+	if (!cmd || (*cmd == '\0')) {
+		return ESL_FAIL;
+	}
+
+	// strip leading and trailing \r\n but leave at most 2 \n at the end
+	while ((*cmd == '\r') || (*cmd == '\n')) cmd++;
+
+	e_cmd = e = cmd + strlen(cmd) - 1;
+	while ((e > cmd) && ((*e == '\r') || (*e == '\n'))) e--;
+	e++;
+
+	e_cr = e;
+	while ((e_cr-e < 2) && (e_cr <= e_cmd) && (*e_cr == '\n')) e_cr++;
+
+	// check cmd is not empty after trimming
+	if (e == cmd) {
+		return ESL_FAIL;
+	}
+
+	esl_log(ESL_LOG_DEBUG, "SEND\n%.*s\n", (e - cmd), cmd);
+
+	if (send(handle->sock, cmd, e_cr - cmd, 0) != (int)(e_cr - cmd)) {
 		handle->connected = 0;
 		if (!(strerror_r(handle->errnum, handle->err, sizeof(handle->err))))
 			*(handle->err)=0;
 		return ESL_FAIL;
 	}
-	
-	if (!(*e == '\n' && *(e-1) == '\n')) {
-		if (send(handle->sock, "\n\n", 2, 0) != 2) {
+	if (e_cr-e < 2) {
+		if (send(handle->sock, "\n\n", 2 - (e_cr-e), 0) != (2 - (e_cr-e))) {
 			handle->connected = 0;
 			if (!(strerror_r(handle->errnum, handle->err, sizeof(handle->err))))
 				*(handle->err)=0;
 			return ESL_FAIL;
 		}
 	}
-	
+
 	return ESL_SUCCESS;
 
 }
