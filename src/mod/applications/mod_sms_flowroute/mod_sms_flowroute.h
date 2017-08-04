@@ -86,8 +86,6 @@ typedef struct mod_sms_flowroute_globals_s {
   int debug;
 } mod_sms_flowroute_globals_t;
 
-extern mod_sms_flowroute_globals_t mod_sms_flowroute_globals;
-
 
 #endif /* MOD_SMS_FLOWROUTE_H */
 
