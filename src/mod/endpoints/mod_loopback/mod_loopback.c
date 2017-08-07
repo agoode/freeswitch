@@ -485,6 +485,8 @@ static switch_status_t channel_on_execute(switch_core_session_t *session)
 				switch_channel_set_caller_profile(other_channel, clone);
 			}
 
+			/* do not copy variables from loopback-a to real channel when masquerading */
+			switch_channel_set_variable(channel, "attended_transfer_no_copy", "true");
 			switch_channel_caller_extension_masquerade(channel, other_channel, 0);
 			switch_channel_set_state(other_channel, CS_RESET);
 			switch_channel_wait_for_state(other_channel, NULL, CS_RESET);

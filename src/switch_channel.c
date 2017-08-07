@@ -2993,13 +2993,18 @@ SWITCH_DECLARE(switch_status_t) switch_channel_caller_extension_masquerade(switc
 	switch_status_t status = SWITCH_STATUS_FALSE;
 	switch_event_header_t *hi = NULL;
 	const char *no_copy = switch_channel_get_variable(orig_channel, "attended_transfer_no_copy");
+	int do_copy = 1;
 	char *dup;
 	int i, argc = 0;
 	char *argv[128];
 
 	if (no_copy) {
-		dup = switch_core_session_strdup(new_channel->session, no_copy);
-		argc = switch_separate_string(dup, ',', argv, (sizeof(argv) / sizeof(argv[0])));
+		if (switch_true(no_copy)) {
+			do_copy = 0;
+		} else {
+			dup = switch_core_session_strdup(new_channel->session, no_copy);
+			argc = switch_separate_string(dup, ',', argv, (sizeof(argv) / sizeof(argv[0])));
+		}
 	}
 
 
@@ -3026,19 +3031,22 @@ SWITCH_DECLARE(switch_status_t) switch_channel_caller_extension_masquerade(switc
 		switch_channel_set_caller_profile(new_channel, caller_profile);
 		switch_channel_set_caller_extension(new_channel, extension);
 
-		for (hi = orig_channel->variables->headers; hi; hi = hi->next) {
-			int ok = 1;
-			for (i = 0; i < argc; i++) {
-				if (!strcasecmp(argv[i], hi->name)) {
-					ok = 0;
-					break;
+		/* copy channel variables */
+		if (do_copy) {
+			for (hi = orig_channel->variables->headers; hi; hi = hi->next) {
+				int ok = 1;
+				for (i = 0; i < argc; i++) {
+					if (!strcasecmp(argv[i], hi->name)) {
+						ok = 0;
+						break;
+					}
 				}
+
+				if (!ok)
+					continue;
+
+				switch_channel_set_variable(new_channel, hi->name, hi->value);
 			}
-
-			if (!ok)
-				continue;
-
-			switch_channel_set_variable(new_channel, hi->name, hi->value);
 		}
 
 		status = SWITCH_STATUS_SUCCESS;
