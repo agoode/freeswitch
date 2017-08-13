@@ -3,10 +3,10 @@ MODNAME=mod_verto
 
 mod_LTLIBRARIES       = mod_verto.la
 mod_verto_la_SOURCES  = mod_verto.c ws.c mcast/mcast.c
-mod_verto_la_CFLAGS   = -D__EXTENSIONS__ -D_GNU_SOURCE $(AM_CFLAGS)
+mod_verto_la_CFLAGS   = -D__EXTENSIONS__ -D_GNU_SOURCE $(AM_CFLAGS) $(openssl_CFLAGS)
 mod_verto_la_CPPFLAGS = -I. -I$(switch_srcdir)/src/mod/endpoints/mod_verto/mcast
 mod_verto_la_LIBADD   = $(switch_builddir)/libfreeswitch.la
-mod_verto_la_LDFLAGS  = -avoid-version -module -no-undefined -shared
+mod_verto_la_LDFLAGS  = -avoid-version -module -no-undefined -shared $(openssl_LIBS)
 
 if HAVE_PERL
 #perldir = $(PERL_SITEDIR)
