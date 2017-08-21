@@ -2022,6 +2022,9 @@ uint8_t sofia_reg_handle_register_token(nua_t *nua, sofia_profile_t *profile, nu
 			if (update_registration) {
 				switch_event_add_header_string(s_event, SWITCH_STACK_BOTTOM, "update-reg", "true");
 			}
+			if (v_event && *v_event) {
+				switch_event_merge(s_event, *v_event);
+			}
 			switch_event_fire(&s_event);
 		}
 
@@ -2166,6 +2169,11 @@ uint8_t sofia_reg_handle_register_token(nua_t *nua, sofia_profile_t *profile, nu
 					switch_event_add_header_string(s_event, SWITCH_STACK_BOTTOM, "network-port", network_port_c);
 					switch_event_add_header_string(s_event, SWITCH_STACK_BOTTOM, "user-agent", agent);
 					switch_event_add_header(s_event, SWITCH_STACK_BOTTOM, "expires", "%ld", (long) exptime);
+
+					if (v_event && *v_event) {
+						switch_event_merge(s_event, *v_event);
+					}
+
 				}
 			}
 		}
