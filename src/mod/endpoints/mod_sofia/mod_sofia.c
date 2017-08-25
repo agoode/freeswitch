@@ -136,6 +136,7 @@ static switch_status_t sofia_on_routing(switch_core_session_t *session)
 {
 	private_object_t *tech_pvt = (private_object_t *) switch_core_session_get_private(session);
 	switch_channel_t *channel = switch_core_session_get_channel(session);
+	switch_core_session_t *repl_session = NULL;
 	switch_assert(tech_pvt != NULL);
 
 	if (sofia_test_pflag(tech_pvt->profile, PFLAG_AUTO_INVITE_100) &&
@@ -153,6 +154,42 @@ static switch_status_t sofia_on_routing(switch_core_session_t *session)
 
 	switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "%s SOFIA ROUTING\n",
 					  switch_channel_get_name(switch_core_session_get_channel(session)));
+
+	if (switch_true(switch_channel_get_variable(channel, "att_xfer_nightmare_on_originating")) && (repl_session = switch_core_session_locate(switch_channel_get_variable(channel, "att_xfer_kill_uuid")))) {
+		private_object_t *repl_tech_pvt = (private_object_t *) switch_core_session_get_private(repl_session);
+		switch_channel_t *repl_channel = switch_core_session_get_channel(repl_session);
+		const char *moh;
+
+		switch_channel_set_variable(channel, "att_xfer_nightmare_on_originating", NULL);
+		if ((moh = switch_channel_get_variable(channel, "att_xfer_nightmare_moh"))) {
+			char *xdest;
+			xdest = switch_core_session_sprintf(session, "m:\":answer\"endless_playback:%s\"park", moh);
+			switch_ivr_session_transfer(session, xdest, "inline", NULL);
+		} else {
+			switch_ivr_session_transfer(session, "answer,park", "inline", NULL);
+		}
+
+		if (switch_true(switch_channel_get_variable(repl_channel, "recording_follow_transfer"))) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_NOTICE, "Early transfer detected with no media, moving recording bug to other leg\n");
+			switch_core_media_bug_transfer_recordings(repl_session, session);
+		}
+
+		if (repl_tech_pvt && !sofia_test_flag(repl_tech_pvt, TFLAG_BYE)) {
+			char *q850 = NULL;
+			const char *val = NULL;
+
+			sofia_set_flag_locked(repl_tech_pvt, TFLAG_BYE);
+			val = switch_channel_get_variable(repl_tech_pvt->channel, "disable_q850_reason");
+			if (!val || switch_true(val)) {
+				q850 = switch_core_session_sprintf(repl_session, "Q.850;cause=16;text=\"normal_clearing\"");
+			}
+			nua_bye(repl_tech_pvt->nh,
+					SIPTAG_CONTACT(SIP_NONE),
+					TAG_IF(!zstr(q850), SIPTAG_REASON_STR(q850)),
+					TAG_IF(!zstr(repl_tech_pvt->user_via), SIPTAG_VIA_STR(repl_tech_pvt->user_via)), TAG_END());
+		}
+		switch_core_session_rwunlock(repl_session);
+	}
 
 	return SWITCH_STATUS_SUCCESS;
 }
