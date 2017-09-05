@@ -262,6 +262,7 @@ struct switch_runtime {
 	FILE *console;
 	uint8_t running;
 	char uuid_str[SWITCH_UUID_FORMATTED_LENGTH + 1];
+	char uuid_install_str[SWITCH_UUID_FORMATTED_LENGTH + 1];
 	uint32_t flags;
 	switch_time_t timestamp;
 	switch_mutex_t *uuid_mutex;
