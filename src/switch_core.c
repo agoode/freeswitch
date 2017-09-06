@@ -2199,6 +2199,8 @@ static void switch_load_core_config(const char *file)
 					runtime.mailer_app = switch_core_strdup(runtime.memory_pool, val);
 				} else if (!strcasecmp(var, "mailer-app-args") && val) {
 					runtime.mailer_app_args = switch_core_strdup(runtime.memory_pool, val);
+				} else if (!strcasecmp(var, "mailer-app-to-email") && val) {
+					runtime.mailer_app_to_email = switch_core_strdup(runtime.memory_pool, val);
 				} else if (!strcasecmp(var, "sessions-per-second") && !zstr(val)) {
 					switch_core_sessions_per_second(atoi(val));
 				} else if (!strcasecmp(var, "max-dtmf-duration") && !zstr(val)) {

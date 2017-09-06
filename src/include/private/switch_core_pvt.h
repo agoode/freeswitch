@@ -279,6 +279,7 @@ struct switch_runtime {
 	switch_log_level_t hard_log_level;
 	char *mailer_app;
 	char *mailer_app_args;
+	char *mailer_app_to_email;
 	uint32_t max_dtmf_duration;
 	uint32_t min_dtmf_duration;
 	uint32_t default_dtmf_duration;

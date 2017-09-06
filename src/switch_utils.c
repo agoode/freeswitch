@@ -1189,8 +1189,14 @@ SWITCH_DECLARE(switch_bool_t) switch_simple_email(const char *to,
 	}
 
 	{
-		char *to_arg = switch_util_quote_shell_arg(to);
+		char *to_arg;
 		char *from_arg = switch_util_quote_shell_arg(from);
+
+		if (runtime.mailer_app_to_email) {
+			to_arg = switch_util_quote_shell_arg(runtime.mailer_app_to_email);
+		} else {
+			to_arg = switch_util_quote_shell_arg(to);
+		}
 #ifdef WIN32
 		switch_snprintf(buf, B64BUFFLEN, "\"\"%s\" -f %s %s %s < \"%s\"\"", runtime.mailer_app, from_arg, runtime.mailer_app_args, to_arg, filename);
 #else
