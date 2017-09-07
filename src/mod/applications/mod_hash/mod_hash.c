@@ -51,6 +51,10 @@ static struct {
 	switch_hash_t *db_hash;
 	switch_thread_rwlock_t *remote_hash_rwlock;
 	switch_hash_t *remote_hash;
+	switch_mutex_t *mutex;
+	switch_thread_rwlock_t *expired_hash_rwlock;
+	switch_hash_t *expired_hash;
+	int frequency;
 } globals;
 
 typedef struct {
@@ -267,6 +271,52 @@ SWITCH_STANDARD_SCHED_FUNC(limit_hash_cleanup_callback)
 	}
 }
 
+/* !\brief Periodically checks for expired hash records and free them */
+SWITCH_STANDARD_SCHED_FUNC(expired_hash_cleanup_callback)
+{
+	switch_thread_rwlock_wrlock(globals.expired_hash_rwlock);
+	if (globals.frequency) {
+		switch_hash_index_t *hi = NULL;
+		switch_time_t time_expires = 0;
+		switch_time_t time_now;
+		char *hash_key, *time_expires_val;
+		const void *var;
+		void *val;
+		char *value = NULL;
+		switch_ssize_t keylen;
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "checking for expired hash records\n");
+		for (hi = switch_core_hash_first_iter(globals.expired_hash, hi); hi; hi = switch_core_hash_next(&hi)) {
+			switch_core_hash_this(hi, &var, &keylen, &val);
+			time_now = switch_micro_time_now();
+			hash_key = (char *) var;
+			time_expires_val = (char *) val;
+			time_expires = atol(time_expires_val);
+			if (time_expires < time_now) {
+				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "hash record [%s] expired [%ld] now [%ld]\n", hash_key, (long)time_expires, (long)time_now);
+				// delete record from db hash
+				switch_thread_rwlock_wrlock(globals.db_hash_rwlock);
+				if ((value = switch_core_hash_find(globals.db_hash, hash_key))) {
+					switch_safe_free(value);
+					switch_core_hash_delete(globals.db_hash, hash_key);
+				}
+				switch_thread_rwlock_unlock(globals.db_hash_rwlock);
+
+				// delete record from expiration hash
+				if ((value = switch_core_hash_find(globals.expired_hash, hash_key))) {
+					switch_safe_free(value);
+					switch_core_hash_delete(globals.expired_hash, hash_key);
+				}
+			}
+		}
+		switch_safe_free(hi);
+	}
+	switch_thread_rwlock_unlock(globals.expired_hash_rwlock);
+
+	if (globals.frequency) {
+		task->runtime = switch_epoch_time_now(NULL) + globals.frequency;
+	}
+}
+
 /* !\brief Releases usage of a limit_hash-controlled resource  */
 SWITCH_LIMIT_RELEASE(limit_release_hash)
 {
@@ -400,8 +450,23 @@ SWITCH_LIMIT_STATUS(limit_status_hash)
 /* APP/API STUFF */
 
 /* CORE HASH STUFF */
+void hash_insert_expires(char *var, char *val, long exp)
+{
+	char *expires_val = switch_must_malloc(1024);
+	switch_time_t expires = 0;
+	switch_time_t time_now = switch_micro_time_now();
+	expires = time_now + (exp * 1000000);
+	switch_thread_rwlock_wrlock(globals.expired_hash_rwlock);
+	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "inserting with expires [%ld]\n", exp);
+	if (sprintf(expires_val, "%ld", (long)expires)) {
+		switch_core_hash_insert(globals.expired_hash, var, expires_val);
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "cached hash [%s/%s] expires [%s]\n", var, val, expires_val);
+	}
+	switch_thread_rwlock_unlock(globals.expired_hash_rwlock);
+}
 
 #define HASH_USAGE "[insert|insert_ifempty|delete|delete_ifmatch]/<realm>/<key>/<val>"
+#define HASH_USAGE_EXPIRES "[insert|insert_ifempty|insert_expires+<number of seconds>|delete|delete_ifmatch]/<realm>/<key>/<val>"
 #define HASH_DESC "save data"
 
 SWITCH_STANDARD_APP(hash_function)
@@ -446,7 +511,34 @@ SWITCH_STANDARD_APP(hash_function)
 			switch_assert(value);
 			switch_core_hash_insert(globals.db_hash, hash_key, value);
 		}
-
+	} else if (!strncasecmp(argv[0], "insert_expires", 14)) {
+		char *expire[2] = { 0 };
+		long expires = 0;
+		char *mycmd = NULL;
+		mycmd = strdup(argv[0]);
+		switch_separate_string(mycmd, '+', expire, (sizeof(expire) / sizeof(expire[0])));
+		if (!expire[1]) {
+			switch_safe_free(mycmd);
+			goto usage;
+		}
+		expires = atol(expire[1]);
+		if (expires <= 0) {
+			switch_safe_free(mycmd);
+			goto usage;
+		}
+		if (argc < 4) {
+			switch_safe_free(mycmd);
+			goto usage;
+		}
+		if ((value = switch_core_hash_find(globals.db_hash, hash_key))) {
+			free(value);
+			switch_core_hash_delete(globals.db_hash, hash_key);
+		}
+		value = strdup(argv[3]);
+		switch_assert(value);
+		switch_core_hash_insert(globals.db_hash, hash_key, value);
+		hash_insert_expires(hash_key, value, expires);
+		switch_safe_free(mycmd);
 	} else if (!strcasecmp(argv[0], "delete")) {
 		if ((value = switch_core_hash_find(globals.db_hash, hash_key))) {
 			switch_safe_free(value);
@@ -469,7 +561,11 @@ SWITCH_STANDARD_APP(hash_function)
 	goto done;
 
   usage:
-	switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "USAGE: hash %s\n", HASH_USAGE);
+	if (globals.frequency) {
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "USAGE: hash %s\n", HASH_USAGE_EXPIRES);
+	} else {
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "USAGE: hash %s\n", HASH_USAGE);
+	}
 
   done:
 	switch_thread_rwlock_unlock(globals.db_hash_rwlock);
@@ -478,6 +574,7 @@ SWITCH_STANDARD_APP(hash_function)
 }
 
 #define HASH_API_USAGE "insert|insert_ifempty|select|delete|delete_ifmatch/realm/key[/value]"
+#define HASH_API_USAGE_EXPIRES "insert|insert_ifempty|insert_expires+<number of seconds>|select|delete|delete_ifmatch/realm/key[/value]"
 SWITCH_STANDARD_API(hash_api_function)
 {
 	int argc = 0;
@@ -526,6 +623,37 @@ SWITCH_STANDARD_API(hash_api_function)
 			stream->write_function(stream, "+OK\n");
 		}
 		switch_thread_rwlock_unlock(globals.db_hash_rwlock);
+	} else if (!strncasecmp(argv[0], "insert_expires", 14)) {
+		char *expire[2] = { 0 };
+		long expires = 0;
+		char *mycmd = NULL;
+		mycmd = strdup(argv[0]);
+		switch_separate_string(mycmd, '+', expire, (sizeof(expire) / sizeof(expire[0])));
+		if (!expire[1]) {
+			switch_safe_free(mycmd);
+			goto usage;
+		}
+		expires = atol(expire[1]);
+		if (expires <= 0) {
+			switch_safe_free(mycmd);
+			goto usage;
+		}
+		if (argc < 4) {
+			switch_safe_free(mycmd);
+			goto usage;
+		}
+		switch_thread_rwlock_wrlock(globals.db_hash_rwlock);
+		if ((value = switch_core_hash_find(globals.db_hash, hash_key))) {
+			switch_safe_free(value);
+			switch_core_hash_delete(globals.db_hash, hash_key);
+		}
+		value = strdup(argv[3]);
+		switch_assert(value);
+		switch_core_hash_insert(globals.db_hash, hash_key, value);
+		switch_thread_rwlock_unlock(globals.db_hash_rwlock);
+		hash_insert_expires(hash_key, value, expires);
+		switch_safe_free(mycmd);
+		stream->write_function(stream, "+OK\n");
 	} else if (!strcasecmp(argv[0], "delete")) {
 		switch_thread_rwlock_wrlock(globals.db_hash_rwlock);
 		if ((value = switch_core_hash_find(globals.db_hash, hash_key))) {
@@ -566,7 +694,11 @@ SWITCH_STANDARD_API(hash_api_function)
 	goto done;
 
   usage:
-	stream->write_function(stream, "-ERR Usage: hash %s\n", HASH_API_USAGE);
+	if (globals.frequency) {
+		stream->write_function(stream, "-ERR Usage: hash %s\n", HASH_API_USAGE_EXPIRES);
+	} else {
+		stream->write_function(stream, "-ERR Usage: hash %s\n", HASH_API_USAGE);
+	}
 
   done:
 
@@ -913,7 +1045,7 @@ static void *SWITCH_THREAD_FUNC limit_remote_thread(switch_thread_t *thread, voi
 
 static void do_config(switch_bool_t reload)
 {
-	switch_xml_t xml = NULL, x_lists = NULL, x_list = NULL, cfg = NULL;
+	switch_xml_t xml = NULL, x_lists = NULL, x_list = NULL, x_settings = NULL, x_setting = NULL, cfg = NULL;
 	if ((xml = switch_xml_open_cfg("hash.conf", &cfg, NULL))) {
 		if ((x_lists = switch_xml_child(cfg, "remotes"))) {
 			for (x_list = switch_xml_child(x_lists, "remote"); x_list; x_list = x_list->next) {
@@ -954,6 +1086,21 @@ static void do_config(switch_bool_t reload)
 				switch_thread_create(&remote->thread, thd_attr, limit_remote_thread, remote, remote->pool);
 			}
 		}
+		if ((x_settings = switch_xml_child(cfg, "settings"))) {
+			int frequency = 0; // default to 0 (disabled)
+			for (x_setting = switch_xml_child(x_settings, "setting"); x_setting; x_setting = x_setting->next) {
+				char *var = (char *) switch_xml_attr_soft(x_setting, "name");
+				char *val = (char *) switch_xml_attr_soft(x_setting, "value");
+				if (!strcasecmp(var, "check-frequency") && !zstr(val)) {
+					frequency = atoi(val);
+				}
+			}
+			switch_mutex_lock(globals.mutex);
+			if (frequency > 0) {
+				globals.frequency = frequency;
+			}
+			switch_mutex_unlock(globals.mutex);
+		}
 		switch_xml_free(xml);
 	}
 }
@@ -969,6 +1116,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_hash_load)
 	memset(&globals, 0, sizeof(globals));
 	globals.pool = pool;
 
+	switch_mutex_init(&globals.mutex, SWITCH_MUTEX_NESTED, globals.pool);
+
 	status = switch_event_reserve_subclass(LIMIT_EVENT_USAGE);
 	if (status != SWITCH_STATUS_SUCCESS && status != SWITCH_STATUS_INUSE) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Couldn't register event subclass \"%s\" (%d)\n", LIMIT_EVENT_USAGE, status);
@@ -978,9 +1127,11 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_hash_load)
 	switch_thread_rwlock_create(&globals.limit_hash_rwlock, globals.pool);
 	switch_thread_rwlock_create(&globals.db_hash_rwlock, globals.pool);
 	switch_thread_rwlock_create(&globals.remote_hash_rwlock, globals.pool);
+	switch_thread_rwlock_create(&globals.expired_hash_rwlock, globals.pool);
 	switch_core_hash_init(&globals.limit_hash);
 	switch_core_hash_init(&globals.db_hash);
 	switch_core_hash_init(&globals.remote_hash);
+	switch_core_hash_init(&globals.expired_hash);
 
 	/* connect my internal structure to the blank pointer passed to me */
 	*module_interface = switch_loadable_module_create_module_interface(pool, modname);
@@ -990,8 +1141,13 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_hash_load)
 
 	switch_scheduler_add_task(switch_epoch_time_now(NULL) + LIMIT_HASH_CLEANUP_INTERVAL, limit_hash_cleanup_callback, "limit_hash_cleanup", "mod_hash", 0, NULL,
 						  SSHF_NONE);
+	switch_scheduler_add_task(switch_epoch_time_now(NULL) + 1, expired_hash_cleanup_callback, "expired_hash_cleanup", "mod_hash", 0, NULL, SSHF_NONE);
 
-	SWITCH_ADD_APP(app_interface, "hash", "Insert into the hashtable", HASH_DESC, hash_function, HASH_USAGE, SAF_SUPPORT_NOMEDIA | SAF_ZOMBIE_EXEC)
+	if (globals.frequency) {
+		SWITCH_ADD_APP(app_interface, "hash", "Insert into the hashtable", HASH_DESC, hash_function, HASH_USAGE_EXPIRES, SAF_SUPPORT_NOMEDIA | SAF_ZOMBIE_EXEC)
+	} else {
+		SWITCH_ADD_APP(app_interface, "hash", "Insert into the hashtable", HASH_DESC, hash_function, HASH_USAGE, SAF_SUPPORT_NOMEDIA | SAF_ZOMBIE_EXEC)
+	}
 	SWITCH_ADD_API(commands_api_interface, "hash", "hash get/set", hash_api_function, "[insert|delete|select]/<realm>/<key>/<value>");
 	SWITCH_ADD_API(commands_api_interface, "hash_dump", "dump hash/limit_hash data (used for synchronization)", hash_dump_function, HASH_DUMP_SYNTAX);
 	SWITCH_ADD_API(commands_api_interface, "hash_remote", "hash remote", hash_remote_function, HASH_REMOTE_SYNTAX);
@@ -1009,7 +1165,6 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_hash_load)
 	/* indicate that the module should continue to be loaded */
 	return SWITCH_STATUS_SUCCESS;
 }
-
 
 SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_hash_shutdown)
 {
@@ -1044,6 +1199,7 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_hash_shutdown)
 
 	switch_thread_rwlock_wrlock(globals.limit_hash_rwlock);
 	switch_thread_rwlock_wrlock(globals.db_hash_rwlock);
+	switch_thread_rwlock_wrlock(globals.expired_hash_rwlock);
 
 	while ((hi = switch_core_hash_first_iter( globals.limit_hash, hi))) {
 		void *val = NULL;
@@ -1063,17 +1219,30 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_hash_shutdown)
 		switch_core_hash_delete(globals.db_hash, key);
 	}
 
+	while ((hi = switch_core_hash_first_iter( globals.expired_hash, hi))) {
+		void *val = NULL;
+		const void *key;
+		switch_ssize_t keylen;
+		switch_core_hash_this(hi, &key, &keylen, &val);
+		free(val);
+		switch_core_hash_delete(globals.expired_hash, key);
+	}
+
 	switch_core_hash_destroy(&globals.limit_hash);
 	switch_core_hash_destroy(&globals.db_hash);
+	switch_core_hash_destroy(&globals.expired_hash);
 	switch_core_hash_destroy(&globals.remote_hash);
 
 	switch_thread_rwlock_unlock(globals.limit_hash_rwlock);
 	switch_thread_rwlock_unlock(globals.db_hash_rwlock);
+	switch_thread_rwlock_unlock(globals.expired_hash_rwlock);
 
 	switch_thread_rwlock_destroy(globals.db_hash_rwlock);
 	switch_thread_rwlock_destroy(globals.limit_hash_rwlock);
 	switch_thread_rwlock_destroy(globals.remote_hash_rwlock);
+	switch_thread_rwlock_destroy(globals.expired_hash_rwlock);
 
+	switch_mutex_destroy(globals.mutex);
 
 	return SWITCH_STATUS_SUCCESS;
 }
