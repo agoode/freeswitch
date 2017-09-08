@@ -487,6 +487,10 @@ SWITCH_DECLARE(char *) switch_core_get_uuid(void)
 	return runtime.uuid_str;
 }
 
+SWITCH_DECLARE(char *) switch_core_get_install_uuid(void)
+{
+	return runtime.uuid_install_str;
+}
 
 static void *SWITCH_THREAD_FUNC switch_core_service_thread(switch_thread_t *thread, void *obj)
 {
@@ -1755,6 +1759,40 @@ SWITCH_DECLARE(switch_status_t) switch_core_thread_set_cpu_affinity(int cpu)
 }
 
 
+static void switch_core_set_install_uuid(void)
+{
+	char path[256];
+
+	int fd = -1, write_fd = -1;
+	switch_ssize_t bytes = 0;
+
+	switch_snprintf(path, sizeof(path), "%s%sfreeswitch.uuid", SWITCH_GLOBAL_dirs.conf_dir, SWITCH_PATH_SEPARATOR);
+
+
+	if ((fd = open(path, O_RDONLY, 0)) < 0) {
+		switch_uuid_t uuid;
+
+		switch_uuid_get(&uuid);
+		switch_uuid_format(runtime.uuid_install_str, &uuid);
+
+		if ((write_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)) >= 0) {
+			bytes = write(write_fd, runtime.uuid_install_str, sizeof(runtime.uuid_install_str));
+			bytes++;
+			close(write_fd);
+		} else {
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "Failed to save install uuid to path %s!\n", path);
+
+			abort();
+		}
+	} else {
+		bytes = read(fd, runtime.uuid_install_str, sizeof(runtime.uuid_install_str) - 1);
+
+		close(fd);
+	}
+
+	switch_core_set_variable("core_install_uuid", runtime.uuid_install_str);
+}
+
 #ifdef ENABLE_ZRTP
 static void switch_core_set_serial(void)
 {
@@ -2003,6 +2041,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_init(switch_core_flag_t flags, switc
 	switch_uuid_format(runtime.uuid_str, &uuid);
 	switch_core_set_variable("core_uuid", runtime.uuid_str);
 
+	switch_core_set_install_uuid();
 
 	return SWITCH_STATUS_SUCCESS;
 }
