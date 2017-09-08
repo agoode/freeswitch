@@ -3194,15 +3194,30 @@ SWITCH_DECLARE(void) switch_ivr_set_json_call_stats(cJSON *json, switch_core_ses
 	add_jstat(j_out, stats->rtcp.octet_count, "rtcp_octet_count");
 }
 
-static void switch_ivr_set_json_chan_vars(cJSON *json, switch_channel_t *channel, switch_bool_t urlencode)
+static void switch_ivr_set_json_chan_var(cJSON *json, switch_event_header_t *hi, switch_bool_t urlencode)
 {
-	switch_event_header_t *hi = switch_channel_variable_first(channel);
+	if (!zstr(hi->name) && !zstr(hi->value)) {
+		if(hi->idx) {
+			cJSON *array = cJSON_CreateArray();
+			int i;
+			for(i=0; i < hi->idx; i++) {
+				char *data = hi->value;
+				if (urlencode) {
+					switch_size_t dlen = strlen(hi->value) * 3;
+					if ((data = malloc(dlen))) {
+						memset(data, 0, dlen);
+						switch_url_encode(hi->value, data, dlen);
+					}
+				}
 
-	if (!hi)
-		return;
+				cJSON_AddItemToArray(array, cJSON_CreateString(data));
 
-	for (; hi; hi = hi->next) {
-		if (!zstr(hi->name) && !zstr(hi->value)) {
+				if (data != hi->value) {
+					switch_safe_free(data);
+				}
+			}
+			cJSON_AddItemToObject(json, hi->name, array);
+		} else {
 			char *data = hi->value;
 			if (urlencode) {
 				switch_size_t dlen = strlen(hi->value) * 3;
@@ -3219,6 +3234,18 @@ static void switch_ivr_set_json_chan_vars(cJSON *json, switch_channel_t *channel
 				switch_safe_free(data);
 			}
 		}
+	}
+}
+
+static void switch_ivr_set_json_chan_vars(cJSON *json, switch_channel_t *channel, switch_bool_t urlencode)
+{
+	switch_event_header_t *hi = switch_channel_variable_first(channel);
+
+	if (!hi)
+		return;
+
+	for (; hi; hi = hi->next) {
+		switch_ivr_set_json_chan_var(json, hi, urlencode);
 	}
 	switch_channel_variable_last(channel);
 }
