@@ -1675,7 +1675,8 @@ typedef enum {
 	SWITCH_CODEC_FLAG_READY = (1 << 8),
 	SWITCH_CODEC_FLAG_HAS_ADJ_BITRATE = (1 << 14),
 	SWITCH_CODEC_FLAG_HAS_PLC = (1 << 15),
-	SWITCH_CODEC_FLAG_VIDEO_PATCHING = (1 << 16)
+	SWITCH_CODEC_FLAG_VIDEO_PATCHING = (1 << 16),
+	SWITCH_CODEC_FLAG_HAS_ADJ_SAMPLERATE = (1 << 17)
 } switch_codec_flag_enum_t;
 typedef uint32_t switch_codec_flag_t;
 
