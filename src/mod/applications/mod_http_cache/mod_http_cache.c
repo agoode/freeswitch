@@ -166,7 +166,7 @@ static size_t get_header_callback(void *ptr, size_t size, size_t nmemb, void *ur
 static void process_cache_control_header(cached_url_t *url, char *data);
 static void process_content_type_header(cached_url_t *url, char *data);
 
-static switch_status_t http_put(url_cache_t *cache, http_profile_t *profile, switch_core_session_t *session, const char *url, const char *filename, int cache_local_file, long *httpRes);
+static switch_status_t http_put(url_cache_t *cache, http_profile_t *profile, switch_core_session_t *session, const char *url, const char *filename, int cache_local_file, int timeout, long *httpRes);
 
 /**
  * Queue used for clock cache replacement algorithm.  This
@@ -307,7 +307,7 @@ static size_t read_callback(void *ptr, size_t size, size_t nmemb, void *userp)
  * @param cache_local_file true if local file should be mapped to url in cache
  * @return SWITCH_STATUS_SUCCESS if successful
  */
-static switch_status_t http_put(url_cache_t *cache, http_profile_t *profile, switch_core_session_t *session, const char *url, const char *filename, int cache_local_file, long *httpRes)
+static switch_status_t http_put(url_cache_t *cache, http_profile_t *profile, switch_core_session_t *session, const char *url, const char *filename, int cache_local_file, int timeout, long *httpRes)
 {
 	switch_status_t status = SWITCH_STATUS_SUCCESS;
 
@@ -408,6 +408,9 @@ static switch_status_t http_put(url_cache_t *cache, http_profile_t *profile, swi
 		switch_curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "freeswitch-http-cache/1.0");
 		if (cache->connect_timeout > 0) {
 			switch_curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, cache->connect_timeout);
+		}
+		if (timeout > 0) {
+			switch_curl_easy_setopt(curl_handle, CURLOPT_TIMEOUT, timeout);
 		}
 		if (!cache->ssl_verifypeer) {
 			switch_curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYPEER, 0L);
@@ -1367,6 +1370,8 @@ SWITCH_STANDARD_API(http_cache_put)
 	switch_event_t *params = NULL;
 	char *url;
 	long httpRes = 0;
+	char *val;
+	int timeout = 0;
 
 	if (session) {
 		pool = switch_core_session_get_pool(session);
@@ -1396,9 +1401,14 @@ SWITCH_STANDARD_API(http_cache_put)
 	}
 	if (params) {
 		profile = url_cache_http_profile_find(&gcache, switch_event_get_header(params, "profile"));
+
+		val = switch_event_get_header(params, "timeout");
+		if (val) {
+			timeout = atoi(val);
+		}
 	}
 
-	status = http_put(&gcache, profile, session, url, argv[1], 0, &httpRes);
+	status = http_put(&gcache, profile, session, url, argv[1], 0, timeout, &httpRes);
 	if (status == SWITCH_STATUS_SUCCESS) {
 		stream->write_function(stream, "+OK %ld\n", httpRes);
 	} else {
@@ -1696,6 +1706,7 @@ struct http_context {
 	http_profile_t *profile;
 	char *local_path;
 	const char *write_url;
+	int timeout;
 };
 
 /**
@@ -1709,9 +1720,15 @@ static switch_status_t http_cache_file_open(switch_file_handle_t *handle, const 
 	switch_status_t status = SWITCH_STATUS_SUCCESS;
 	struct http_context *context = switch_core_alloc(handle->memory_pool, sizeof(*context));
 	int file_flags = SWITCH_FILE_DATA_SHORT;
+	char *val;
 
 	if (handle->params) {
 		context->profile = url_cache_http_profile_find(&gcache, switch_event_get_header(handle->params, "profile"));
+
+		val = switch_event_get_header(handle->params, "timeout");
+		if (val) {
+			context->timeout =  atoi(val);
+		}
 	}
 
 	if (switch_test_flag(handle, SWITCH_FILE_FLAG_WRITE)) {
@@ -1850,7 +1867,7 @@ static switch_status_t http_file_close(switch_file_handle_t *handle)
 	long httpRes = 0;
 
 	if (status == SWITCH_STATUS_SUCCESS && !zstr(context->write_url)) {
-		status = http_put(&gcache, context->profile, NULL, context->write_url, context->local_path, 1, &httpRes);
+		status = http_put(&gcache, context->profile, NULL, context->write_url, context->local_path, 1, context->timeout, &httpRes);
 	}
 	if (!zstr(context->write_url)) {
 		switch_safe_free(context->local_path);
