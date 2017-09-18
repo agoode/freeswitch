@@ -22,6 +22,13 @@
         storage.data.language = 'browser';
       }
 
+      if (storage.data.uniqueLogin) {
+      verto.data.uniqueLogin = true;
+      }
+      if (storage.data.infoChat) {
+	      verto.data.infoChat = true;
+      }
+
       $rootScope.master = $location.search().master;
       if ($location.search().watcher === 'true') {
         $rootScope.watcher = true;

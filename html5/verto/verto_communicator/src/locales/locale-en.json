@@ -115,6 +115,8 @@
   "USE_STUN": "Use STUN",
   "SCALE_VIDEO": "Scale Remote Video To Match Camera Resolution",
   "ASK_BEFORE_RECOVER": "Ask before recovering call",
+  "INFO_CHAT": "Use message.info for chat messages",
+  "UNIQUE_LOGIN": "Login as an unique SIP username derived from name",
   "BEST_FRAME_RATE": "Best frame rate:",
   "AUDIO_SETTINGS": "Audio settings:",
   "ECHO_CANCEL": "Echo Cancellation",

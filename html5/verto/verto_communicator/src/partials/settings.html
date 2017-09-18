@@ -65,6 +65,18 @@
             <span ng-bind="'ASK_BEFORE_RECOVER' | translate"></span>
           </label>
         </div>
+        <div class="checkbox">
+          <label>
+            <input type="checkbox" name="unique_login" ng-value="mydata.uniqueLogin" ng-model="mydata.uniqueLogin">
+            <span ng-bind="'UNIQUE_LOGIN' | translate"></span>
+          </label>
+        </div>
+        <div class="checkbox">
+          <label>
+            <input type="checkbox" name="info_chat" ng-value="mydata.infoChat" ng-model="mydata.infoChat">
+            <span ng-bind="'INFO_CHAT' | translate"></span>
+          </label>
+        </div>
 
         <div class="form-group">
           <label for="settings-language">{{ 'LANGUAGE' | translate }}</label>

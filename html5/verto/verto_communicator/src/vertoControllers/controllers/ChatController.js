@@ -203,8 +203,16 @@
         if (event && event.type == 'keydown') {
           event.preventDefault();
         }
-        verto.sendConferenceChat($scope.message);
-        $scope.message = CLEAN_MESSAGE;
+	if (verto.data.infoChat) {
+		console.log('INFOCHAT');
+		verto.sendMessage($scope.message, function() {
+				$scope.message = CLEAN_MESSAGE;
+				});
+	} else {
+		console.log('NO INFOCHAT');
+		verto.sendConferenceChat($scope.message);
+		$scope.message = CLEAN_MESSAGE;
+	}
       };
 
       // Participants moderation.

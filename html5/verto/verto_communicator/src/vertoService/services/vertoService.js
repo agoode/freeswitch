@@ -459,6 +459,11 @@ vertoService.service('verto', ['$rootScope', '$cookieStore', '$location', 'stora
         console.debug('Attempting to connect to verto.');
         var that = this;
 
+	if (storage.data.uniqueLogin) {
+		data.login = data.name.replace(/ /g,"_");
+		data.login = data.login.replace(/[^-_.!~*')(&=+$,;?/0-9a-zA-Z]/g,"_")+"_"+Math.floor((Math.random()*1000)+"");
+	}
+
         function startConference(v, dialog, pvtData) {
           $rootScope.$emit('call.video', 'video');
           $rootScope.$emit('call.conference', 'conference');
