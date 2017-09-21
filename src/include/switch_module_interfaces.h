@@ -671,6 +671,8 @@ struct switch_codec {
 	struct switch_codec *next;
 	switch_core_session_t *session;
 	switch_frame_t *cur_frame;
+	uint32_t rate_decoder;
+	uint32_t rate_encoder;
 };
 
 /*! \brief A table of settings and callbacks that define a paticular implementation of a codec */

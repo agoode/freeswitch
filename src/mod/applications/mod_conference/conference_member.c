@@ -1685,10 +1685,13 @@ int conference_member_get_canvas_id(conference_member_t *member, const char *val
 int conference_member_setup_media(conference_member_t *member, conference_obj_t *conference)
 {
 	switch_codec_implementation_t read_impl = { 0 };
+	switch_codec_t *member_orig_read_codec;
 
 	switch_mutex_lock(member->audio_out_mutex);
 
 	switch_core_session_get_read_impl(member->session, &read_impl);
+
+	member_orig_read_codec = switch_core_session_get_effective_read_codec(member->session);
 
 	if (switch_core_codec_ready(&member->read_codec)) {
 		switch_core_codec_destroy(&member->read_codec);
@@ -1730,9 +1733,14 @@ int conference_member_setup_media(conference_member_t *member, conference_obj_t 
 		member->mux_frame = switch_core_alloc(member->pool, member->frame_size);
 	}
 
-	if (read_impl.actual_samples_per_second != conference->rate) {
+	if ((read_impl.actual_samples_per_second != conference->rate) || switch_test_flag(member_orig_read_codec, SWITCH_CODEC_FLAG_HAS_ADJ_SAMPLERATE)) {
+		int adj_rate = 0;
+		if (switch_test_flag(member_orig_read_codec, SWITCH_CODEC_FLAG_HAS_ADJ_SAMPLERATE)) {
+			adj_rate = member_orig_read_codec->rate_decoder;
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(member->session), SWITCH_LOG_DEBUG, "Changing read sample rate to %d\n", adj_rate);
+		}
 		if (switch_resample_create(&member->read_resampler,
-								   read_impl.actual_samples_per_second,
+								   !adj_rate?read_impl.actual_samples_per_second:adj_rate,
 								   conference->rate, member->frame_size, SWITCH_RESAMPLE_QUALITY, read_impl.number_of_channels) != SWITCH_STATUS_SUCCESS) {
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(member->session), SWITCH_LOG_CRIT, "Unable to create resampler!\n");
 			goto done;

@@ -590,6 +590,8 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 						enc_samplerate = settings->maxplaybackrate; /*R1*/
 						context->enc_frame_size = enc_samplerate * (codec->implementation->microseconds_per_packet / 1000) / 1000;
 						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Opus encoder will be created at sample rate %d hz\n",enc_samplerate);
+						switch_set_flag(codec, SWITCH_CODEC_FLAG_HAS_ADJ_SAMPLERATE);
+						codec->rate_encoder = enc_samplerate;
 					} else {
 						enc_samplerate = codec->implementation->actual_samples_per_second;
 					}
@@ -685,6 +687,8 @@ static switch_status_t switch_opus_init(switch_codec_t *codec, switch_codec_flag
 						dec_samplerate = settings->sprop_maxcapturerate; /* R2 */
 						context->dec_frame_size = dec_samplerate*(codec->implementation->microseconds_per_packet / 1000) / 1000;
 						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Opus decoder will be created at sample rate %d hz\n",dec_samplerate);
+						switch_set_flag(codec, SWITCH_CODEC_FLAG_HAS_ADJ_SAMPLERATE);
+						codec->rate_decoder = dec_samplerate;
 					} else {
 						dec_samplerate = codec->implementation->actual_samples_per_second;
 					}
