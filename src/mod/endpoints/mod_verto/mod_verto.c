@@ -5608,6 +5608,7 @@ static switch_status_t chat_send(switch_event_t *message_event)
 	const char *from = switch_event_get_header(message_event, "from");
 	const char *body = switch_event_get_body(message_event);
 	const char *call_id = switch_event_get_header(message_event, "call_id");
+	int hits = 0;
 
 	//DUMP_EVENT(message_event);
 
@@ -5629,7 +5630,12 @@ static switch_status_t chat_send(switch_event_t *message_event)
 			}
 		}
 
-		verto_send_chat(to, call_id, obj);
+		hits = verto_send_chat(to, call_id, obj);
+
+		if (!hits) {
+			status = SWITCH_STATUS_FALSE;
+		}
+
 		cJSON_Delete(obj);
 	} else {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "INVALID EVENT\n");
