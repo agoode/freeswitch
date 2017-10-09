@@ -850,7 +850,7 @@ switch_status_t conference_member_add(conference_obj_t *conference, conference_m
 			conference_utils_clear_flag(conference, CFLAG_WAIT_MOD);
 		}
 
-		if (conference->count > 1) {
+		if (conference->count + conference->count_ghosts > 1) {
 			if ((conference->moh_sound && !conference_utils_test_flag(conference, CFLAG_WAIT_MOD)) ||
 				(conference_utils_test_flag(conference, CFLAG_WAIT_MOD) && !switch_true(switch_channel_get_variable(channel, "conference_permanent_wait_mod_moh")))) {
 				/* stop MoH if any */
