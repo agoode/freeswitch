@@ -372,7 +372,7 @@ void *SWITCH_THREAD_FUNC conference_thread_run(switch_thread_t *thread, void *ob
 		} else {
 			if (conference->perpetual_sound && !conference->async_fnode) {
 				moh_status = conference_file_play(conference, conference->perpetual_sound, CONF_DEFAULT_LEADIN, NULL, 1);
-			} else if (conference->moh_sound && ((nomoh == 0 && conference->count == 1)
+			} else if (conference->moh_sound && ((nomoh == 0 && conference->count + conference->count_ghosts == 1)
 												 || conference_utils_test_flag(conference, CFLAG_WAIT_MOD)) &&
 					   !conference->async_fnode && !conference->fnode) {
 				moh_status = conference_file_play(conference, conference->moh_sound, CONF_DEFAULT_LEADIN, NULL, 1);
