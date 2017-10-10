@@ -2264,7 +2264,7 @@ SWITCH_STANDARD_APP(conference_function)
 		 * someone else can add that (see above) if they feel that outbound calls should be able to violate the
 		 * max_members limit
 		 */
-		if ((conference->max_members > 0) && (conference->count >= conference->max_members)) {
+		if ((conference->max_members > 0) && (conference->count >= conference->max_members) && enforce_security) {
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_NOTICE, "Conference %s is full.\n", conference_name);
 			conference_cdr_rejected(conference, channel, CDRR_MAXMEMBERS);
 			if (conference->maxmember_sound) {
