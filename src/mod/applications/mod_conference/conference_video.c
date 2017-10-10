@@ -1431,6 +1431,7 @@ switch_status_t conference_video_attach_video_layer(conference_member_t *member,
 void conference_video_init_canvas_layers(conference_obj_t *conference, mcu_canvas_t *canvas, video_layout_t *vlayout, switch_bool_t force)
 {
 	int i = 0;
+    switch_event_t *event;
 
 	if (!canvas) return;
 
@@ -1568,6 +1569,13 @@ void conference_video_init_canvas_layers(conference_obj_t *conference, mcu_canva
 	switch_mutex_unlock(canvas->mutex);
 
 	conference_event_adv_layout(conference, canvas, vlayout);
+
+    switch_event_create_subclass(&event, SWITCH_EVENT_CUSTOM, CONF_EVENT_MAINT);
+    conference_event_add_data(conference, event);
+    switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Action", "vid-layout");
+    switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Layout-Name", "%s", vlayout->name);
+    switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Layout-Name", vlayout->name);
+    switch_event_fire(&event);
 
 	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Canvas position %d applied layout %s\n", canvas->canvas_id + 1, vlayout->name);
 
