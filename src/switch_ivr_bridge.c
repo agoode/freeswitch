@@ -828,6 +828,10 @@ static void *audio_bridge_thread(switch_thread_t *thread, void *obj)
 				}
 			}
 		} else {
+			if (switch_channel_test_flag(chan_a, CF_TRANSFER)) {
+				data->clean_exit = 1;
+			}
+
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session_a), SWITCH_LOG_DEBUG, "%s ending bridge by request from read function\n", switch_channel_get_name(chan_a));
 			goto end_of_bridge_loop;
 		}
