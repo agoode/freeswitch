@@ -2326,6 +2326,7 @@ static uint32_t fifo_add_outbound(const char *node_name, const char *url, uint32
 
 	if (!(node = switch_core_hash_find(globals.fifo_hash, node_name))) {
 		node = create_node(node_name, 0, globals.sql_mutex);
+		node->ready = 1;
 	}
 
 	switch_thread_rwlock_rdlock(node->rwlock);
