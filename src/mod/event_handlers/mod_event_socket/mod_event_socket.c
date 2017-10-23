@@ -478,6 +478,10 @@ SWITCH_STANDARD_APP(socket_function)
 			break;
 		}
 
+		if (new_sock != NULL) {
+		    switch_socket_close(new_sock);
+		    new_sock = NULL;
+		}
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Socket Error: %s\n", switch_strerror(errno, errbuf, sizeof(errbuf)));
 	}//end hosts loop
 
