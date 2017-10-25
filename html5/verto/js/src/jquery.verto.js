@@ -2806,6 +2806,7 @@
 				   },
 				   function(err) {
 				       console.log("The following error occurred: " + err.name);
+				       handleError(err);
 				   }
 				  );
 	}
