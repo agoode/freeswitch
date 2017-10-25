@@ -3155,6 +3155,7 @@ static int list_result_json_callback(void *pArg, int argc, char **argv, char **c
 "\tcallcenter_config queue load [queue_name] | \n" \
 "\tcallcenter_config queue unload [queue_name] | \n" \
 "\tcallcenter_config queue reload [queue_name] | \n" \
+"\tcallcenter_config queue fastreload [queue_name] | \n" \
 "\tcallcenter_config queue list | \n" \
 "\tcallcenter_config queue list agents [queue_name] [status] [state] | \n" \
 "\tcallcenter_config queue list members [queue_name] | \n" \
@@ -3490,6 +3491,21 @@ SWITCH_STANDARD_API(cc_config_api_function)
 				cc_queue_t *queue = NULL;
 				destroy_queue(queue_name);
 				if ((queue = load_queue(queue_name, SWITCH_TRUE, SWITCH_TRUE))) {
+					stream->write_function(stream, "%s", "+OK\n");
+				} else {
+					stream->write_function(stream, "%s", "-ERR Invalid Queue not found!\n");
+				}
+			}
+
+		} else if (action && !strcasecmp(action, "fastreload")) {
+			if (argc-initial_argc < 1) {
+				stream->write_function(stream, "%s", "-ERR Invalid!\n");
+				goto done;
+			} else {
+				const char *queue_name = argv[0 + initial_argc];
+				cc_queue_t *queue = NULL;
+				destroy_queue(queue_name);
+				if ((queue = load_queue(queue_name, SWITCH_FALSE, SWITCH_FALSE))) {
 					stream->write_function(stream, "%s", "+OK\n");
 				} else {
 					stream->write_function(stream, "%s", "-ERR Invalid Queue not found!\n");
@@ -3863,6 +3879,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_callcenter_load)
 	switch_console_set_complete("add callcenter_config queue load");
 	switch_console_set_complete("add callcenter_config queue unload");
 	switch_console_set_complete("add callcenter_config queue reload");
+	switch_console_set_complete("add callcenter_config queue fastreload");
 	switch_console_set_complete("add callcenter_config queue list");
 	switch_console_set_complete("add callcenter_config queue list agents");
 	switch_console_set_complete("add callcenter_config queue list members");
