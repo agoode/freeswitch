@@ -705,7 +705,11 @@ static void event_handler(switch_event_t *event)
 	}
 
 	/* Go bill */
-	do_billing(session);
+	// do_billing() can perform blocking actions, including db access
+	// and sometimes executing applications on the session. It is not
+	// desirable to block the core dispatcher threads. It's better to
+	// enqueue the billing action so is executed in the session thread.
+	switch_core_session_execute_application_async(session, "nibblebill", "flush");
 
 	switch_core_session_rwunlock(session);
 }
