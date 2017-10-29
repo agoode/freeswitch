@@ -67,7 +67,6 @@ SWITCH_MODULE_DEFINITION(mod_say_es, mod_say_es_load, NULL, NULL);
 		say_args->method = smeth; say_args->type = stype;				\
 	}																	\
 
-
 #define say_file(...) {													\
 		char tmp[80];													\
 		switch_status_t tstatus;										\
@@ -81,72 +80,70 @@ SWITCH_MODULE_DEFINITION(mod_say_es, mod_say_es_load, NULL, NULL);
 			return SWITCH_STATUS_FALSE;									\
 		}}																\
 
-static switch_status_t play_group(switch_say_method_t method, int a, int b, int c, char *what, switch_core_session_t *session, switch_input_args_t *args)
+static switch_status_t play_group(switch_say_method_t method, switch_say_gender_t gender, int a, int b, int c, char *what, switch_core_session_t *session, switch_input_args_t *args)
 {
-	if (a) {
-		switch (a) {
-		case 1:
-			if (b || c) {
-				say_file("digits/hundred.wav");
-			} else {
-				say_file("digits/100.wav");
-			}
-			break;
-		case 5:
-			say_file("digits/500.wav");
-			break;
-		case 7:
-			say_file("digits/700.wav");
-			break;
-		case 9:
-			say_file("digits/900.wav");
-			break;
-		default:
+	int ftdNumber = 0;
+	int itd = (b * 10) + c;
+
+	/* Force full 2 digit playback */
+	if (itd <= 19)
+		ftdNumber = 1;
+	switch (itd) {
+		case 21:
+		case 31:
+			ftdNumber = 1;
+	}
+	/*switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "a=%d  b=[%d]  c=%d\n",a, b,c); */
+
+	if (a && a !=0) {
+		/*switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "a=%d  b=[%d]  c=%d\n",a, b,c);*/
+		if (a != 1)
 			say_file("digits/%d.wav", a);
-			say_file("digits/hundreds.wav");
-			break;
-		}
+		say_file("digits/hundred.wav");
 	}
 
-	if (b) {
-		if (b > 1) {
-			switch (b) {
-			case 2:
-				if (method != SSM_COUNTED) {
-					if (c) {
-						say_file("digits/veinti.wav");
-					} else {
-						say_file("digits/20.wav");
-					}
-					break;
-				}
-
-			default:
-				if ((b < 4) && (method == SSM_COUNTED)) {
-					say_file("digits/h-%d0.wav", b);
-				} else {
-					say_file("digits/%d0.wav", b);
-					if (c) {
-						say_file("currency/and.wav");
-					}
-				}
-				break;
+	if (b && ftdNumber == 0) {
+		/*switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "a=%d  b=[%d]  c=%d\n",a, b,c);*/
+		if (c == 0) {
+			if (method == SSM_COUNTED) {
+				say_file("digits/h-%d%d.wav", b, c);
+			} else {
+				say_file("digits/%d%d.wav", b, c);
 			}
 		} else {
-			say_file("digits/%d%d.wav", b, c);
-			c = 0;
+            if (b == 7 || b == 9) {
+                say_file("digits/%d0.wav", b-1);
+            } else {
+				say_file("digits/%d0.wav", b);
+            }
 		}
 	}
-	if (c) {
+
+	if (c || ((ftdNumber == 1 && (a || b || c)) && (a && (b || c)))) {
+		/*switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "a=%d  b=[%d]  c=%d\n",a, b,c);*/
+		int fVal = c;
+		if (ftdNumber == 1)
+			fVal = itd;
+
+		if (b == 7 || b == 9) {
+            fVal += 10;
+        }
+
 		if (method == SSM_COUNTED) {
-			say_file("digits/h-%d.wav", c);
+			say_file("digits/h-%d.wav", fVal);
 		} else {
-			say_file("digits/%d.wav", c);
+			if (b != 1 && c == 1 && gender == SSG_FEMININE) {
+				say_file("digits/%d_f.wav", fVal);
+			} else {
+				say_file("digits/%d.wav", fVal);
+			}
 		}
 	}
+
 	if (what && (a || b || c)) {
 		say_file(what);
 	}
+
 	return SWITCH_STATUS_SUCCESS;
 }
 
@@ -162,7 +159,11 @@ static switch_status_t es_say_general_count(switch_core_session_t *session, char
 		if ((tosay = switch_strip_commas(tosay, sbuf, sizeof(sbuf)-1))) {
 			char *p;
 			for (p = tosay; p && *p; p++) {
-				say_file("digits/%c.wav", *p);
+				if (*p == '1' && say_args->gender == SSG_FEMININE) {
+					say_file("digits/%c_f.wav", *p);
+				} else {
+					say_file("digits/%c.wav", *p);
+				}
 			}
 		} else {
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Parse Error!\n");
@@ -189,18 +190,13 @@ static switch_status_t es_say_general_count(switch_core_session_t *session, char
 		switch (say_args->method) {
 		case SSM_COUNTED:
 		case SSM_PRONOUNCED:
-			/* specific case, one million => un millón */
-			if (!places[8] && !places[7] && (places[6] == 1)) {
-				say_file("digits/un.wav");
-				say_file("digits/million.wav");
-			}
-			else if ((status = play_group(SSM_PRONOUNCED, places[8], places[7], places[6], "digits/millions.wav", session, args)) != SWITCH_STATUS_SUCCESS) {
+			if ((status = play_group(SSM_PRONOUNCED, say_args->gender, places[8], places[7], places[6], "digits/million.wav", session, args)) != SWITCH_STATUS_SUCCESS) {
 				return status;
 			}
-			if ((status = play_group(SSM_PRONOUNCED, places[5], places[4], places[3], "digits/thousand.wav", session, args)) != SWITCH_STATUS_SUCCESS) {
+			if ((status = play_group(SSM_PRONOUNCED, say_args->gender, places[5], places[4], places[3], "digits/thousand.wav", session, args)) != SWITCH_STATUS_SUCCESS) {
 				return status;
 			}
-			if ((status = play_group(say_args->method, places[2], places[1], places[0], NULL, session, args)) != SWITCH_STATUS_SUCCESS) {
+			if ((status = play_group(say_args->method, say_args->gender, places[2], places[1], places[0], NULL, session, args)) != SWITCH_STATUS_SUCCESS) {
 				return status;
 			}
 			break;
@@ -217,9 +213,9 @@ static switch_status_t es_say_general_count(switch_core_session_t *session, char
 static switch_status_t es_say_time(switch_core_session_t *session, char *tosay, switch_say_args_t *say_args, switch_input_args_t *args)
 {
 	int32_t t;
-	switch_time_t target = 0;
-	switch_time_exp_t tm;
-	uint8_t say_date = 0, say_time = 0;
+	switch_time_t target = 0, target_now = 0;
+	switch_time_exp_t tm, tm_now;
+	uint8_t say_date = 0, say_time = 0, say_year = 0, say_month = 0, say_dow = 0, say_day = 0, say_yesterday = 0, say_today = 0;
 	switch_channel_t *channel = switch_core_session_get_channel(session);
 	const char *tz = switch_channel_get_variable(channel, "timezone");
 
@@ -245,7 +241,7 @@ static switch_status_t es_say_time(switch_core_session_t *session, char *tosay, 
 				}
 			}
 		} else {
-			if ((seconds = atoi(tosay)) <= 0) {
+			if ((seconds = atol(tosay)) <= 0) {
 				seconds = (int64_t) switch_epoch_time_now(NULL);
 			}
 
@@ -262,61 +258,58 @@ static switch_status_t es_say_time(switch_core_session_t *session, char *tosay, 
 			}
 		}
 
+		say_args->gender = SSG_FEMININE;
+
 		if (hours) {
 			say_num(hours, SSM_PRONOUNCED);
-			if (hours == 1) {
-				say_file("time/hour.wav");
-			} else {
-				say_file("time/hours.wav");
-			}
+			say_file("time/hour.wav");
 		} else {
+			/* TODO MINUIT */
 			say_file("digits/0.wav");
-			say_file("time/hours.wav");
+			say_file("time/hour.wav");
 		}
 
 		if (minutes) {
 			say_num(minutes, SSM_PRONOUNCED);
-			if (minutes == 1) {
-				say_file("time/minute.wav");
-			} else {
-				say_file("time/minutes.wav");
-			}
+			say_file("time/minute.wav");
 		} else {
+			/* TODO Aucune idee quoi faire jouer icit */
 			say_file("digits/0.wav");
-			say_file("time/minutes.wav");
+			say_file("time/minute.wav");
 		}
 
 		if (seconds) {
 			say_num(seconds, SSM_PRONOUNCED);
-			if (seconds == 1) {
-				say_file("time/second.wav");
-			} else {
-				say_file("time/seconds.wav");
-			}
+			say_file("time/second.wav");
 		} else {
+			/* TODO Aucune idee quoi faire jouer icit */
 			say_file("digits/0.wav");
-			say_file("time/seconds.wav");
+			say_file("time/second.wav");
 		}
 
 		return SWITCH_STATUS_SUCCESS;
 	}
 
-	if ((t = atoi(tosay)) > 0) {
+	if ((t = atol(tosay)) > 0) {
 		target = switch_time_make(t, 0);
+		target_now = switch_micro_time_now();
 	} else {
 		target = switch_micro_time_now();
+		target_now = switch_micro_time_now();
 	}
 
 	if (tz) {
 		int check = atoi(tz);
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Timezone is [%s]\n", tz);
 		if (check) {
 			switch_time_exp_tz(&tm, target, check);
+			switch_time_exp_tz(&tm_now, target_now, check);
 		} else {
 			switch_time_exp_tz_name(tz, &tm, target);
+			switch_time_exp_tz_name(tz, &tm_now, target_now);
 		}
 	} else {
 		switch_time_exp_lt(&tm, target);
+		switch_time_exp_lt(&tm_now, target_now);
 	}
 
 	switch (say_args->type) {
@@ -329,45 +322,82 @@ static switch_status_t es_say_time(switch_core_session_t *session, char *tosay, 
 	case SST_CURRENT_TIME:
 		say_time = 1;
 		break;
+	case SST_SHORT_DATE_TIME:
+		say_time = 1;
+		if (tm.tm_year != tm_now.tm_year) {
+			say_date = 1;
+			break;
+		}
+		if (tm.tm_yday == tm_now.tm_yday) {
+			say_today = 1;
+			break;
+		}
+		if (tm.tm_yday == tm_now.tm_yday - 1) {
+			say_yesterday = 1;
+			break;
+		}
+		if (tm.tm_yday >= tm_now.tm_yday - 5) {
+			say_dow = 1;
+			break;
+		}
+		if (tm.tm_mon != tm_now.tm_mon) {
+			say_month = say_day = say_dow = 1;
+			break;
+		}
+
+		say_month = say_day = say_dow = 1;
+
+		break;
+
 	default:
 		break;
 	}
 
-	if (say_date) {
+	if (say_today) {
+		say_file("time/today.wav");
+	}
+	if (say_yesterday) {
+		say_file("time/yesterday.wav");
+	}
+	if (say_dow) {
 		say_file("time/day-%d.wav", tm.tm_wday);
-		say_num(tm.tm_mday, SSM_PRONOUNCED);
-		say_file("time/of.wav");
+	}
+
+	if (say_date) {
+		say_year = say_month = say_day = say_dow = 1;
+		say_today = say_yesterday = 0;
+	}
+
+        if (say_day) {
+		if (tm.tm_mday == 1) { /* 1 er Janvier,... 2 feb, 23 dec... */
+			say_args->gender = SSG_MASCULINE;
+	                say_num(tm.tm_mday, SSM_COUNTED);
+		} else {
+			say_args->gender = SSG_FEMININE;
+			say_num(tm.tm_mday, SSM_PRONOUNCED);
+		}
+        }
+	if (say_month) {
 		say_file("time/mon-%d.wav", tm.tm_mon);
-		say_file("time/of.wav");
+	}
+	if (say_year) {
+		say_args->gender = SSG_MASCULINE;
 		say_num(tm.tm_year + 1900, SSM_PRONOUNCED);
 	}
 
 	if (say_time) {
-		int32_t hour = tm.tm_hour, pm = 0;
+		if (say_date || say_today || say_yesterday || say_dow) {
+			say_file("time/at.wav");
+		}
+		say_args->gender = SSG_FEMININE;
+		say_num(tm.tm_hour, SSM_PRONOUNCED);
 
-		if (hour > 12) {
-			hour -= 12;
-			pm = 1;
-		} else if (hour == 12) {
-			pm = 1;
-		} else if (hour == 0) {
-			hour = 12;
-			pm = 0;
+		say_file("time/hour.wav");
+
+		if (tm.tm_min) {
+			say_num(tm.tm_min, SSM_PRONOUNCED);
 		}
 
-		say_num(hour, SSM_PRONOUNCED);
-
-		if (tm.tm_min > 9) {
-			say_file("currency/and.wav");
-			say_num(tm.tm_min, SSM_PRONOUNCED);
-		} else if (tm.tm_min) {
-			say_file("currency/and.wav");
-			say_num(tm.tm_min, SSM_PRONOUNCED);
-		} else {
-			say_file("time/oclock.wav");
-		}
-
-		say_file("time/%s.wav", pm ? "p-m" : "a-m");
 	}
 
 	return SWITCH_STATUS_SUCCESS;
@@ -441,7 +471,6 @@ static switch_status_t es_say_money(switch_core_session_t *session, char *tosay,
 
 static switch_status_t es_say(switch_core_session_t *session, char *tosay, switch_say_args_t *say_args, switch_input_args_t *args)
 {
-
 	switch_say_callback_t say_cb = NULL;
 
 	switch (say_args->type) {
@@ -455,11 +484,18 @@ static switch_status_t es_say(switch_core_session_t *session, char *tosay, switc
 	case SST_CURRENT_DATE:
 	case SST_CURRENT_TIME:
 	case SST_CURRENT_DATE_TIME:
+	case SST_SHORT_DATE_TIME:
 		say_cb = es_say_time;
 		break;
 	case SST_IP_ADDRESS:
 		return switch_ivr_say_ip(session, tosay, es_say_general_count, say_args, args);
 		break;
+	case SST_TELEPHONE_NUMBER:
+	case SST_TELEPHONE_EXTENSION:
+	case SST_URL:
+	case SST_EMAIL_ADDRESS:
+	case SST_POSTAL_ADDRESS:
+	case SST_ACCOUNT_NUMBER:
 	case SST_NAME_SPELLED:
 	case SST_NAME_PHONETIC:
 		return switch_ivr_say_spell(session, tosay, say_args, args);
