@@ -10,7 +10,7 @@ SOFIALA=$(SOFIAUA_BUILDDIR)/libsofia-sip-ua.la
 
 mod_LTLIBRARIES = mod_sofia.la
 mod_sofia_la_SOURCES = mod_sofia.c sofia.c sofia_glue.c sofia_presence.c sofia_reg.c sofia_media.c sip-dig.c rtp.c mod_sofia.h
-mod_sofia_la_CFLAGS  = $(AM_CFLAGS) -I. $(SOFIA_CMD_LINE_CFLAGS)
+mod_sofia_la_CFLAGS  = $(AM_CFLAGS) $(openssl_CFLAGS) -I. $(SOFIA_CMD_LINE_CFLAGS)
 mod_sofia_la_CFLAGS += -I$(SOFIAUA_DIR)/bnf -I$(SOFIAUA_BUILDDIR)/bnf
 mod_sofia_la_CFLAGS += -I$(SOFIAUA_DIR)/http -I$(SOFIAUA_BUILDDIR)/http
 mod_sofia_la_CFLAGS += -I$(SOFIAUA_DIR)/iptsec -I$(SOFIAUA_BUILDDIR)/iptsec
@@ -30,7 +30,7 @@ mod_sofia_la_CFLAGS += -I$(SOFIAUA_DIR)/sresolv -I$(SOFIAUA_BUILDDIR)/sresolv
 mod_sofia_la_CFLAGS += -I$(SOFIAUA_DIR)/su -I$(SOFIAUA_BUILDDIR)/su
 mod_sofia_la_CFLAGS += -I$(SOFIAUA_DIR)/url -I$(SOFIAUA_BUILDDIR)/url
 mod_sofia_la_LIBADD = $(switch_builddir)/libfreeswitch.la $(SOFIALA)
-mod_sofia_la_LDFLAGS = -avoid-version -module -no-undefined -shared
+mod_sofia_la_LDFLAGS = -avoid-version -module -no-undefined -shared $(openssl_LIBS)
 
 if ISMAC
 mod_sofia_la_LDFLAGS += -framework CoreFoundation -framework SystemConfiguration
