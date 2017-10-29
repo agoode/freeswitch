@@ -1883,7 +1883,7 @@ static void *SWITCH_THREAD_FUNC outbound_agent_thread_run(switch_thread_t *threa
 		/* This is used for the waiting caller to quit waiting for a agent */
 		switch_channel_set_variable(member_channel, "cc_agent_found", "true");
 		switch_channel_set_variable(member_channel, "cc_agent_uuid", agent_uuid);
-		if (switch_true(switch_channel_get_variable(member_channel, SWITCH_BYPASS_MEDIA_AFTER_BRIDGE_VARIABLE)) || switch_true(switch_channel_get_variable(agent_channel, SWITCH_BYPASS_MEDIA_AFTER_BRIDGE_VARIABLE))) {
+		if (switch_channel_var_true(member_channel, SWITCH_BYPASS_MEDIA_AFTER_BRIDGE_VARIABLE) || switch_channel_var_true(agent_channel, SWITCH_BYPASS_MEDIA_AFTER_BRIDGE_VARIABLE)) {
 			switch_channel_set_flag(member_channel, CF_BYPASS_MEDIA_AFTER_BRIDGE);
 		}
 
@@ -2606,7 +2606,7 @@ static int members_callback(void *pArg, int argc, char **argv, char **columnName
 			switch_channel_t *member_channel = switch_core_session_get_channel(member_session);
 			last_originated_call = switch_channel_get_variable(member_channel, "cc_last_originated_call");
 
-			if (last_originated_call && switch_channel_ready(member_channel) && ((long) local_epoch_time_now(NULL) < atoi(last_originated_call) + ring_progressively_delay) && !switch_true(switch_channel_get_variable(member_channel, "cc_agent_found"))) {
+			if (last_originated_call && switch_channel_ready(member_channel) && ((long) local_epoch_time_now(NULL) < atoi(last_originated_call) + ring_progressively_delay) && !switch_channel_var_true(member_channel, "cc_agent_found")) {
 				/* We wait for 500 ms here */
 				switch_yield(500000);
 				switch_core_session_rwunlock(member_session);
@@ -2908,7 +2908,6 @@ SWITCH_STANDARD_APP(callcenter_function)
 	char member_uuid[SWITCH_UUID_FORMATTED_LENGTH + 1] = "";
 	switch_bool_t agent_found = SWITCH_FALSE;
 	switch_bool_t moh_valid = SWITCH_TRUE;
-	const char *p;
 
 	if (!zstr(data)) {
 		mydata = switch_core_session_strdup(member_session, data);
@@ -3090,7 +3089,7 @@ SWITCH_STANDARD_APP(callcenter_function)
 		args.buflen = sizeof(h);
 
 		/* An agent was found, time to exit and let the bridge do it job */
-		if ((p = switch_channel_get_variable(member_channel, "cc_agent_found")) && (agent_found = switch_true(p))) {
+		if ((agent_found = switch_channel_var_true(member_channel, "cc_agent_found"))) {
 			break;
 		}
 		/* If the member thread set a different reason, we monitor it so we can quit the wait */
@@ -3129,8 +3128,8 @@ SWITCH_STANDARD_APP(callcenter_function)
 	}
 
 	/* Make sure an agent was found, as we might break above without setting it */
-	if (!agent_found && (p = switch_channel_get_variable(member_channel, "cc_agent_found"))) {
-		agent_found = switch_true(p);
+	if (!agent_found) {
+		agent_found = switch_channel_var_true(member_channel, "cc_agent_found");
 	}
 
 	/* Stop member thread */

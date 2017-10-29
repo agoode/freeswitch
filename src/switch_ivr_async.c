@@ -925,14 +925,11 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_displace_session(switch_core_session_
 	char *ext;
 	const char *prefix;
 	displace_helper_t *dh;
-	const char *p;
 	switch_bool_t hangup_on_error = SWITCH_FALSE;
 	switch_codec_implementation_t read_impl = { 0 };
 	switch_core_session_get_read_impl(session, &read_impl);
 
-	if ((p = switch_channel_get_variable(channel, "DISPLACE_HANGUP_ON_ERROR"))) {
-		hangup_on_error = switch_true(p);
-	}
+	hangup_on_error = switch_channel_var_true_or_default(channel, "DISPLACE_HANGUP_ON_ERROR", hangup_on_error);
 
 	if (zstr(file)) {
 		return SWITCH_STATUS_FALSE;
@@ -1199,7 +1196,7 @@ static switch_bool_t record_callback(switch_media_bug_t *bug, void *user_data, s
 	case SWITCH_ABC_TYPE_INIT:
 		{
 			const char *var = switch_channel_get_variable(channel, "RECORD_USE_THREAD");
-
+			// XXX switch_true doesn't consider zstr() as true...
 			if (!rh->native && rh->fh && (zstr(var) || switch_true(var))) {
 				switch_threadattr_t *thd_attr = NULL;
 				switch_memory_pool_t *pool = switch_core_session_get_pool(session);
@@ -2114,7 +2111,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_eavesdrop_session(switch_core_session
 				}
 			}
 
-			if ((vval = switch_channel_get_variable(session->channel, "eavesdrop_concat_video")) && switch_true(vval)) {
+			if (switch_channel_var_true(session->channel, "eavesdrop_concat_video")) {
 				read_flags |= SMBF_READ_VIDEO_STREAM;
 				read_flags |= SMBF_WRITE_VIDEO_STREAM;
 			} else {
@@ -2450,9 +2447,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_session(switch_core_session_t 
 	char *ext;
 	char *in_file = NULL, *out_file = NULL;
 
-	if ((p = switch_channel_get_variable(channel, "RECORD_HANGUP_ON_ERROR"))) {
-		hangup_on_error = switch_true(p);
-	}
+	hangup_on_error = switch_channel_var_true_or_default(channel, "RECORD_HANGUP_ON_ERROR", hangup_on_error);
 
 	if ((status = switch_channel_pre_answer(channel)) != SWITCH_STATUS_SUCCESS) {
 		return SWITCH_STATUS_FALSE;
@@ -2467,7 +2462,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_session(switch_core_session_t 
 	channels = read_impl.number_of_channels;
 
 	if ((bug = switch_channel_get_private(channel, file))) {
-		if (switch_true(switch_channel_get_variable(channel, "RECORD_TOGGLE_ON_REPEAT"))) {
+		if (switch_channel_var_true(channel, "RECORD_TOGGLE_ON_REPEAT")) {
 			return switch_ivr_stop_record_session(session, file);
 		}
 
@@ -2476,7 +2471,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_session(switch_core_session_t 
 	}
 
 
-	if ((p = switch_channel_get_variable(channel, "RECORD_CHECK_BRIDGE")) && switch_true(p)) {
+	if (switch_channel_var_true(channel, "RECORD_CHECK_BRIDGE")) {
 		switch_core_session_t *other_session;
 		int exist = 0;
 		switch_status_t rstatus = SWITCH_STATUS_SUCCESS;
@@ -2484,7 +2479,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_session(switch_core_session_t 
 		if (switch_core_session_get_partner(session, &other_session) == SWITCH_STATUS_SUCCESS) {
 			switch_channel_t *other_channel = switch_core_session_get_channel(other_session);
 			if ((bug = switch_channel_get_private(other_channel, file))) {
-				if (switch_true(switch_channel_get_variable(other_channel, "RECORD_TOGGLE_ON_REPEAT"))) {
+				if (switch_channel_var_true(other_channel, "RECORD_TOGGLE_ON_REPEAT")) {
 					rstatus = switch_ivr_stop_record_session(other_session, file);
 				} else {
 					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(other_session), SWITCH_LOG_WARNING, "Already recording [%s]\n", file);
@@ -2505,39 +2500,39 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_record_session(switch_core_session_t 
 		}
 	}
 
-	if ((p = switch_channel_get_variable(channel, "RECORD_WRITE_ONLY")) && switch_true(p)) {
+	if (switch_channel_var_true(channel, "RECORD_WRITE_ONLY")) {
 		flags &= ~SMBF_READ_STREAM;
 		flags |= SMBF_WRITE_STREAM;
 	}
 
-	if ((p = switch_channel_get_variable(channel, "RECORD_READ_ONLY")) && switch_true(p)) {
+	if (switch_channel_var_true(channel, "RECORD_READ_ONLY")) {
 		flags &= ~SMBF_WRITE_STREAM;
 		flags |= SMBF_READ_STREAM;
 	}
 
 	if (channels == 1) { /* if leg is already stereo this feature is not available */
-		if ((p = switch_channel_get_variable(channel, "RECORD_STEREO")) && switch_true(p)) {
+		if (switch_channel_var_true(channel, "RECORD_STEREO")) {
 			flags |= SMBF_STEREO;
 			flags &= ~SMBF_STEREO_SWAP;
 			channels = 2;
 		}
 
-		if ((p = switch_channel_get_variable(channel, "RECORD_STEREO_SWAP")) && switch_true(p)) {
+		if (switch_channel_var_true(channel, "RECORD_STEREO_SWAP")) {
 			flags |= SMBF_STEREO;
 			flags |= SMBF_STEREO_SWAP;
 			channels = 2;
 		}
 	}
 
-	if ((p = switch_channel_get_variable(channel, "RECORD_ANSWER_REQ")) && switch_true(p)) {
+	if (switch_channel_var_true(channel, "RECORD_ANSWER_REQ")) {
 		flags |= SMBF_ANSWER_REQ;
 	}
 
-	if ((p = switch_channel_get_variable(channel, "RECORD_BRIDGE_REQ")) && switch_true(p)) {
+	if (switch_channel_var_true(channel, "RECORD_BRIDGE_REQ")) {
 		flags |= SMBF_BRIDGE_REQ;
 	}
 
-	if ((p = switch_channel_get_variable(channel, "RECORD_APPEND")) && switch_true(p)) {
+	if (switch_channel_var_true(channel, "RECORD_APPEND")) {
 		file_flags |= SWITCH_FILE_WRITE_APPEND;
 	}
 
@@ -4427,7 +4422,7 @@ done:
 	if (recognizing && !(state.done & PLAY_AND_DETECT_DONE_RECOGNIZING)) {
 		switch_ivr_pause_detect_speech(session);
 	}
-	if (recognizing && switch_true(switch_channel_get_variable(channel, "play_and_detect_speech_close_asr"))) {
+	if (recognizing && switch_channel_var_true(channel, "play_and_detect_speech_close_asr")) {
 		switch_ivr_stop_detect_speech(session);
 	}
 
@@ -4493,7 +4488,7 @@ static void *SWITCH_THREAD_FUNC speech_thread(switch_thread_t *thread, void *obj
 				switch_core_asr_get_result_headers(sth->ah, &headers, &flags);
 			}
 
-			if (status == SWITCH_STATUS_SUCCESS && switch_true(switch_channel_get_variable(channel, "asr_intercept_dtmf"))) {
+			if (status == SWITCH_STATUS_SUCCESS && switch_channel_var_true(channel, "asr_intercept_dtmf")) {
 				const char *p;
 
 				if ((p = switch_stristr("<input>", xmlstr))) {
@@ -4831,7 +4826,6 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_detect_speech_init(switch_core_sessio
 	switch_asr_flag_t flags = SWITCH_ASR_FLAG_NONE;
 	struct speech_thread_handle *sth = switch_channel_get_private(channel, SWITCH_SPEECH_KEY);
 	switch_codec_implementation_t read_impl = { 0 };
-	const char *p;
 	char key[512] = "";
 
 	if (sth) {
@@ -4860,7 +4854,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_detect_speech_init(switch_core_sessio
 	sth->session = session;
 	sth->ah = ah;
 
-	if ((p = switch_channel_get_variable(channel, "fire_asr_events")) && switch_true(p)) {
+	if (switch_channel_var_true(channel, "fire_asr_events")) {
 		switch_set_flag(ah, SWITCH_ASR_FLAG_FIRE_EVENTS);
 	}
 
@@ -4889,7 +4883,6 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_detect_speech(switch_core_session_t *
 	switch_channel_t *channel = switch_core_session_get_channel(session);
 	switch_status_t status;
 	struct speech_thread_handle *sth = switch_channel_get_private(channel, SWITCH_SPEECH_KEY);
-	const char *p;
 
 	if (!sth) {
 		/* No speech thread handle available yet, init speech detection first. */
@@ -4909,7 +4902,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_detect_speech(switch_core_session_t *
 		return SWITCH_STATUS_FALSE;
 	}
 
-	if ((p = switch_channel_get_variable(channel, "fire_asr_events")) && switch_true(p)) {
+	if (switch_channel_var_true(channel, "fire_asr_events")) {
 		switch_set_flag(sth->ah, SWITCH_ASR_FLAG_FIRE_EVENTS);
 	}
 

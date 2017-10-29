@@ -1256,7 +1256,7 @@ static int activate_audio_rtp(struct private_object *tech_pvt)
 		flags[SWITCH_RTP_FLAG_USE_TIMER]++;
 	}
 
-	if (switch_true(switch_channel_get_variable(channel, "disable_rtp_auto_adjust"))) {
+	if (switch_channel_var_true(channel, "disable_rtp_auto_adjust")) {
 		flags[SWITCH_RTP_FLAG_AUTOADJ] = 0;
 	}
 
@@ -1449,7 +1449,7 @@ static int activate_video_rtp(struct private_object *tech_pvt)
 	flags[SWITCH_RTP_FLAG_RAW_WRITE]++;
 	flags[SWITCH_RTP_FLAG_VIDEO]++;
 
-	if (switch_true(switch_channel_get_variable(channel, "disable_rtp_auto_adjust"))) {
+	if (switch_channel_var_true(channel, "disable_rtp_auto_adjust")) {
 		flags[SWITCH_RTP_FLAG_AUTOADJ] = 0;
 	}
 
