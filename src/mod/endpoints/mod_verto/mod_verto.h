@@ -228,7 +228,6 @@ struct verto_profile_s {
 	int blind_reg;
 
 	char *userauth;
-	char *root_passwd;
 
 	char *context;
 	char *dialplan;
