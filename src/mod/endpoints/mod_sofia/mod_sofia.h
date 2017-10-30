@@ -561,6 +561,7 @@ struct sofia_gateway {
 	sofia_gateway_subscription_t *subscriptions;
 	int distinct_to;
 	sofia_cid_type_t cid_type;
+	int limit_retry_seconds;
 };
 
 typedef enum {
