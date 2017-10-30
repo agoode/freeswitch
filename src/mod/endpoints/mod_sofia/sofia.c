@@ -5059,15 +5059,29 @@ switch_status_t config_sofia(sofia_config_t reload, char *profile_name)
 					} else if (!strcasecmp(var, "ext-rtp-ip")) {
 						if (!zstr(val)) {
 							char *ip = mod_sofia_globals.guess_ip;
+							char stun_ip[50] = "";
+							char *myip = stun_ip;
 
-							if (!strcmp(val, "0.0.0.0")) {
+							switch_copy_string(stun_ip, ip, sizeof(stun_ip));
+
+							if (!strcasecmp(val, "0.0.0.0")) {
 								switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Invalid IP 0.0.0.0 replaced with %s\n",
-												  mod_sofia_globals.guess_ip);
+										mod_sofia_globals.guess_ip);
 							} else if (!strcasecmp(val, "auto-nat")) {
 								ip = NULL;
-							} else {
-								ip = strcasecmp(val, "auto") ? val : mod_sofia_globals.guess_ip;
-								sofia_clear_pflag(profile, PFLAG_AUTO_NAT);
+							} else if (strcasecmp(val, "auto")) {
+								if (reload == SOFIA_CONFIG_RESCAN && !strncasecmp(val, "stun:", 5)) {
+									ip = NULL;
+									switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "STUN is only used on profile startup, not on a rescan\n");
+								} else {
+									switch_port_t dummyport = profile->extsipport; /* We only want the IP, not actually punching a hole */
+									if (sofia_glue_ext_address_lookup(profile, &myip, &dummyport, val, profile->pool) == SWITCH_STATUS_SUCCESS) {
+										ip = myip;
+										sofia_clear_pflag(profile, PFLAG_AUTO_NAT);
+									} else {
+										switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Failed to get external RTP ip.\n");
+									}
+								}
 							}
 							if (ip) {
 								if (!strncasecmp(ip, "autonat:", 8)) {
@@ -5159,11 +5173,17 @@ switch_status_t config_sofia(sofia_config_t reload, char *profile_name)
 							} else if (!strcasecmp(val, "auto-nat")) {
 								ip = NULL;
 							} else if (strcasecmp(val, "auto")) {
-								if (sofia_glue_ext_address_lookup(profile, &myip, &profile->extsipport, val, profile->pool) == SWITCH_STATUS_SUCCESS) {
-									ip = myip;
-									sofia_clear_pflag(profile, PFLAG_AUTO_NAT);
+								if (reload == SOFIA_CONFIG_RESCAN && !strncasecmp(val, "stun:", 5)) {
+									ip = NULL;
+									switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "STUN is only used on profile startup, not on a rescan\n");
 								} else {
-									switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Failed to get external ip.\n");
+
+									if (sofia_glue_ext_address_lookup(profile, &myip, &profile->extsipport, val, profile->pool) == SWITCH_STATUS_SUCCESS) {
+										ip = myip;
+										sofia_clear_pflag(profile, PFLAG_AUTO_NAT);
+									} else {
+										switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Failed to get external SIP ip.\n");
+									}
 								}
 							}
 							if (ip) {
