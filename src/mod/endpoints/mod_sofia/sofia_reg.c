@@ -878,7 +878,7 @@ long sofia_reg_uniform_distribution(int max)
 
 void sofia_reg_check_ping_expire(sofia_profile_t *profile, time_t now, int interval)
 {
-	char *sql;
+	char *sql, *where_clause;
 	int mean = interval / 2;
 	long next, irand;
 	char buf[32] = "";
@@ -892,6 +892,9 @@ void sofia_reg_check_ping_expire(sofia_profile_t *profile, time_t now, int inter
 								 "profile_name='%q' and orig_hostname='%q' and "
 								 "ping_expires > 0 and ping_expires <= %ld",
 								 mod_sofia_globals.hostname, profile->name, mod_sofia_globals.hostname, (long) now);
+			where_clause = switch_mprintf("where "
+										  "hostname='%q' and profile_name='%q' and orig_hostname='%q' and ping_expires <= %ld",
+										  mod_sofia_globals.hostname, profile->name, mod_sofia_globals.hostname, (long) now);
 
 			sofia_glue_execute_sql_callback(profile, profile->dbh_mutex, sql, sofia_reg_nat_callback, profile);
 			switch_safe_free(sql);
@@ -901,6 +904,9 @@ void sofia_reg_check_ping_expire(sofia_profile_t *profile, time_t now, int inter
 								 " from sip_registrations where (status like '%%UDP-NAT%%' or force_ping=1)"
 								 " and hostname='%q' and profile_name='%q' and ping_expires > 0 and ping_expires <= %ld ",
 								 mod_sofia_globals.hostname, profile->name, (long) now);
+			where_clause = switch_mprintf("where (status like '%%UDP-NAT%%' or force_ping=1) and "
+										  "hostname='%q' and profile_name='%q' and orig_hostname='%q' and ping_expires <= %ld",
+										  mod_sofia_globals.hostname, profile->name, mod_sofia_globals.hostname, (long) now);
 
 			sofia_glue_execute_sql_callback(profile, profile->dbh_mutex, sql, sofia_reg_nat_callback, profile);
 			switch_safe_free(sql);
@@ -912,6 +918,9 @@ void sofia_reg_check_ping_expire(sofia_profile_t *profile, time_t now, int inter
 								 "and profile_name='%q' and orig_hostname='%q' and "
 								 "ping_expires > 0 and ping_expires <= %ld",
 								 mod_sofia_globals.hostname, profile->name, mod_sofia_globals.hostname, (long) now);
+			where_clause = switch_mprintf("where (status like '%%NAT%%' or contact like '%%fs_nat=yes%%' or force_ping=1) and "
+										  "hostname='%q' and profile_name='%q' and orig_hostname='%q' and ping_expires <= %ld",
+										  mod_sofia_globals.hostname, profile->name, mod_sofia_globals.hostname, (long) now);
 
 			sofia_glue_execute_sql_callback(profile, profile->dbh_mutex, sql, sofia_reg_nat_callback, profile);
 			switch_safe_free(sql);
@@ -922,13 +931,15 @@ void sofia_reg_check_ping_expire(sofia_profile_t *profile, time_t now, int inter
 								 "and profile_name='%q' and orig_hostname='%q' and "
 								 "ping_expires > 0 and ping_expires <= %ld",
 								 mod_sofia_globals.hostname, profile->name, mod_sofia_globals.hostname, (long) now);
+			where_clause = switch_mprintf("where force_ping=1 and "
+										  "hostname='%q' and profile_name='%q' and orig_hostname='%q' and ping_expires <= %ld",
+										  mod_sofia_globals.hostname, profile->name, mod_sofia_globals.hostname, (long) now);
 
 			sofia_glue_execute_sql_callback(profile, profile->dbh_mutex, sql, sofia_reg_nat_callback, profile);
 			switch_safe_free(sql);
 		}
 
-		sql = switch_mprintf("select count(*) from sip_registrations where hostname='%q' and profile_name='%q' and ping_expires <= %ld",
-							 mod_sofia_globals.hostname, profile->name, (long) now);
+		sql = switch_mprintf("select count(*) from sip_registrations %s", where_clause);
 
 		sofia_glue_execute_sql2str(profile, profile->dbh_mutex, sql, buf, sizeof(buf));
 		switch_safe_free(sql);
@@ -940,10 +951,11 @@ void sofia_reg_check_ping_expire(sofia_profile_t *profile, time_t now, int inter
 			irand = mean + sofia_reg_uniform_distribution(interval);
 			next = (long) now + irand;
 
-			sql = switch_mprintf("update sip_registrations set ping_expires = %ld where hostname='%q' and profile_name='%q' and ping_expires <= %ld ",
-								 next, mod_sofia_globals.hostname, profile->name, (long) now);
+			sql = switch_mprintf("update sip_registrations set ping_expires = %ld %s", next, where_clause);
 			sofia_glue_execute_sql(profile, &sql, SWITCH_TRUE);
 		}
+
+		switch_safe_free(where_clause);
 	}
 }
 
