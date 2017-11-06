@@ -111,6 +111,7 @@ struct shout_context {
 	lame_global_flags *gfp;
 	char *stream_url;
 	switch_mutex_t *audio_mutex;
+	switch_mutex_t *control_mutex;
 	switch_buffer_t *audio_buffer;
 	switch_memory_pool_t *memory_pool;
 	unsigned char decode_buf[MP3_DCACHE];
@@ -149,6 +150,8 @@ static inline void free_context(shout_context_t *context)
 		switch_mutex_lock(context->audio_mutex);
 		context->err++;
 		switch_mutex_unlock(context->audio_mutex);
+
+		switch_mutex_lock(context->control_mutex);
 
 		if (context->stream_url) {
 			switch_mutex_lock(context->audio_mutex);
@@ -249,10 +252,8 @@ static inline void free_context(shout_context_t *context)
 			switch_buffer_destroy(&context->audio_buffer);
 		}
 
-		switch_mutex_destroy(context->audio_mutex);
-
 		switch_thread_rwlock_unlock(context->rwlock);
-		switch_thread_rwlock_destroy(context->rwlock);
+		switch_mutex_unlock(context->control_mutex);
 	}
 }
 
@@ -381,6 +382,8 @@ static size_t stream_callback(void *ptr, size_t size, size_t nmemb, void *data)
 	uint32_t buf_size = 1024 * 128;	/* do not make this 64 or less, stutter will ensue after first 64k buffer is dry */
 	switch_size_t used;
 
+	switch_mutex_lock(context->control_mutex);
+
 	if (context->err) {
 		goto error;
 	}
@@ -454,12 +457,17 @@ static size_t stream_callback(void *ptr, size_t size, size_t nmemb, void *data)
 		goto error;
 	}
 
+	switch_mutex_unlock(context->control_mutex);
+
 	return realsize;
 
   error:
 	switch_mutex_lock(context->audio_mutex);
 	context->err++;
 	switch_mutex_unlock(context->audio_mutex);
+
+	switch_mutex_unlock(context->control_mutex);
+
 	return 0;
 }
 
@@ -669,6 +677,7 @@ static switch_status_t shout_file_open(switch_file_handle_t *handle, const char 
 	switch_thread_rwlock_rdlock(context->rwlock);
 
 	switch_mutex_init(&context->audio_mutex, SWITCH_MUTEX_NESTED, context->memory_pool);
+	switch_mutex_init(&context->control_mutex, SWITCH_MUTEX_NESTED, context->memory_pool);
 
 	if (handle->params && (var = switch_event_get_header(handle->params, "buffer_seconds"))) {
 		int bs = atol(var);
