@@ -7237,10 +7237,10 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_commands_load)
 {
 	switch_api_interface_t *commands_api_interface;
 	switch_json_api_interface_t *json_api_interface;
-	int use_system_commands = 1;
+	int use_system_commands = 0;
 
-	if (switch_true(switch_core_get_variable("disable_system_api_commands"))) {
-		use_system_commands = 0;
+	if (switch_false(switch_core_get_variable("disable_system_api_commands"))) {
+		use_system_commands = 1;
 	}
 
 	*module_interface = switch_loadable_module_create_module_interface(pool, modname);
