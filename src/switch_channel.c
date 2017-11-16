@@ -33,6 +33,7 @@
 
 #include <switch.h>
 #include <switch_channel.h>
+#include <switch_channel_filter.h>
 #include <pcre.h>
 
 struct switch_cause_table {
@@ -2504,7 +2505,35 @@ SWITCH_DECLARE(void) switch_channel_state_thread_unlock(switch_channel_t *channe
 	switch_mutex_unlock(channel->thread_mutex);
 }
 
-SWITCH_DECLARE(void) switch_channel_event_set_basic_data(switch_channel_t *channel, switch_event_t *event)
+SWITCH_DECLARE(void) switch_channel_event_set_filtered_data(switch_channel_t *channel, switch_event_t *event)
+{
+	switch_event_header_t *hi;
+	switch_channel_filters_p filters;
+	int i;
+
+	if ((filters = switch_core_get_channel_event_filters())) {
+		switch_mutex_lock(channel->profile_mutex);
+		if (channel->variables) {
+			for (hi = channel->variables->headers; hi; hi = hi->next) {
+				char *vvar = NULL, *vval = NULL;
+				vvar = (char *) hi->name;
+				for(i=0; i < filters->len; i++) {
+					if (!strncmp(vvar, filters->prefixes[i]->prefix, filters->prefixes[i]->len)) {
+						char buf[1024];
+						vval = (char *) hi->value;
+						switch_assert(vvar && vval);
+						switch_snprintf(buf, sizeof(buf), "variable_%s", vvar);
+						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, buf, vval);
+						break;
+					}
+				}
+			}
+		}
+		switch_mutex_unlock(channel->profile_mutex);
+	}
+}
+
+SWITCH_DECLARE(void) switch_channel_event_set_basic_data_internal(switch_channel_t *channel, switch_event_t *event)
 {
 	switch_caller_profile_t *caller_profile, *originator_caller_profile = NULL, *originatee_caller_profile = NULL;
 	switch_codec_implementation_t impl = { 0 };
@@ -2600,8 +2629,13 @@ SWITCH_DECLARE(void) switch_channel_event_set_basic_data(switch_channel_t *chann
 		switch_caller_profile_event_set_data(originatee_caller_profile, "Other-Leg", event);
 	}
 
-
 	switch_mutex_unlock(channel->profile_mutex);
+}
+
+SWITCH_DECLARE(void) switch_channel_event_set_basic_data(switch_channel_t *channel, switch_event_t *event)
+{
+	switch_channel_event_set_basic_data_internal(channel, event);
+	switch_channel_event_set_filtered_data(channel, event);
 }
 
 SWITCH_DECLARE(void) switch_channel_event_set_extended_data(switch_channel_t *channel, switch_event_t *event)
@@ -2683,16 +2717,17 @@ SWITCH_DECLARE(void) switch_channel_event_set_extended_data(switch_channel_t *ch
 				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, buf, vval);
 			}
 		}
+	} else {
+		switch_channel_event_set_filtered_data(channel, event);
 	}
 
 	switch_mutex_unlock(channel->profile_mutex);
 }
 
-
 SWITCH_DECLARE(void) switch_channel_event_set_data(switch_channel_t *channel, switch_event_t *event)
 {
 	switch_mutex_lock(channel->profile_mutex);
-	switch_channel_event_set_basic_data(channel, event);
+	switch_channel_event_set_basic_data_internal(channel, event);
 	switch_channel_event_set_extended_data(channel, event);
 	switch_mutex_unlock(channel->profile_mutex);
 }

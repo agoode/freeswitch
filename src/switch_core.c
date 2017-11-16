@@ -2249,6 +2249,8 @@ static void switch_load_core_config(const char *file)
 					} else {
 						switch_clear_flag((&runtime), SCF_VERBOSE_EVENTS);
 					}
+				} else if (!strcasecmp(var, "channel-var-filters") && !zstr(val)) {
+					switch_core_set_channel_event_filters(val);
 				} else if (!strcasecmp(var, "threaded-system-exec") && !zstr(val)) {
 #ifdef WIN32
 					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "threaded-system-exec is not implemented on this platform\n");
@@ -2994,6 +2996,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_destroy(void)
 	switch_core_hash_destroy(&runtime.ptimes);
 	switch_core_hash_destroy(&runtime.mime_types);
 	switch_core_hash_destroy(&runtime.mime_type_exts);
+	switch_core_free_channel_event_filters();
 
 	if (IP_LIST.hash) {
 		switch_core_hash_destroy(&IP_LIST.hash);

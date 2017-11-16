@@ -125,6 +125,7 @@
 #include "switch_rtcp_frame.h"
 #include "switch_module_interfaces.h"
 #include "switch_channel.h"
+#include "switch_channel_filter.h"
 #include "switch_buffer.h"
 #include "switch_event.h"
 #include "switch_resample.h"
