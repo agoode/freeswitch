@@ -4623,6 +4623,8 @@ void conference_video_set_floor_holder(conference_obj_t *conference, conference_
 			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Old-ID", "none");
 		}
 		if (conference->video_floor_holder) {
+			conference_member_t *member = conference_member_get(conference, conference->video_floor_holder);
+			conference_member_add_event_data(member, event);
 			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "New-ID", "%d", conference->video_floor_holder);
 		} else {
 			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "New-ID", "none");
