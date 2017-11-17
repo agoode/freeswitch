@@ -1469,6 +1469,13 @@ PKG_CHECK_MODULES([HIREDIS], [hiredis >= 0.10.0],[
   AM_CONDITIONAL([HAVE_HIREDIS],[true])],[
   AC_MSG_RESULT([no]); AM_CONDITIONAL([HAVE_HIREDIS],[false])])
 
+PKG_CHECK_MODULES([LIBRE], [libre >= 0.4.13],[
+  AM_CONDITIONAL([HAVE_LIBRE],[true]),
+  AC_CHECK_LIB(re, sip_set_trace, [AC_DEFINE(HAVE_LIBRE_SIPSETTRACE, 1, [Define if you have libre sip_set_trace])])],[
+  AC_MSG_RESULT([no]); AM_CONDITIONAL([HAVE_LIBRE],[false])])
+
+
+
 AC_ARG_ENABLE(core-libedit-support,     
   [AS_HELP_STRING([--disable-core-libedit-support], [Compile without libedit Support])])
 
@@ -1857,6 +1864,7 @@ AC_CONFIG_FILES([Makefile
 		src/mod/dialplans/mod_dialplan_xml/Makefile
 		src/mod/directories/mod_ldap/Makefile
 		src/mod/endpoints/mod_alsa/Makefile
+		src/mod/endpoints/mod_baresip/Makefile
 		src/mod/endpoints/mod_dingaling/Makefile
 		src/mod/endpoints/mod_gsmopen/Makefile
 		src/mod/endpoints/mod_h323/Makefile

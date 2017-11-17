@@ -1,0 +1,29 @@
+<configuration name="baresip.conf" description="mod_baresip">
+
+  <global_settings>
+    <param name="debug" value="1"/>
+  </global_settings>
+
+  <profiles>
+    <profile name="default">
+      <gateways>
+      </gateways>
+
+      <transports>
+	<transport name="5050-udp">
+	  <param name="ip" value="$${local_ip_v4}"/>
+	  <param name="port" value="$${external_sip_port}"/>
+	  <param name="protocol" value="udp"/>
+	</transport>
+      </transports>
+      
+      <settings>
+	<param name="debug" value="1"/>
+	<param name="dialplan" value="XML"/>
+	<param name="context" value="public"/>
+	<param name="rtpip" value="$${local_ip_v4}"/>
+	<!--	<param name="context" value="$${local_ip_v4}"/> -->
+      </settings>
+    </profile>
+  </profiles>
+</configuration>
