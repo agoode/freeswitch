@@ -2575,6 +2575,7 @@ SWITCH_DECLARE(void) switch_channel_event_set_basic_data(switch_channel_t *chann
 	if (impl.iananame) {
 		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Channel-Read-Codec-Name", impl.iananame);
 		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Channel-Read-Codec-Rate", "%u", impl.actual_samples_per_second);
+		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Channel-Read-Codec-PTIME", "%d", impl.microseconds_per_packet / 1000);
 		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Channel-Read-Codec-Bit-Rate", "%d", impl.bits_per_second);
 	}
 
@@ -2583,6 +2584,7 @@ SWITCH_DECLARE(void) switch_channel_event_set_basic_data(switch_channel_t *chann
 	if (impl.iananame) {
 		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Channel-Write-Codec-Name", impl.iananame);
 		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Channel-Write-Codec-Rate", "%u", impl.actual_samples_per_second);
+		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Channel-Write-Codec-PTIME", "%d", impl.microseconds_per_packet / 1000);
 		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Channel-Write-Codec-Bit-Rate", "%d", impl.bits_per_second);
 	}
 

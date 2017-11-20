@@ -2337,12 +2337,14 @@ static void core_event_handler(switch_event_t *event)
 	case SWITCH_EVENT_CODEC:
 		new_sql() =
 			switch_mprintf
-			("update channels set read_codec='%q',read_rate='%q',read_bit_rate='%q',write_codec='%q',write_rate='%q',write_bit_rate='%q' where uuid='%q'",
+			("update channels set read_codec='%q',read_rate='%q',read_ptime='%q',read_bit_rate='%q',write_codec='%q',write_rate='%q',write_ptime='%q',write_bit_rate='%q' where uuid='%q'",
 			 switch_event_get_header_nil(event, "channel-read-codec-name"),
 			 switch_event_get_header_nil(event, "channel-read-codec-rate"),
+			 switch_event_get_header_nil(event, "channel-read-codec-ptime"),
 			 switch_event_get_header_nil(event, "channel-read-codec-bit-rate"),
 			 switch_event_get_header_nil(event, "channel-write-codec-name"),
 			 switch_event_get_header_nil(event, "channel-write-codec-rate"),
+			 switch_event_get_header_nil(event, "channel-write-codec-ptime"),
 			 switch_event_get_header_nil(event, "channel-write-codec-bit-rate"),
 			 switch_event_get_header_nil(event, "unique-id"));
 		break;
@@ -2707,9 +2709,11 @@ static char create_channels_sql[] =
 	"   context VARCHAR(128),\n"
 	"   read_codec  VARCHAR(128),\n"
 	"   read_rate  VARCHAR(32),\n"
+	"   read_ptime  VARCHAR(32),\n"
 	"   read_bit_rate  VARCHAR(32),\n"
 	"   write_codec  VARCHAR(128),\n"
 	"   write_rate  VARCHAR(32),\n"
+	"   write_ptime  VARCHAR(32),\n"
 	"   write_bit_rate  VARCHAR(32),\n"
 	"   secure VARCHAR(64),\n"
 	"   hostname VARCHAR(256),\n"
@@ -2807,9 +2811,11 @@ static char detailed_calls_sql[] =
 	"a.context as context,"
 	"a.read_codec as read_codec,"
 	"a.read_rate as read_rate,"
+	"a.read_ptime as read_ptime,"
 	"a.read_bit_rate as read_bit_rate,"
 	"a.write_codec as write_codec,"
 	"a.write_rate as write_rate,"
+	"a.write_ptime as write_ptime,"
 	"a.write_bit_rate as write_bit_rate,"
 	"a.secure as secure,"
 	"a.hostname as hostname,"
@@ -2839,9 +2845,11 @@ static char detailed_calls_sql[] =
 	"b.context as b_context,"
 	"b.read_codec as b_read_codec,"
 	"b.read_rate as b_read_rate,"
+	"b.read_ptime as b_read_ptime,"
 	"b.read_bit_rate as b_read_bit_rate,"
 	"b.write_codec as b_write_codec,"
 	"b.write_rate as b_write_rate,"
+	"b.write_ptime as b_write_ptime,"
 	"b.write_bit_rate as b_write_bit_rate,"
 	"b.secure as b_secure,"
 	"b.hostname as b_hostname,"

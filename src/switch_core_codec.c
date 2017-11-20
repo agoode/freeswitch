@@ -165,6 +165,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_set_real_read_codec(switch_c
 			switch_channel_event_set_data(session->channel, event);
 			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "channel-read-codec-name", session->read_impl.iananame);
 			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "channel-read-codec-rate", "%d", session->read_impl.actual_samples_per_second);
+			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "channel-read-codec-ptime", "%d", session->read_impl.microseconds_per_packet / 1000);
 			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "channel-read-codec-bit-rate", "%d", session->read_impl.bits_per_second);
 			if (session->read_impl.actual_samples_per_second != session->read_impl.samples_per_second) {
 				switch_event_add_header(event, SWITCH_STACK_BOTTOM, "channel-reported-read-codec-rate", "%d", session->read_impl.samples_per_second);
@@ -274,6 +275,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_set_read_codec(switch_core_s
 			switch_channel_event_set_data(session->channel, event);
 			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "channel-read-codec-name", session->read_impl.iananame);
 			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "channel-read-codec-rate", "%d", session->read_impl.actual_samples_per_second);
+			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "channel-read-codec-ptime", "%d", session->read_impl.microseconds_per_packet / 1000);
 			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "channel-read-codec-bit-rate", "%d", session->read_impl.bits_per_second);
 			if (session->read_impl.actual_samples_per_second != session->read_impl.samples_per_second) {
 				switch_event_add_header(event, SWITCH_STACK_BOTTOM, "channel-reported-read-codec-rate", "%d", session->read_impl.samples_per_second);
@@ -445,6 +447,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_set_write_codec(switch_core_
 			switch_channel_event_set_data(session->channel, event);
 			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Channel-Write-Codec-Name", session->write_impl.iananame);
 			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Channel-Write-Codec-Rate", "%d", session->write_impl.actual_samples_per_second);
+			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Channel-Write-Codec-PTIME", "%d", session->write_impl.microseconds_per_packet / 1000);
 			switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Channel-Write-codec-bit-rate", "%d", session->write_impl.bits_per_second);
 			if (session->write_impl.actual_samples_per_second != session->write_impl.samples_per_second) {
 				switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Channel-Reported-Write-Codec-Rate", "%d",
