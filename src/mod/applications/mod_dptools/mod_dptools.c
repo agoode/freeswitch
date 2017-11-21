@@ -3355,6 +3355,7 @@ SWITCH_STANDARD_APP(audio_bridge_function)
 	char *camp_data = NULL;
 	switch_status_t status = SWITCH_STATUS_FALSE;
 	int camp_loops = 0;
+	char c_tmp[10];
 
 	if (zstr(data)) {
 		return;
@@ -3451,7 +3452,9 @@ SWITCH_STANDARD_APP(audio_bridge_function)
 				}
 
 				if (camp_loops++) {
-					if (--campon_retries <= 0 || stake.do_xfer) {
+					switch_snprintf(c_tmp, sizeof(c_tmp), "%d", campon_retries);
+					switch_channel_set_variable(caller_channel, "campon_retries_pending", c_tmp);
+					if (campon_retries <= 0 || stake.do_xfer) {
 						camping = 0;
 						stake.do_xfer = 1;
 						break;
