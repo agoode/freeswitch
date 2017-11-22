@@ -4583,6 +4583,7 @@ switch_status_t config_sofia(sofia_config_t reload, char *profile_name)
 					sofia_clear_pflag(profile, PFLAG_MAKE_EVERY_TRANSFER_A_NIGHTMARE);
 					sofia_clear_pflag(profile, PFLAG_FIRE_TRANFER_EVENTS);
 					sofia_clear_pflag(profile, PFLAG_BLIND_AUTH_ENFORCE_RESULT);
+					sofia_clear_pflag(profile, PFLAG_KEEP_AUTH_CALLER_ID);
 					profile->shutdown_type = "false";
 					profile->local_network = "localnet.auto";
 					sofia_set_flag(profile, TFLAG_ENABLE_SOA);
@@ -5892,6 +5893,12 @@ switch_status_t config_sofia(sofia_config_t reload, char *profile_name)
 							sofia_set_pflag(profile, PFLAG_BLIND_AUTH_ENFORCE_RESULT);
 						}  else {
 							sofia_clear_pflag(profile, PFLAG_BLIND_AUTH_ENFORCE_RESULT);
+						}
+					} else if (!strcasecmp(var, "keep-auth-caller-id")) {
+						if(switch_true(val)) {
+							sofia_set_pflag(profile, PFLAG_KEEP_AUTH_CALLER_ID);
+						}  else {
+							sofia_clear_pflag(profile, PFLAG_KEEP_AUTH_CALLER_ID);
 						}
 					} else if (!strcasecmp(var, "proxy-hold")) {
 						if(switch_true(val)) {
@@ -10049,6 +10056,9 @@ void sofia_handle_sip_i_invite(switch_core_session_t *session, nua_t *nua, sofia
 	}
 
 	tech_pvt = switch_core_session_get_private(session);
+	channel = tech_pvt->channel = switch_core_session_get_channel(session);
+	tech_pvt->caller_profile = switch_caller_profile_new(switch_core_session_get_pool(session),NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, MODNAME, NULL, NULL);
+	switch_channel_set_caller_profile(channel, tech_pvt->caller_profile);
 
 	sip_invite_time = switch_micro_time_now();
 
@@ -10311,8 +10321,6 @@ void sofia_handle_sip_i_invite(switch_core_session_t *session, nua_t *nua, sofia
 		is_auth++;
 	}
 
-	channel = tech_pvt->channel = switch_core_session_get_channel(session);
-
 	switch_channel_set_variable_printf(channel, "sip_local_network_addr", "%s", profile->extsipip ? profile->extsipip : profile->sipip);
 	switch_channel_set_variable_printf(channel, "sip_network_ip", "%s", network_ip);
 	switch_channel_set_variable_printf(channel, "sip_network_port", "%d", network_port);
@@ -10376,10 +10384,6 @@ void sofia_handle_sip_i_invite(switch_core_session_t *session, nua_t *nua, sofia
 	if (calling_myself) {
 		switch_channel_set_variable(channel, "sip_looped_call", "true");
 	}
-
-	tech_pvt->caller_profile = switch_caller_profile_new(switch_core_session_get_pool(session),
-														 NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, MODNAME, NULL, NULL);
-	switch_channel_set_caller_profile(channel, tech_pvt->caller_profile);
 
 	if (x_user) {
 		const char *ruser = NULL, *rdomain = NULL, *user = switch_xml_attr(x_user, "id"), *domain = switch_xml_attr(x_user, "domain-name");
@@ -10976,10 +10980,24 @@ void sofia_handle_sip_i_invite(switch_core_session_t *session, nua_t *nua, sofia
 
 	profile_dup_clean(from_user, tech_pvt->caller_profile->username, tech_pvt->caller_profile->pool);
 	profile_dup_clean(dialplan, tech_pvt->caller_profile->dialplan, tech_pvt->caller_profile->pool);
-	profile_dup_clean(displayname, tech_pvt->caller_profile->caller_id_name, tech_pvt->caller_profile->pool);
-	profile_dup_clean(from_user, tech_pvt->caller_profile->caller_id_number, tech_pvt->caller_profile->pool);
-	profile_dup_clean(displayname, tech_pvt->caller_profile->orig_caller_id_name, tech_pvt->caller_profile->pool);
-	profile_dup_clean(from_user, tech_pvt->caller_profile->orig_caller_id_number, tech_pvt->caller_profile->pool);
+	if(!sofia_test_pflag(profile, PFLAG_KEEP_AUTH_CALLER_ID)) {
+		profile_dup_clean(displayname, tech_pvt->caller_profile->caller_id_name, tech_pvt->caller_profile->pool);
+		profile_dup_clean(from_user, tech_pvt->caller_profile->caller_id_number, tech_pvt->caller_profile->pool);
+		profile_dup_clean(displayname, tech_pvt->caller_profile->orig_caller_id_name, tech_pvt->caller_profile->pool);
+		profile_dup_clean(from_user, tech_pvt->caller_profile->orig_caller_id_number, tech_pvt->caller_profile->pool);
+	} else {
+		if(!tech_pvt->caller_profile->caller_id_name || !strcasecmp(tech_pvt->caller_profile->caller_id_name, SWITCH_DEFAULT_CLID_NAME)) {
+			profile_dup_clean(displayname, tech_pvt->caller_profile->caller_id_name, tech_pvt->caller_profile->pool);
+		} else {
+			profile_dup_clean(tech_pvt->caller_profile->caller_id_name, tech_pvt->caller_profile->orig_caller_id_name, tech_pvt->caller_profile->pool);
+		}
+
+		if(!tech_pvt->caller_profile->caller_id_number || !strcasecmp(tech_pvt->caller_profile->caller_id_number, SWITCH_DEFAULT_CLID_NUMBER)) {
+			profile_dup_clean(from_user, tech_pvt->caller_profile->caller_id_number, tech_pvt->caller_profile->pool);
+		} else {
+			profile_dup_clean(tech_pvt->caller_profile->caller_id_number, tech_pvt->caller_profile->orig_caller_id_number, tech_pvt->caller_profile->pool);
+		}
+	}
 	profile_dup_clean(network_ip, tech_pvt->caller_profile->network_addr, tech_pvt->caller_profile->pool);
 	profile_dup_clean(from_user, tech_pvt->caller_profile->ani, tech_pvt->caller_profile->pool);
 	profile_dup_clean(aniii, tech_pvt->caller_profile->aniii, tech_pvt->caller_profile->pool);
