@@ -2021,7 +2021,7 @@ static int find_consumers(fifo_node_t *node)
 	sql = switch_mprintf("select uuid, fifo_name, originate_string, simo_count, use_count, timeout, lag, "
 						 "next_avail, expires, static, outbound_call_count, outbound_fail_count, hostname "
 						 "from fifo_outbound "
-						 "where taking_calls = 1 and (fifo_name = '%q') and ((use_count+ring_count) < simo_count) and (next_avail = 0 or next_avail <= %ld) "
+						 "where taking_calls = 1 and (fifo_name = '%q') and ((use_count+ring_count) < simo_count) and next_avail <= %ld"
 						 "order by next_avail, outbound_fail_count, outbound_call_count",
 						 node->name, (long) switch_epoch_time_now(NULL)
 						 );
@@ -4664,6 +4664,7 @@ static void fifo_member_add(char *fifo_name, char *originate_string, int simo_co
 	char outbound_count[80] = "";
 	callback_t cbt = { 0 };
 	fifo_node_t *node = NULL;
+	long now = (long) switch_epoch_time_now(NULL);
 
 	if (!fifo_name) return;
 
@@ -4693,8 +4694,7 @@ static void fifo_member_add(char *fifo_name, char *originate_string, int simo_co
 						 "(uuid, fifo_name, originate_string, simo_count, use_count, timeout, "
 						 "lag, next_avail, expires, static, outbound_call_count, outbound_fail_count, hostname, taking_calls, active_time, inactive_time) "
 						 "values ('%q','%q','%q',%d,%d,%d,%d,%d,%ld,0,0,0,'%q',%d,%ld,0)",
-						 digest, fifo_name, originate_string, simo_count, 0, timeout, lag, 0, (long) expires, globals.hostname, taking_calls,
-						 (long)switch_epoch_time_now(NULL));
+						 digest, fifo_name, originate_string, simo_count, 0, timeout, lag, now, (long) expires, globals.hostname, taking_calls, now);
 	switch_assert(sql);
 	fifo_execute_sql_queued(&sql, SWITCH_TRUE, SWITCH_TRUE);
 	free(name_dup);
