@@ -115,6 +115,12 @@
       <!-- <param name="suppress-events" value="start-talking,stop-talking"/> -->
       <!-- enable comfort noise generation -->
       <param name="comfort-noise" value="true"/>
+
+      <!-- enable outbound silence supression -->
+      <param name="suppress-outbound-silence" value="true"/>
+      <!-- configure comfort noise keepalive interval -->
+      <param name="comfort-noise-keepalive-interval" value="1000"/>
+
       <!-- Uncomment auto-record to toggle recording every conference call. -->
       <!-- Another valid value is   shout://user:pass@server.com/live.mp3   -->
       <!--
@@ -155,6 +161,12 @@
       <param name="caller-id-name" value="$${outbound_caller_name}"/>
       <param name="caller-id-number" value="$${outbound_caller_id}"/>
       <param name="comfort-noise" value="true"/>
+
+      <!-- enable outbound silence supression -->
+      <param name="suppress-outbound-silence" value="true"/>
+      <!-- configure comfort noise keepalive interval -->
+      <param name="comfort-noise-keepalive-interval" value="1000"/>
+
       <!--<param name="tts-engine" value="flite"/>-->
       <!--<param name="tts-voice" value="kal16"/>-->
     </profile>
@@ -180,6 +192,12 @@
       <param name="caller-id-name" value="$${outbound_caller_name}"/>
       <param name="caller-id-number" value="$${outbound_caller_id}"/>
       <param name="comfort-noise" value="true"/>
+
+      <!-- enable outbound silence supression -->
+      <param name="suppress-outbound-silence" value="true"/>
+      <!-- configure comfort noise keepalive interval -->
+      <param name="comfort-noise-keepalive-interval" value="1000"/>
+
       <!--<param name="tts-engine" value="flite"/>-->
       <!--<param name="tts-voice" value="kal16"/>-->
     </profile>
@@ -205,6 +223,12 @@
       <param name="caller-id-name" value="$${outbound_caller_name}"/>
       <param name="caller-id-number" value="$${outbound_caller_id}"/>
       <param name="comfort-noise" value="true"/>
+
+      <!-- enable outbound silence supression -->
+      <param name="suppress-outbound-silence" value="true"/>
+      <!-- configure comfort noise keepalive interval -->
+      <param name="comfort-noise-keepalive-interval" value="1000"/>
+
     </profile>
 
     <profile name="sla">
@@ -215,6 +239,12 @@
       <param name="energy-level" value="200"/>
       <param name="moh-sound" value="silence"/>
       <param name="comfort-noise" value="true"/>
+
+      <!-- enable outbound silence supression -->
+      <param name="suppress-outbound-silence" value="true"/>
+      <!-- configure comfort noise keepalive interval -->
+      <param name="comfort-noise-keepalive-interval" value="1000"/>
+
     </profile>
 
   </profiles>

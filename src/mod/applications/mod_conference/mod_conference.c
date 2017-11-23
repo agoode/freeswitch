@@ -666,13 +666,36 @@ void *SWITCH_THREAD_FUNC conference_thread_run(switch_thread_t *thread, void *ob
 					continue;
 				}
 
-				switch_mutex_lock(omember->audio_out_mutex);
-				ok = switch_buffer_write(omember->mux_buffer, write_frame, bytes);
-				switch_mutex_unlock(omember->audio_out_mutex);
+				if (!omember->conference->suppress_ob_silence) {
+					switch_mutex_lock(omember->audio_out_mutex);
+					ok = switch_buffer_write(omember->mux_buffer, write_frame, bytes);
+					switch_mutex_unlock(omember->audio_out_mutex);
 
-				if (!ok) {
-					switch_mutex_unlock(conference->mutex);
-					goto end;
+					if (!ok) {
+						switch_mutex_unlock(conference->mutex);
+						goto end;
+					}
+				} else {
+					switch_codec_implementation_t read_impl = { 0 };
+					uint32_t interval;
+
+					if (omember->conference->comfort_noise_ka_interval && omember->comfort_noise_ka_pkt_cnt-- == 0) {
+						if (omember->session) {
+							switch_core_session_get_read_impl(omember->session, &read_impl);
+							interval = read_impl.microseconds_per_packet / 1000;
+
+							switch_mutex_lock(omember->audio_out_mutex);
+							ok = switch_buffer_write(omember->mux_buffer, write_frame, bytes);
+							switch_mutex_unlock(omember->audio_out_mutex);
+
+							if (!ok) {
+								switch_mutex_unlock(conference->mutex);
+								goto end;
+							}
+
+							omember->comfort_noise_ka_pkt_cnt = omember->conference->comfort_noise_ka_interval/interval;
+						}
+					}
 				}
 			}
 		}
@@ -2662,6 +2685,8 @@ conference_obj_t *conference_new(char *name, conference_xml_cfg_t cfg, switch_co
 	uint32_t channels = 1;
 	int broadcast_chat_messages = 1;
 	int comfort_noise_level = 0;
+	switch_bool_t suppress_ob_silence = SWITCH_FALSE;
+	uint32_t comfort_noise_ka_interval = 10000;
 	int pin_retries = 3;
 	int ivr_dtmf_timeout = 500;
 	int ivr_input_timeout = 0;
@@ -2952,6 +2977,15 @@ conference_obj_t *conference_new(char *name, conference_xml_cfg_t cfg, switch_co
 				} else if (switch_true(val)) {
 					comfort_noise_level = 1400;
 				}
+			} else if (!strcasecmp(var, "suppress-outbound-silence") && !zstr(val)) {
+				if (switch_true(val)) {
+					suppress_ob_silence = SWITCH_TRUE;
+				}
+				else {
+					suppress_ob_silence = SWITCH_FALSE;
+				}
+			} else if (!strcasecmp(var, "comfort-noise-keepalive-interval") && !zstr(val)) {
+					comfort_noise_ka_interval = atoi(val);
 			} else if (!strcasecmp(var, "video-auto-floor-msec") && !zstr(val)) {
 				int tmp;
 				tmp = atoi(val);
@@ -3109,6 +3143,8 @@ conference_obj_t *conference_new(char *name, conference_xml_cfg_t cfg, switch_co
 	}
 
 	conference->comfort_noise_level = comfort_noise_level;
+	conference->suppress_ob_silence = suppress_ob_silence;
+	conference->comfort_noise_ka_interval = comfort_noise_ka_interval;
 	conference->pin_retries = pin_retries;
 	conference->caller_id_name = switch_core_strdup(conference->pool, caller_id_name);
 	conference->caller_id_number = switch_core_strdup(conference->pool, caller_id_number);
