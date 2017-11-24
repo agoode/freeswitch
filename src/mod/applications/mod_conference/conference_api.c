@@ -35,6 +35,7 @@
  * Seven Du <dujinfang@gmail.com>
  * Emmanuel Schmidbauer <e.schmidbauer@gmail.com>
  * William King <william.king@quentustech.com>
+ * Dragos Oancea <dragos.oancea@nexmo.com>
  *
  * mod_conference.c -- Software Conference Bridge
  *
@@ -119,7 +120,8 @@ api_command_t conference_api_sub_commands[] = {
 	{"vid-fgimg", (void_fn_t) & conference_api_sub_canvas_fgimg, CONF_API_SUB_ARGS_SPLIT, "vid-fgimg", "<file> | clear [<canvas-id>]"},
 	{"vid-bgimg", (void_fn_t) & conference_api_sub_canvas_bgimg, CONF_API_SUB_ARGS_SPLIT, "vid-bgimg", "<file> | clear [<canvas-id>]"},
 	{"vid-bandwidth", (void_fn_t) & conference_api_sub_vid_bandwidth, CONF_API_SUB_ARGS_SPLIT, "vid-bandwidth", "<BW>"},
-	{"vid-personal", (void_fn_t) & conference_api_sub_vid_personal, CONF_API_SUB_ARGS_SPLIT, "vid-personal", "[on|off]"}
+	{"vid-personal", (void_fn_t) & conference_api_sub_vid_personal, CONF_API_SUB_ARGS_SPLIT, "vid-personal", "[on|off]"},
+	{"detect-talk-events", (void_fn_t) & conference_api_sub_detect_talk_events, CONF_API_SUB_ARGS_SPLIT, "detect-talk-events", "[on|off]"}
 };
 
 switch_status_t conference_api_sub_pause_play(conference_obj_t *conference, switch_stream_handle_t *stream, int argc, char **argv)
@@ -1408,6 +1410,31 @@ switch_status_t conference_api_sub_vid_personal(conference_obj_t *conference, sw
 	return SWITCH_STATUS_SUCCESS;
 }
 
+switch_status_t conference_api_sub_detect_talk_events(conference_obj_t *conference, switch_stream_handle_t *stream, int argc, char **argv)
+{
+	char *arg = NULL;
+
+	if (argc > 2) {
+		arg = argv[2];
+	}
+
+	switch_mutex_lock(conference->mutex);
+	if (!zstr(arg)) {
+		if (!strcasecmp(arg, "on")) {
+			conference_utils_set_flag(conference, CFLAG_TALK_EVENTS);
+			conference_utils_set_eflags("start-talking,stop-talking", &conference->eflags);
+		} else if (!strcasecmp(arg, "off")) {
+			conference_utils_clear_flag(conference, CFLAG_TALK_EVENTS);
+			conference_utils_clear_eflags("start-talking,stop-talking", &conference->eflags);
+		}
+	}
+	switch_mutex_unlock(conference->mutex);
+
+	stream->write_function(stream, "+OK start/stop talk events %s\n", conference_utils_test_flag(conference, CFLAG_TALK_EVENTS) ? "on" : "off");
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
 switch_status_t conference_api_sub_vid_bandwidth(conference_obj_t *conference, switch_stream_handle_t *stream, int argc, char **argv)
 {
 	uint32_t i;
@@ -1941,6 +1968,11 @@ switch_status_t conference_api_sub_list(conference_obj_t *conference, switch_str
 
 			if (conference->record_count > 0) {
 				stream->write_function(stream, "%srecording", fcount ? "|" : "");
+				fcount++;
+			}
+
+			if (conference_utils_test_flag(conference, CFLAG_TALK_EVENTS)) {
+				stream->write_function(stream, "%stalk_events", fcount ? "|" : "");
 				fcount++;
 			}
 
