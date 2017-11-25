@@ -179,6 +179,7 @@ void sofia_glue_attach_private(switch_core_session_t *session, sofia_profile_t *
 	tech_pvt->mparams.jb_msec = profile->jb_msec;
 	tech_pvt->mparams.rtcp_audio_interval_msec = profile->rtcp_audio_interval_msec;
 	tech_pvt->mparams.rtcp_video_interval_msec = profile->rtcp_video_interval_msec;
+	tech_pvt->mparams.rtp_loss_alarm_threshold = profile->rtp_loss_alarm_threshold;
 	tech_pvt->mparams.sdp_username = profile->sdp_username;
 	tech_pvt->mparams.cng_pt = tech_pvt->cng_pt;
 	tech_pvt->mparams.rtp_timeout_sec = profile->rtp_timeout_sec;

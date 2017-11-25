@@ -2652,6 +2652,61 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_read_frame(switch_core_session
 		/* Try to read an RTCP frame, if successful raise an event */
 		if (switch_rtcp_zerocopy_read_frame(engine->rtp_session, &rtcp_frame) == SWITCH_STATUS_SUCCESS) {
 			switch_event_t *event;
+			switch_size_t loss_reported;
+			uint32_t      pkt_lost[MAX_REPORT_BLOCKS];
+			switch_bool_t fire_event = SWITCH_FALSE;
+			int           i;
+			uint32_t      threshold;
+
+			memset((void *)pkt_lost, 0, sizeof(pkt_lost));
+
+			threshold = smh->mparams->rtp_loss_alarm_threshold ? atoi(smh->mparams->rtp_loss_alarm_threshold) : 1000;
+
+			/* Pull all sources which have packet loss reported crossed threshold
+			 */
+			for (i = 0; i < rtcp_frame.report_count; i++) {
+				loss_reported = switch_rtcp_get_fe_rtp_loss_reported(engine->rtp_session, i);
+
+				if (rtcp_frame.reports[i].lost > ((loss_reported / threshold) + 1) * threshold) {
+					pkt_lost[i] = rtcp_frame.reports[i].lost;
+					fire_event = SWITCH_TRUE;
+				}
+			}
+
+			if (fire_event && (switch_event_create(&event, SWITCH_EVENT_RTP_LOSS_ALARM) == SWITCH_STATUS_SUCCESS)) {
+				char value[30];
+				char header[50];
+            
+				char                    *uuid = switch_core_session_get_uuid(session);
+				switch_channel_t        *channel = switch_core_session_get_channel(session);
+				switch_caller_profile_t *caller_profile = switch_channel_get_caller_profile(channel);
+
+				if (uuid) {
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM,
+						                           "Unique-ID", switch_core_session_get_uuid(session));
+				}
+          
+				if (caller_profile && !zstr(caller_profile->network_addr)) {
+					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, 
+								                   "Caller-Network-Addr", caller_profile->network_addr);
+				}
+
+				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Endpoint", "far_end");
+
+				for (i = 0; i < rtcp_frame.report_count; i++) {
+					if (pkt_lost[i] != 0) {
+						snprintf(header, sizeof(header), "Source%u-Lost", i);
+						snprintf(value, sizeof(value), "%u", pkt_lost[i]);
+						switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, header, value);
+
+						switch_rtcp_set_fe_rtp_loss_reported(engine->rtp_session, pkt_lost[i], i);
+					}
+				}
+
+				switch_event_fire(&event);
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG10, 
+				                  "Dispatched far end RTP_LOSS_ALARM event\n");
+			}
 
 			if (switch_event_create(&event, SWITCH_EVENT_RECV_RTCP_MESSAGE) == SWITCH_STATUS_SUCCESS) {
 				char value[30];

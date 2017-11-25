@@ -477,6 +477,8 @@ struct switch_rtp {
 	uint8_t punts;
 	uint8_t clean;
 	uint32_t last_max_vb_frames;
+	switch_size_t ne_rtp_loss_reported;
+	switch_size_t fe_rtp_loss_reported[MAX_REPORT_BLOCKS];
 #ifdef ENABLE_ZRTP
 	zrtp_session_t *zrtp_session;
 	zrtp_profile_t *zrtp_profile;
@@ -1463,6 +1465,16 @@ static void zrtp_logger(int level, const char *data, int len, int offset)
 }
 #endif
 
+SWITCH_DECLARE(switch_size_t) switch_rtcp_get_fe_rtp_loss_reported(switch_rtp_t *rtp_session, int i)
+{
+	return rtp_session->fe_rtp_loss_reported[i];
+}
+
+SWITCH_DECLARE(void) switch_rtcp_set_fe_rtp_loss_reported(switch_rtp_t *rtp_session, uint32_t val, int i)
+{
+	rtp_session->fe_rtp_loss_reported[i] = val;
+}
+
 SWITCH_DECLARE(void) switch_rtp_init(switch_memory_pool_t *pool)
 {
 #ifdef ENABLE_ZRTP
@@ -1803,6 +1815,16 @@ static void rtcp_generate_report_block(switch_rtp_t *rtp_session, struct switch_
 	uint32_t expected_pkt, dlsr;
 	int32_t pkt_lost;
 	uint32_t ntp_sec, ntp_usec, lsr_now, sec;
+	switch_event_t *event;
+	switch_bool_t   fire_event = SWITCH_FALSE;
+	uint32_t        threshold = 1000;
+	switch_media_handle_t *smh = switch_core_session_get_media_handle(rtp_session->session);
+
+	if (smh) {
+		switch_core_media_params_t *mparams = switch_core_media_get_mparams(smh);
+		threshold = mparams->rtp_loss_alarm_threshold ? atoi(mparams->rtp_loss_alarm_threshold) : 1000;
+	}
+
 	now = switch_micro_time_now();
 	sec = (uint32_t)(now/1000000);        /* convert to seconds     */
 	ntp_sec = sec+NTP_TIME_OFFSET;  /* convert to NTP seconds */
@@ -1852,6 +1874,41 @@ static void rtcp_generate_report_block(switch_rtp_t *rtp_session, struct switch_
 	rtcp_report_block->dlsr = htonl(dlsr);
 	rtcp_report_block->ssrc = htonl(rtp_session->stats.rtcp.peer_ssrc);
 	stats->rtcp_rtp_count++;
+
+	/* See if we crossed the nearest threshold (1000) of packets lost from the last reported
+	 * And if yes - fire up an event with the new value of lost inbound packets
+	 */
+	if (stats->cum_lost > ((rtp_session->ne_rtp_loss_reported / threshold) + 1) * threshold) {
+		fire_event = SWITCH_TRUE;
+	}
+
+	if (fire_event && (switch_event_create(&event, SWITCH_EVENT_RTP_LOSS_ALARM) == SWITCH_STATUS_SUCCESS)) {
+		char value[30];
+
+		char                    *uuid = switch_core_session_get_uuid(rtp_session->session);
+		switch_channel_t        *channel = switch_core_session_get_channel(rtp_session->session);
+		switch_caller_profile_t *caller_profile = switch_channel_get_caller_profile(channel);
+
+		if (uuid) {
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Unique-ID",
+						                   switch_core_session_get_uuid(rtp_session->session));
+		}
+
+		if (caller_profile && !zstr(caller_profile->network_addr)) {
+			switch_event_add_header_string(event, SWITCH_STACK_BOTTOM,
+						                   "Caller-Network-Addr", caller_profile->network_addr);
+		}
+
+		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Endpoint", "near_end");
+		snprintf(value, sizeof(value), "%u", stats->cum_lost);
+		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Source-Lost", value);
+
+		switch_event_fire(&event);
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(rtp_session->session), SWITCH_LOG_DEBUG10,
+				          "Dispatched near end RTP_LOSS_ALARM event\n");
+
+		rtp_session->ne_rtp_loss_reported = stats->cum_lost;
+	}
 }
 
 static void rtcp_stats_init(switch_rtp_t *rtp_session)
