@@ -137,6 +137,11 @@ void conference_list(conference_obj_t *conference, switch_stream_handle_t *strea
 			count++;
 		}
 
+		if (conference_utils_member_test_flag(member, MFLAG_ONLYSPEAKTO)) {
+			stream->write_function(stream, "%s%s-%d", count ? "|" : "", "onlyspeakto", member->onlyspeakto);
+			count++;
+		}
+
 		if (member->video_reservation_id) {
 			stream->write_function(stream, "%s%s%s", count ? "|" : "", "res-id:", member->video_reservation_id);
 			count++;
@@ -1708,7 +1713,57 @@ switch_status_t conference_outcall_bg(conference_obj_t *conference,
 	return SWITCH_STATUS_SUCCESS;
 }
 
+/* Function to extract member id parameter for "onlyspeakto" directive
+ *
+ * Returns:  0  - "onlyspeakto" directive has not been specified
+ *          -1  - failed to get the member id for "onlyspeakto"
+ *           ID - attendee member id specified by "onlyspeakto"
+ */
+static int get_onlyspeakto_id(const char *flags)
+{
+	if (flags) {
+		if (switch_strstr((char *)flags, "onlyspeakto")) {
+			char *dup = strdup(flags);
+			char *p;
+			char *argv[10] = { 0 };
+			int i, argc = 0;
 
+			for (p = dup; p && *p; p++) {
+				if (*p == ',') {
+					*p = '|';
+				}
+			}
+
+			argc = switch_separate_string(dup, '|', argv, (sizeof(argv) / sizeof(argv[0])));
+
+			for (i = 0; i < argc && argv[i]; i++) {
+				if (switch_strstr(argv[i], "onlyspeakto")) {
+					int   mid;
+					char *tok;
+					int   ret;
+
+					tok = strtok(argv[i], "=");
+
+					if (tok) {
+						tok = strtok(NULL, "=");
+					}
+
+					ret = sscanf(tok, "%d", &mid);
+
+					if (ret == 1) {
+						return mid;
+					}
+ 
+					break;
+				}
+			}
+
+			return -1;
+		}
+	}
+
+	return 0;
+}
 
 SWITCH_STANDARD_APP(conference_auto_function)
 {
@@ -1822,6 +1877,8 @@ SWITCH_STANDARD_APP(conference_function)
 	int locked = 0;
 	int mpin_matched = 0;
 	uint32_t *mid;
+	int onlyspeakto_id;
+	conference_member_t *imember;
 
 	if (!switch_channel_test_app_flag_key("conference_silent", channel, CONF_SILENT_DONE) &&
 		(switch_channel_test_flag(channel, CF_RECOVERED) || switch_true(switch_channel_get_variable(channel, "conference_silent_entry")))) {
@@ -2372,6 +2429,107 @@ SWITCH_STANDARD_APP(conference_function)
 		conference_video_launch_muxing_write_thread(&member);
 		conference_video_launch_layer_thread(&member);
 	}
+
+	/* if there is already a member with "onlyspeakto" attribute then he probabbly 
+	 * doesn't want to talk to us - create "nospeak" relationship between him and us
+	 */
+	for (imember = conference->members; imember; imember = imember->next) {
+		if (conference_utils_member_test_flag(imember, MFLAG_ONLYSPEAKTO)) {
+			conference_relationship_t *rel = NULL;
+
+			if (imember->id == member.id) {
+				continue;
+			}
+
+			rel = conference_member_get_relationship(imember, &member);
+
+			if (!rel) {
+				rel = conference_member_add_relationship(imember, member.id);
+
+				if (rel) {
+					switch_set_flag(rel, RFLAG_CAN_SPEAK | RFLAG_CAN_HEAR);
+				}
+			}
+
+			switch_clear_flag(rel, RFLAG_CAN_SPEAK);
+		}
+	}
+
+	/* get the member id of the attendee new member only wants to speak to,
+	 * if "onlyspeakto" directive has been specifies
+	 */
+	onlyspeakto_id = get_onlyspeakto_id(flags_str);
+
+	if (onlyspeakto_id == -1) { // failed to get member id value
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, 
+						  "Invalid member id parameter for onlyspeakto directive. Entering muted.\n");
+
+		/* new member should enter the conference muted
+		 */
+		conference_utils_member_clear_flag(&member, MFLAG_CAN_SPEAK);
+		conference_utils_member_clear_flag(&member, MFLAG_TALKING);
+		conference_utils_member_clear_flag(&member, MFLAG_ONLYSPEAKTO);
+	} 
+	else if (onlyspeakto_id) { // we got the member id of the target attendee
+		conference_member_t *other_member;
+		conference_relationship_t *rel = NULL;
+
+		if (member.id == onlyspeakto_id) {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR,
+							  "Invalid onlyspeakto id %d for member id %d - can't talk to itself.\n", 
+							  onlyspeakto_id, member.id);
+
+			/* Putting this member into the conference muted
+			 */
+			conference_utils_member_clear_flag(&member, MFLAG_CAN_SPEAK);
+			conference_utils_member_clear_flag(&member, MFLAG_TALKING);
+			conference_utils_member_clear_flag(&member, MFLAG_ONLYSPEAKTO);
+
+			goto proceed;
+		}
+
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,
+						  "Newly added member %d onlyspeakto member %d.\n", member.id, onlyspeakto_id);
+
+		other_member = conference_member_get(conference, onlyspeakto_id);
+
+		if (other_member) {
+			/* we found the member we want to "onlyspeakto" - create appropriate relationships
+			 * (if don't already exist) with all other members of the conference to reflect 
+			 * the fact that we won't be talking to them
+			 */
+			for (imember = conference->members; imember; imember = imember->next) {
+				if ((imember->id != onlyspeakto_id) && (imember->id != member.id)) {
+					rel = conference_member_get_relationship(&member, imember);
+
+					if (!rel) {
+						rel = conference_member_add_relationship(&member, imember->id);
+
+						if (rel) {
+							switch_set_flag(rel, RFLAG_CAN_SPEAK | RFLAG_CAN_HEAR);
+						}
+					}
+
+					switch_clear_flag(rel, RFLAG_CAN_SPEAK);
+				}
+			}
+
+			conference_utils_member_set_flag(&member, MFLAG_ONLYSPEAKTO);
+			member.onlyspeakto = onlyspeakto_id;
+			switch_thread_rwlock_unlock(other_member->rwlock);
+		} else {
+			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, 
+							  "Failed to find member id %d specified in onlyspeakto.\n", onlyspeakto_id);
+
+			/* put attendee into the conference muted
+			 */
+			conference_utils_member_clear_flag(&member, MFLAG_CAN_SPEAK);
+			conference_utils_member_clear_flag(&member, MFLAG_TALKING);
+			conference_utils_member_clear_flag(&member, MFLAG_ONLYSPEAKTO);
+		}
+	}
+
+proceed:
 
 	msg.from = __FILE__;
 
