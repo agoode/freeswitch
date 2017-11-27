@@ -85,6 +85,7 @@ static const switch_payload_t INVALID_PT = 255;
 #define rtp_session_name(_rtp_session) _rtp_session->session ? switch_core_session_get_name(_rtp_session->session) : "-"
 
 static switch_port_t START_PORT = RTP_START_PORT;
+static const char *dtls_method = "dtls_v1.0" ; 
 static switch_port_t END_PORT = RTP_END_PORT;
 static switch_mutex_t *port_lock = NULL;
 static switch_size_t do_flush(switch_rtp_t *rtp_session, int force, switch_size_t bytes_in);
@@ -2485,6 +2486,13 @@ SWITCH_DECLARE(switch_port_t) switch_rtp_set_end_port(switch_port_t port)
 	return END_PORT;
 }
 
+SWITCH_DECLARE(void) switch_rtp_set_dtls_method(const char *method)
+{
+	if (method) {
+		dtls_method = method ; 
+	}		
+}
+
 SWITCH_DECLARE(void) switch_rtp_release_port(const char *ip, switch_port_t port)
 {
 	switch_core_port_allocator_t *alloc = NULL;
@@ -3621,7 +3629,11 @@ SWITCH_DECLARE(switch_status_t) switch_rtp_add_dtls(switch_rtp_t *rtp_session, d
 
 	dtls->ca = switch_core_sprintf(rtp_session->pool, "%s%sca-bundle.crt", SWITCH_GLOBAL_dirs.certs_dir, SWITCH_PATH_SEPARATOR);
 
-	dtls->ssl_ctx = SSL_CTX_new((type & DTLS_TYPE_SERVER) ? DTLSv1_server_method() : DTLSv1_client_method());
+	if (!strcmp(dtls_method , "dtls_v1.2")) {
+		dtls->ssl_ctx = SSL_CTX_new((type & DTLS_TYPE_SERVER) ? DTLSv1_2_server_method() : DTLSv1_2_client_method());
+	} else {
+		dtls->ssl_ctx = SSL_CTX_new((type & DTLS_TYPE_SERVER) ? DTLSv1_server_method() : DTLSv1_client_method());
+	}
 	switch_assert(dtls->ssl_ctx);
 
 	bio = BIO_new_file(dtls->pem, "r");

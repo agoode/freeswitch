@@ -2296,6 +2296,8 @@ static void switch_load_core_config(const char *file)
 					} else {
 						runtime.timer_affinity = atoi(val);
 					}
+				} else if (!strcasecmp(var, "dtls-method") && !zstr(val)) {
+					switch_rtp_set_dtls_method(val);
 				} else if (!strcasecmp(var, "rtp-start-port") && !zstr(val)) {
 					switch_rtp_set_start_port((switch_port_t) atoi(val));
 				} else if (!strcasecmp(var, "rtp-end-port") && !zstr(val)) {
