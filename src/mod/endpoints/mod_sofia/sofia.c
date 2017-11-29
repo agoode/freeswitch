@@ -9269,7 +9269,7 @@ void sofia_handle_sip_i_refer(nua_t *nua, sofia_profile_t *profile, nua_handle_t
 
 
 						if (!zstr(full_ref_by)) {
-							switch_event_add_header_string(nightmare_xfer_helper->vars, SWITCH_STACK_BOTTOM, "Referred-By", full_ref_by);
+							switch_event_add_header_string(nightmare_xfer_helper->vars, SWITCH_STACK_BOTTOM, SOFIA_SIP_HEADER_PREFIX "Referred-By", full_ref_by);
 						}
 
 						if (!zstr(full_ref_to)) {
