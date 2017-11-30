@@ -11136,6 +11136,52 @@ void sofia_handle_sip_i_invite(switch_core_session_t *session, nua_t *nua, sofia
 								switch_true(switch_find_parameter(*(sip->sip_replaces->rp_params), "early-only", switch_core_session_get_pool(session)))) {
 								switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "call %s intercept rejected\n", bridge_uuid);
 								tech_pvt->caller_profile->destination_number = switch_core_sprintf(tech_pvt->caller_profile->pool, "hangup:CALL_REJECTED");
+
+							/* If the b_channel is originating and calling multiple endpoints, an intercept will cause     */
+							/* all but one of the called endpoints to be cancelled. This has to be handled similarly       */
+							/* to the non-nightmare transfer in order for all of the called endpoints to continue ringing. */
+							} else if (switch_channel_test_flag(b_channel, CF_ORIGINATOR)) {
+								private_object_t *b_tech_pvt = (private_object_t *) switch_core_session_get_private(b_session);
+								switch_caller_profile_t *bprof = switch_channel_get_caller_profile(b_channel);
+								const char *moh = profile->hold_music;
+								const char *moh_tmp;
+
+								switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_NOTICE, "Nightmare transfer on originating session %s\n", switch_core_session_get_uuid(b_session));
+
+								switch_channel_set_variable(b_channel, SWITCH_ENDPOINT_DISPOSITION_VARIABLE, "ATTENDED_TRANSFER");
+
+								sofia_clear_flag_locked(b_tech_pvt, TFLAG_SIP_HOLD);
+								switch_channel_clear_flag(b_channel, CF_LEG_HOLDING);
+								sofia_clear_flag_locked(tech_pvt, TFLAG_HOLD_LOCK);
+
+								switch_channel_set_variable(b_channel, SWITCH_HOLDING_UUID_VARIABLE, switch_core_session_get_uuid(session));
+								switch_channel_set_flag(b_channel, CF_XFER_ZOMBIE);
+								switch_channel_set_flag(b_channel, CF_TRANSFER);
+
+								if ((moh_tmp = switch_channel_get_hold_music(b_channel))) {
+									moh = moh_tmp;
+								}
+								if (!zstr(moh) && strcasecmp(moh, "silence")) {
+									switch_channel_set_variable(channel, "att_xfer_nightmare_moh", moh);
+								}
+
+								switch_core_event_hook_add_state_change(session, xfer_hanguphook);
+								switch_channel_set_variable(channel, "att_xfer_kill_uuid", switch_core_session_get_uuid(b_session));
+								switch_channel_set_variable(channel, "att_xfer_destination_number", bprof->destination_number);
+								switch_channel_set_variable(channel, "att_xfer_callee_id_name", bprof->callee_id_name);
+								switch_channel_set_variable(channel, "att_xfer_callee_id_number", bprof->callee_id_number);
+								switch_channel_set_variable(channel, "att_xfer_nightmare_on_originating", "true");
+
+								if (profile->media_options & MEDIA_OPT_BYPASS_AFTER_ATT_XFER) {
+									switch_channel_set_flag(channel, CF_BYPASS_MEDIA_AFTER_BRIDGE);
+								}
+
+								if (sofia_test_pflag(profile, PFLAG_FIRE_TRANFER_EVENTS) &&
+									switch_event_create_subclass(&event, SWITCH_EVENT_CUSTOM, MY_EVENT_INTERCEPTED) == SWITCH_STATUS_SUCCESS) {
+										switch_channel_event_set_data(b_channel, event);
+										switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "intercepted_by", sip->sip_call_id->i_id);
+										switch_event_fire(&event);
+								}
 							} else {
 									switch_channel_mark_hold(b_channel, SWITCH_FALSE);
 									tech_pvt->caller_profile->destination_number = switch_core_sprintf(tech_pvt->caller_profile->pool, "answer,intercept:%s", bridge_uuid);
