@@ -168,7 +168,8 @@ typedef enum { /* FMT Values for PSFB Payload Types http://www.iana.org/assignme
 	_RTCP_PSFB_AFB   = 15 /* AFB Application layer FB */
 } rtcp_psfb_t;
 
-
+SWITCH_DECLARE(switch_size_t) switch_rtcp_get_fe_rtp_loss_reported(switch_rtp_t *rtp_session, int i);
+SWITCH_DECLARE(void) switch_rtcp_set_fe_rtp_loss_reported(switch_rtp_t *rtp_session, uint32_t val, int i);
 
 SWITCH_DECLARE(switch_status_t) switch_rtp_add_crypto_key(switch_rtp_t *rtp_session,
 														  switch_rtp_crypto_direction_t direction,

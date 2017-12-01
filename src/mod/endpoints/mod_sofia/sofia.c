@@ -5207,6 +5207,8 @@ switch_status_t config_sofia(sofia_config_t reload, char *profile_name)
 						profile->rtcp_audio_interval_msec = switch_core_strdup(profile->pool, val);
 					} else if (!strcasecmp(var, "rtcp-video-interval-msec")) {
 						profile->rtcp_video_interval_msec = switch_core_strdup(profile->pool, val);
+					} else if (!strcasecmp(var, "rtp-loss-alarm-threshold")) {
+						profile->rtp_loss_alarm_threshold = switch_core_strdup(profile->pool, val);
 					} else if (!strcasecmp(var, "session-timeout") && !zstr(val)) {
 						int v_session_timeout = atoi(val);
 						if (v_session_timeout >= 0) {
