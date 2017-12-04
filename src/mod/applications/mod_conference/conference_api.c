@@ -3641,6 +3641,12 @@ switch_status_t conference_api_sub_get(conference_obj_t *conference,
 		} else if (strcasecmp(argv[2], "wait_mod") == 0) {
 			stream->write_function(stream, "%s",
 								   conference_utils_test_flag(conference, CFLAG_WAIT_MOD) ? "true" : "");
+		} else if (strcasecmp(argv[2], "pin") == 0) {
+			stream->write_function(stream, "%s",
+								   conference->pin);
+		} else if (strcasecmp(argv[2], "mpin") == 0) {
+			stream->write_function(stream, "%s",
+								   conference->mpin);
 		} else {
 			ret_status = SWITCH_STATUS_FALSE;
 		}

@@ -2142,13 +2142,23 @@ SWITCH_STANDARD_APP(conference_function)
 		/* Moderator PIN as a channel variable */
 		mdpin = switch_channel_get_variable(channel, "conference_moderator_pin");
 
+		// set the conference dpin
 		if (zstr(dpin) && conference->pin) {
 			dpin = conference->pin;
-		}
-		if (zstr(mdpin) && conference->mpin) {
-			mdpin = conference->mpin;
+
+		// set the conference pin
+		} else if (!zstr(dpin)){
+			conference->pin = switch_core_strdup(conference->pool, dpin);
 		}
 
+		// set the conference mdpin
+		if (zstr(mdpin) && conference->mpin) {
+			mdpin = conference->mpin;
+
+		// set the conference mpin
+		} else if (!zstr(mdpin)){
+			conference->mpin = switch_core_strdup(conference->pool, mdpin);
+		}
 
 		/* if this is not an outbound call, deal with conference pins */
 		if (enforce_security && (!zstr(dpin) || !zstr(mdpin))) {
