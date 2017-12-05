@@ -5813,7 +5813,7 @@ SWITCH_DECLARE(uint8_t) switch_core_media_negotiate_sdp(switch_core_session_t *s
 																			matches[j].imp->number_of_channels,
 																			SWITCH_TRUE);
 
-					if (j == 0) {
+					if (j == 0 && (v_engine->cur_payload_map->current == 0)) {
 						v_engine->cur_payload_map = pmap;
 						v_engine->cur_payload_map->current = 1;
 						if (v_engine->rtp_session) {
