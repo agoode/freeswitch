@@ -11002,6 +11002,8 @@ void sofia_handle_sip_i_invite(switch_core_session_t *session, nua_t *nua, sofia
 			}
 			
 			orig_cp = switch_channel_get_caller_profile(b_channel);
+
+#if 0
 			tech_pvt->caller_profile->callee_id_name = switch_core_strdup(tech_pvt->caller_profile->pool, orig_cp->callee_id_name);
 			tech_pvt->caller_profile->callee_id_number = switch_core_strdup(tech_pvt->caller_profile->pool, orig_cp->callee_id_number);
 			
@@ -11009,7 +11011,8 @@ void sofia_handle_sip_i_invite(switch_core_session_t *session, nua_t *nua, sofia
 				tech_pvt->caller_profile->caller_id_name = switch_core_strdup(tech_pvt->caller_profile->pool, orig_cp->caller_id_name);
 				tech_pvt->caller_profile->caller_id_number = switch_core_strdup(tech_pvt->caller_profile->pool, orig_cp->caller_id_number);
 			}
-			
+#endif
+
 			if (orig_cp) {
 				cp = switch_caller_profile_dup(tech_pvt->caller_profile->pool, orig_cp);
 				switch_channel_set_originator_caller_profile(channel, cp);
