@@ -2889,7 +2889,7 @@ SWITCH_STANDARD_APP(callcenter_function)
 	switch_core_session_t *member_session = session;
 	switch_channel_t *member_channel = switch_core_session_get_channel(member_session);
 	char *sql = NULL;
-	char *member_session_uuid = switch_core_session_get_uuid(member_session);
+	const char *member_session_uuid = switch_core_session_get_uuid(member_session);
 	struct member_thread_helper *h = NULL;
 	switch_thread_t *thread;
 	switch_threadattr_t *thd_attr = NULL;

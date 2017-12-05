@@ -2499,7 +2499,7 @@ SWITCH_DECLARE(uint8_t) switch_core_session_check_interface(switch_core_session_
 	return (uint8_t) (session->endpoint_interface == endpoint_interface);
 }
 
-SWITCH_DECLARE(char *) switch_core_session_get_uuid(switch_core_session_t *session)
+SWITCH_DECLARE(const char *) switch_core_session_get_uuid(const switch_core_session_t *session)
 {
 	if (!session) return NULL;
 	return session->uuid_str;

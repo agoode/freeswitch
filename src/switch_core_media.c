@@ -2658,7 +2658,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_read_frame(switch_core_session
 				char header[50];
 				int i;
 
-				char *uuid = switch_core_session_get_uuid(session);
+				const char *uuid = switch_core_session_get_uuid(session);
 				if (uuid) {
 					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "Unique-ID", switch_core_session_get_uuid(session));
 				}

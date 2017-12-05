@@ -81,7 +81,7 @@ void conference_list(conference_obj_t *conference, switch_stream_handle_t *strea
 	for (member = conference->members; member; member = member->next) {
 		switch_channel_t *channel;
 		switch_caller_profile_t *profile;
-		char *uuid;
+		const char *uuid;
 		char *name;
 		uint32_t count = 0;
 
@@ -1183,7 +1183,7 @@ void conference_xlist(conference_obj_t *conference, switch_xml_t x_conference, i
 	for (member = conference->members; member; member = member->next) {
 		switch_channel_t *channel;
 		switch_caller_profile_t *profile;
-		char *uuid;
+		const char *uuid;
 		//char *name;
 		uint32_t count = 0;
 		switch_xml_t x_tag;
@@ -1804,7 +1804,7 @@ SWITCH_STANDARD_APP(conference_function)
 	conference_obj_t *conference = NULL;
 	switch_channel_t *channel = switch_core_session_get_channel(session);
 	char *mydata = NULL;
-	char *conference_name = NULL;
+	const char *conference_name = NULL;
 	char *bridge_prefix = "bridge:";
 	char *flags_prefix = "+flags{";
 	char *bridgeto = NULL;
@@ -1956,7 +1956,7 @@ SWITCH_STANDARD_APP(conference_function)
 	}
 
 	if (isbr) {
-		char *uuid = switch_core_session_get_uuid(session);
+		const char *uuid = switch_core_session_get_uuid(session);
 
 		if (!strcmp(conference_name, "_uuid_")) {
 			conference_name = uuid;
@@ -2542,7 +2542,7 @@ void conference_launch_thread(conference_obj_t *conference)
 	switch_thread_create(&thread, thd_attr, conference_thread_run, conference, conference->pool);
 }
 
-conference_obj_t *conference_find(char *name, char *domain)
+conference_obj_t *conference_find(const char *name, char *domain)
 {
 	conference_obj_t *conference;
 
@@ -2590,7 +2590,7 @@ const char *conference_get_variable(conference_obj_t *conference, const char *va
 }
 
 /* create a new conferene with a specific profile */
-conference_obj_t *conference_new(char *name, conference_xml_cfg_t cfg, switch_core_session_t *session, switch_memory_pool_t *pool)
+conference_obj_t *conference_new(const char *name, conference_xml_cfg_t cfg, switch_core_session_t *session, switch_memory_pool_t *pool)
 {
 	conference_obj_t *conference;
 	switch_xml_t xml_kvp;

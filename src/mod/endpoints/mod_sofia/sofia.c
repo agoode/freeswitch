@@ -8524,7 +8524,7 @@ void *SWITCH_THREAD_FUNC nightmare_xfer_thread_run(switch_thread_t *thread, void
 		switch_core_session_t *tsession = NULL;
 		switch_call_cause_t cause = SWITCH_CAUSE_NORMAL_CLEARING;
 		uint32_t timeout = 60;
-		char *tuuid_str;
+		const char *tuuid_str;
 
 		if ((session = switch_core_session_locate(nhelper->reply_uuid))) {
 			private_object_t *tech_pvt = switch_core_session_get_private(session);

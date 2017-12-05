@@ -253,7 +253,7 @@ switch_status_t skinny_device_event(listener_t *listener, switch_event_t **ev, s
 
 /*****************************************************************************/
 /*****************************************************************************/
-switch_status_t skinny_session_walk_lines(skinny_profile_t *profile, char *channel_uuid, switch_core_db_callback_func_t callback, void *data)
+switch_status_t skinny_session_walk_lines(skinny_profile_t *profile, const char *channel_uuid, switch_core_db_callback_func_t callback, void *data)
 {
 	char *sql;
 	if ((sql = switch_mprintf(

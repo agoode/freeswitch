@@ -1103,7 +1103,7 @@ uint32_t conference_file_stop(conference_obj_t *conference, file_stop_t stop);
 switch_status_t conference_file_play(conference_obj_t *conference, char *file, uint32_t leadin, switch_channel_t *channel, uint8_t async);
 void conference_member_send_all_dtmf(conference_member_t *member, conference_obj_t *conference, const char *dtmf);
 switch_status_t conference_say(conference_obj_t *conference, const char *text, uint32_t leadin);
-conference_obj_t *conference_find(char *name, char *domain);
+conference_obj_t *conference_find(const char *name, char *domain);
 void conference_member_bind_controls(conference_member_t *member, const char *controls);
 void conference_send_presence(conference_obj_t *conference);
 void conference_video_set_floor_holder(conference_obj_t *conference, conference_member_t *member, switch_bool_t force);
@@ -1139,7 +1139,7 @@ switch_status_t conference_file_local_play(conference_obj_t *conference, switch_
 switch_status_t conference_member_play_file(conference_member_t *member, char *file, uint32_t leadin, switch_bool_t mux);
 switch_status_t conference_member_say(conference_member_t *member, char *text, uint32_t leadin);
 uint32_t conference_member_stop_file(conference_member_t *member, file_stop_t stop);
-conference_obj_t *conference_new(char *name, conference_xml_cfg_t cfg, switch_core_session_t *session, switch_memory_pool_t *pool);
+conference_obj_t *conference_new(const char *name, conference_xml_cfg_t cfg, switch_core_session_t *session, switch_memory_pool_t *pool);
 switch_status_t chat_send(switch_event_t *message_event);
 
 

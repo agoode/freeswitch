@@ -1095,7 +1095,7 @@ SWITCH_DECLARE(switch_status_t) switch_channel_set_name(switch_channel_t *channe
 	}
 	channel->name = NULL;
 	if (name) {
-		char *uuid = switch_core_session_get_uuid(channel->session);
+		const char *uuid = switch_core_session_get_uuid(channel->session);
 		channel->name = switch_core_session_strdup(channel->session, name);
 		switch_channel_set_variable(channel, SWITCH_CHANNEL_NAME_VARIABLE, name);
 		if (old) {
@@ -2711,7 +2711,7 @@ SWITCH_DECLARE(void) switch_channel_step_caller_profile(switch_channel_t *channe
 
 SWITCH_DECLARE(void) switch_channel_set_caller_profile(switch_channel_t *channel, switch_caller_profile_t *caller_profile)
 {
-	char *uuid = NULL;
+	const char *uuid = NULL;
 	switch_assert(channel != NULL);
 	switch_assert(channel->session != NULL);
 	switch_mutex_lock(channel->profile_mutex);
@@ -2882,7 +2882,7 @@ SWITCH_DECLARE(switch_caller_profile_t *) switch_channel_get_originatee_caller_p
 	return profile;
 }
 
-SWITCH_DECLARE(char *) switch_channel_get_uuid(switch_channel_t *channel)
+SWITCH_DECLARE(const char *) switch_channel_get_uuid(switch_channel_t *channel)
 {
 	switch_assert(channel != NULL);
 	switch_assert(channel->session != NULL);

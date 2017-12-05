@@ -258,7 +258,7 @@ SWITCH_DECLARE(switch_caller_profile_t *) switch_channel_get_origination_caller_
   \param channel channel to retrieve the unique id from
   \return the unique id
 */
-SWITCH_DECLARE(char *) switch_channel_get_uuid(switch_channel_t *channel);
+SWITCH_DECLARE(const char *) switch_channel_get_uuid(switch_channel_t *channel);
 
 /*!
   \brief Set a variable on a given channel

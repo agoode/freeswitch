@@ -871,7 +871,7 @@ SWITCH_DECLARE(void) switch_core_session_signal_state_change(_In_ switch_core_se
   \param session the session to retrieve the uuid from
   \return a string representing the uuid
 */
-SWITCH_DECLARE(char *) switch_core_session_get_uuid(_In_ switch_core_session_t *session);
+SWITCH_DECLARE(const char *) switch_core_session_get_uuid(_In_ const switch_core_session_t *session);
 
 
 /*!
