@@ -414,6 +414,9 @@ static switch_status_t config(void) {
 				} else if (!strcmp(var, "io-fault-tolerance")) {
 					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Set io-fault-tolerance: %s\n", val);
 					kazoo_globals.io_fault_tolerance = atoi(val);
+				} else if (!strcmp(var, "num-worker-threads")) {
+					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Set num-worker-threads: %s\n", val);
+					kazoo_globals.num_worker_threads = atoi(val);
 				}
 			}
 		}
