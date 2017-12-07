@@ -13,7 +13,7 @@ AC_SUBST(SWITCH_VERSION_REVISION_HUMAN, [])
 AC_CONFIG_FILES([src/include/switch_version.h.in:src/include/switch_version.h.template])
 
 AC_CONFIG_AUX_DIR(build/config)
-AM_INIT_AUTOMAKE
+AM_INIT_AUTOMAKE([foreign subdir-objects])
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 AC_CONFIG_SRCDIR([src/switch.c])
 AC_CONFIG_HEADER([src/include/switch_private.h])
@@ -1460,6 +1460,14 @@ PKG_CHECK_MODULES([BROTLIDEC], [libbrotlidec >= 0.1.0],[
 PKG_CHECK_MODULES([TAP], [tap >= 0.1.0],[
   AM_CONDITIONAL([HAVE_TAP],[true])],[
   AC_MSG_RESULT([no]); AM_CONDITIONAL([HAVE_TAP],[false])])
+
+PKG_CHECK_MODULES([libre], [libre >= 0.4.14],[
+  AM_CONDITIONAL([HAVE_LIBRE],[true])],[
+  AC_MSG_RESULT([no]); AM_CONDITIONAL([HAVE_LIBRE],[false])])
+
+PKG_CHECK_MODULES([libbaresip], [libbaresip >= 0.4.16],[
+  AM_CONDITIONAL([HAVE_BARESIP],[true])],[
+  AC_MSG_RESULT([no]); AM_CONDITIONAL([HAVE_BARESIP],[false])])
 
 PKG_CHECK_MODULES([SMPP34], [libsmpp34 >= 1.10],[
   AM_CONDITIONAL([HAVE_SMPP34],[true])],[

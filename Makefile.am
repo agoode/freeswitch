@@ -1,6 +1,5 @@
 EXTRA_DIST =
 SUBDIRS = . src build
-AUTOMAKE_OPTIONS = foreign subdir-objects
 NAME = freeswitch
 
 if SYSTEM_APR
@@ -858,9 +857,13 @@ support:
 
 check_PROGRAMS =
 
-include tests/unit/unit.mk
+FSTESTLD = $(top_builddir)/libfreeswitch.la $(top_builddir)/libs/apr/libapr-1.la $(top_builddir)/libs/apr-util/libaprutil-1.la
 
-TESTS = $(check_PROGRAMS)
+include tests/unit/unit.mk
+include tests/calls/calls.mk
+
+TESTS = $(check_PROGRAMS) tests/calls/fs_shutdown.sh
 
 tests: $(check_PROGRAMS)
 
+clean-local: clean-local-calls

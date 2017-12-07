@@ -1,0 +1,10 @@
+fs_run/*
+*.log
+*.trs
+.dirstamp
+invite_invalid_ext
+invite_invalid_headers
+invite_invalid_sdp
+invite_simple
+ua_register
+					
