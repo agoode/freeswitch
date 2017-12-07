@@ -666,14 +666,34 @@ static void *audio_bridge_thread(switch_thread_t *thread, void *obj)
 			if ((bypass_media_after_bridge || switch_channel_test_flag(chan_b, CF_BYPASS_MEDIA_AFTER_BRIDGE)) && switch_channel_test_flag(chan_a, CF_ANSWERED)
 				&& switch_channel_test_flag(chan_b, CF_ANSWERED)) {
 
+				int ignore_bypass_media  = 0;
+				int bypass_media_not_transcoding = 0;
+
+				if (switch_true(switch_channel_get_variable_dup(chan_a, "bypass_media_not_transcoding", SWITCH_FALSE, -1)))
+					bypass_media_not_transcoding = 1;
+
 				if (switch_true(switch_channel_get_variable_dup(chan_a, "bypass_media_after_bridge_oldschool", SWITCH_FALSE, -1))) {
-					switch_ivr_nomedia(switch_core_session_get_uuid(session_a), SMF_REBRIDGE);
+					if (switch_ivr_nomedia(switch_core_session_get_uuid(session_a), SMF_REBRIDGE) == SWITCH_STATUS_INUSE) {
+						bypass_media_after_bridge = 0;
+						switch_channel_clear_flag(chan_b, CF_BYPASS_MEDIA_AFTER_BRIDGE);
+						ignore_bypass_media = bypass_media_not_transcoding;
+					}
 				} else {
-					switch_ivr_3p_nomedia(switch_core_session_get_uuid(session_a), SMF_REBRIDGE);
+					if (switch_ivr_3p_nomedia(switch_core_session_get_uuid(session_a), SMF_REBRIDGE) == SWITCH_STATUS_INUSE) {
+						bypass_media_after_bridge = 0;
+						switch_channel_clear_flag(chan_b, CF_BYPASS_MEDIA_AFTER_BRIDGE);
+						ignore_bypass_media = bypass_media_not_transcoding;
+					}
 				}
-				bypass_media_after_bridge = 0;
-				switch_channel_clear_flag(chan_b, CF_BYPASS_MEDIA_AFTER_BRIDGE);
-				goto end_of_bridge_loop;
+
+				if (!ignore_bypass_media) {
+					bypass_media_after_bridge = 0;
+					switch_channel_clear_flag(chan_b, CF_BYPASS_MEDIA_AFTER_BRIDGE);
+					goto end_of_bridge_loop;
+				}
+				else {
+					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session_a), SWITCH_LOG_DEBUG, "Ignoring bypass media because media in-use on %s\n", switch_channel_get_name(chan_a));
+				}
 			}
 		}
 

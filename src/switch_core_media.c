@@ -12172,6 +12172,10 @@ SWITCH_DECLARE(switch_status_t) switch_core_media_receive_message(switch_core_se
 		}
 		goto end;
 	case SWITCH_MESSAGE_INDICATE_TRANSCODING_NECESSARY:
+
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Transcoding required on this call.\n");
+		switch_channel_set_variable(session->channel, "transcoding_necessary", "true");
+
 		if (a_engine->rtp_session && switch_rtp_test_flag(a_engine->rtp_session, SWITCH_RTP_FLAG_PASS_RFC2833)) {
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "Pass 2833 mode may not work on a transcoded call.\n");
 		}

@@ -1821,6 +1821,14 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_3p_nomedia(const char *uuid, switch_m
 		status = SWITCH_STATUS_SUCCESS;
 		channel = switch_core_session_get_channel(session);
 
+		if (switch_true(switch_channel_get_variable_dup(channel, "bypass_media_not_transcoding", SWITCH_FALSE, -1))) {
+			if (switch_channel_var_true(channel, "transcoding_necessary")) {
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,  "Transcoding is necessary!\n");
+				switch_core_session_rwunlock(session);
+				return SWITCH_STATUS_INUSE;
+			}
+		}
+
 		if (switch_channel_test_flag(channel, CF_MEDIA_TRANS) || (!(flags & SMF_FORCE) && switch_channel_test_flag(channel, CF_PROXY_MODE))) {
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR,  "Operation is invalid\n");
 			switch_core_session_rwunlock(session);
@@ -1837,6 +1845,14 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_3p_nomedia(const char *uuid, switch_m
 			if ((flags & SMF_REBRIDGE) && (other_uuid = switch_channel_get_variable(channel, SWITCH_BRIDGE_VARIABLE)) &&
 				(other_session = switch_core_session_locate(other_uuid))) {
 				other_channel = switch_core_session_get_channel(other_session);
+
+				if (switch_true(switch_channel_get_variable_dup(other_channel, "bypass_media_not_transcoding", SWITCH_FALSE, -1))) {
+					if (switch_channel_var_true(other_channel, "transcoding_necessary")) {
+						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,  "Transcoding is necessary!\n");
+						switch_core_session_rwunlock(session);
+						return SWITCH_STATUS_INUSE;
+					}
+				}
 
 				switch_channel_set_flag(channel, CF_REDIRECT);
 				switch_channel_set_flag(channel, CF_RESET);
@@ -1935,6 +1951,14 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_nomedia(const char *uuid, switch_medi
 			return SWITCH_STATUS_FALSE;
 		}
 
+		if (switch_true(switch_channel_get_variable_dup(channel, "bypass_media_not_transcoding", SWITCH_FALSE, -1))) {
+			if (switch_channel_var_true(channel, "transcoding_necessary")) {
+				switch_core_session_rwunlock(session);
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,  "Transcoding is necessary!\n");
+				return SWITCH_STATUS_INUSE;
+			}
+		}
+
 		if (switch_channel_test_flag(channel, CF_MEDIA_TRANS)) {
 			switch_core_session_rwunlock(session);
 			return SWITCH_STATUS_INUSE;
@@ -1953,6 +1977,14 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_nomedia(const char *uuid, switch_medi
 			if ((flags & SMF_REBRIDGE) && (other_uuid = switch_channel_get_variable(channel, SWITCH_BRIDGE_VARIABLE)) &&
 				(other_session = switch_core_session_locate(other_uuid))) {
 				other_channel = switch_core_session_get_channel(other_session);
+
+				if (switch_true(switch_channel_get_variable_dup(other_channel, "bypass_media_not_transcoding", SWITCH_FALSE, -1))) {
+					if (switch_channel_var_true(other_channel, "transcoding_necessary")) {
+						switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,  "Transcoding is necessary!\n");
+						switch_core_session_rwunlock(session);
+						return SWITCH_STATUS_INUSE;
+					}
+				}
 
 				switch_channel_set_flag(other_channel, CF_RESET);
 				switch_channel_set_flag(other_channel, CF_REDIRECT);
