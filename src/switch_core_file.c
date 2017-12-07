@@ -232,8 +232,14 @@ SWITCH_DECLARE(switch_status_t) switch_core_perform_file_open(const char *file, 
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Invalid video profile: %s\n", val);
 			}
 		}
-	}
 
+		if ((val = switch_event_get_header(fh->params, "vol"))) {
+			tmp = atoi(val);
+			if (tmp != 0) {
+				fh->vol = tmp;
+			}
+		}
+	}
 	if (switch_directory_exists(file_path, fh->memory_pool) == SWITCH_STATUS_SUCCESS) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "File [%s] is a directory not a file.\n", file_path);
 		status = SWITCH_STATUS_GENERR;

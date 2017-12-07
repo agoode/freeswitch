@@ -1899,7 +1899,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_play_file(switch_core_session_t *sess
 #endif
 #endif
 			if (!switch_test_flag(fh, SWITCH_FILE_NATIVE) && fh->vol) {
-				switch_change_sln_volume(write_frame.data, write_frame.datalen / 2, fh->vol);
+				switch_change_sln_volume_granular(write_frame.data, write_frame.datalen / 2, fh->vol);
 			}
 
 			/* write silence while dmachine is in reading state */
