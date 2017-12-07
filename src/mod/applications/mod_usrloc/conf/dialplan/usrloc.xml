@@ -1,0 +1,30 @@
+<include>
+
+    <extension name="ring_1000">
+        <condition field="destination_number" expression="^(1000)$">
+            <action application "bridge" data="usrloc/${sofia_profile}/${domain_name}/$1"/>
+        </condition>
+    </extension>
+
+    <extension name="ring_1001">
+        <condition field="destination_number" expression="^(1001)$">
+            <action application="usrloc" data="${sofia_profile} ${domain_name} $1"/>
+            <action application="bridge" data="${usrloc_auto_route}"/>
+        </condition>
+    </extension>
+
+    <extension name="ring_domain">
+        <condition field="destination_number" expression="^(555)$">
+            <!-- all phones in domain -->
+            <action application "bridge" data="usrloc/internal/${domain_name}"/>
+        </condition>
+    </extension>
+
+    <extension name="ring_domain2">
+        <condition field="destination_number" expression="^(1001)$">
+            <action application="usrloc" data="${sofia_profile} ${domain_name}"/>
+            <action application="bridge" data="${usrloc_auto_route}"/>
+        </condition>
+    </extension>
+
+</include>
