@@ -1,0 +1,10 @@
+DONE: 1. Decide on a way to pass params into this module.
+DONE: 2. Generate key and iv from password(passed in) and random salt
+3. Figure out how to decrypt file from password and no salt
+   - Read first block, and that will have the salt.
+4. ? Can you know the length of the decrypted file prior to full decryption?
+5. Don't read any data into audio buffer on open. Wait for read() to be called.
+6. Handle clean shutdown/close.
+7. Handle seeking in file. 
+8. Handle recording to an encrypted file.
+9. Enable mod_local_stream to pass params in {}'s to files in a directory.

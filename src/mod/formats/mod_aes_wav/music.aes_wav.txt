@@ -1,0 +1,4 @@
+root@quentus-dev1:/usr/src/freeswitch_mod_aes.git# openssl enc -aes-256-ctr -in ./suite-espanola-op-47-leyenda.wav -out ./music.aes_wav -salt -pass pass:freeswitch -p -S C1B48A1489B571F5 -md sha256
+salt=C1B48A1489B571F5
+key=D12806AEEAB5D7F5C6B38C93B2E0C116C3E7257BFBA7024280965A879D918411
+iv =CD175F1E1CFB9521D2FB7D6AB1C9CEFE

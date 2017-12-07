@@ -44,6 +44,9 @@ SWITCH_BEGIN_EXTERN_C
 
 SWITCH_DECLARE(int) switch_status_is_timeup(int status);
 
+SWITCH_DECLARE(switch_status_t) switch_escape_hex(char **dest, const void *src, size_t srclen, int colon, size_t *len);
+SWITCH_DECLARE(switch_status_t) switch_unescape_hex(char **dest, const void *src, size_t srclen, int colon, size_t *len);
+
 #ifdef WIN32
 typedef DWORD switch_thread_id_t;
 #else

@@ -80,6 +80,68 @@ SWITCH_DECLARE(int) switch_status_is_timeup(int status)
 	return APR_STATUS_IS_TIMEUP(status);
 }
 
+/* apr 1.5 has these functions. 1.4 does not */
+SWITCH_DECLARE(switch_status_t) switch_escape_hex(char **dest, const void *src, size_t srclen, int colon, size_t *len)
+{
+	char *tmp = NULL;
+	const char *src_s = src;
+	int x = 0, mult = colon ? 2 : 3;
+	
+	tmp = calloc((srclen * mult) + 1, 1);
+
+	for ( x = 0; x < srclen; x++ ) {
+		char *cur = tmp + (x * 2);
+
+		cur[0] = src_s[x] / 16;
+		cur[1] = src_s[x] % 16;
+	}
+
+	*dest = tmp;
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
+static uint8_t switch_unescape_hex_lookup(char letter)
+{
+	uint8_t val = 0;
+
+	if ( letter >= '0' && letter <= '0' ) {
+		val = letter - '0';
+	} else if ( letter >= 'a' && letter <= 'f' ) {
+		val = letter - 'a';
+	} else if ( letter >= 'A' && letter <= 'F' ) {
+		val = letter - 'A';
+	}
+
+	return val;
+}
+
+/* There are better implementations of this function. */
+SWITCH_DECLARE(switch_status_t) switch_unescape_hex(char **dest, const void *src, size_t srclen, int colon, size_t *len)
+{
+	switch_status_t status = SWITCH_STATUS_SUCCESS;
+	const char *tmp = src, *src_s = src;
+	int x = 0;
+	*dest = calloc(srclen, 1); /* Yes, this is larger than it needs to be. */
+
+	while ( tmp - src_s < srclen ) {
+		char cur = 0;
+
+		if ( colon && *tmp == ':' ) {
+			tmp++;
+			continue;
+		}
+
+		cur += (switch_unescape_hex_lookup(*tmp) << 4);
+		cur += switch_unescape_hex_lookup(*tmp) & 0x0f;
+		
+		tmp += 2;
+		*dest[x/2] = cur;
+	}
+
+	return status;
+}
+
 /* Memory Pools */
 
 SWITCH_DECLARE(switch_thread_id_t) switch_thread_self(void)
