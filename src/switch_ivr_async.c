@@ -1952,6 +1952,44 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_eavesdrop_update_display(switch_core_
 	return status;
 }
 
+SWITCH_DECLARE(switch_status_t) switch_ivr_eavesdrop_check_group(const char* uuid, const char* require_group)
+{
+	switch_status_t status = SWITCH_STATUS_FALSE;
+	switch_core_session_t *tsession;
+
+	if ((tsession = switch_core_session_locate(uuid))) {
+		switch_channel_t *tchannel = switch_core_session_get_channel(tsession);
+
+		if (!zstr(require_group)) {
+			int argc, i;
+			int ok = 0;
+			char *argv[10] = { 0 };
+			char *data;
+
+			const char *group_name = switch_channel_get_variable(tchannel, "eavesdrop_group");
+			if (group_name) {
+				/* Separate the group */
+				data = strdup(group_name);
+				if ((argc = switch_separate_string(data, ',', argv, (sizeof(argv) / sizeof(argv[0]))))) {
+					for (i = 0; i < argc; i++) {
+						/* If one of the group matches, then ok */
+						if (argv[i] && !strcmp(argv[i], require_group)) {
+							ok = 1;
+						}
+					}
+				}
+				switch_safe_free(data);
+			}
+
+			if (ok)
+				status = SWITCH_STATUS_SUCCESS;
+		}
+
+		switch_core_session_rwunlock(tsession);
+	}
+
+	return status;
+}
 
 SWITCH_DECLARE(switch_status_t) switch_ivr_eavesdrop_session(switch_core_session_t *session,
 															 const char *uuid, const char *require_group, switch_eavesdrop_flag_t flags)

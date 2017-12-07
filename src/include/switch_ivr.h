@@ -299,6 +299,7 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_transfer_recordings(switch_core_sessi
 SWITCH_DECLARE(switch_status_t) switch_ivr_eavesdrop_pop_eavesdropper(switch_core_session_t *session, switch_core_session_t **sessionp);
 SWITCH_DECLARE(switch_status_t) switch_ivr_eavesdrop_exec_all(switch_core_session_t *session, const char *app, const char *arg);
 SWITCH_DECLARE(switch_status_t) switch_ivr_eavesdrop_update_display(switch_core_session_t *session, const char *name, const char *number);
+SWITCH_DECLARE(switch_status_t) switch_ivr_eavesdrop_check_group(const char *uuid, const char *require_group);
 
 /*!
   \brief Eavesdrop on a another session
