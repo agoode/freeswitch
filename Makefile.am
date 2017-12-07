@@ -113,6 +113,11 @@ cd-sounds-fr-install: sounds-fr-ca-june-48000-install
 cd-moh: uhd-moh sounds-music-48000
 cd-moh-install: uhd-moh-install sounds-music-48000-install
 
+if SYSTEMD_INIT
+startup-systemd:
+	build/install_systemd.sh
+endif
+
 # This directory's subdirectories are mostly independent; you can cd
 # into them and run `make' without going through this Makefile.
 # To change the values of `make' variables: instead of editing Makefiles,
