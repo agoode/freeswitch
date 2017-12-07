@@ -8311,6 +8311,11 @@ static void sofia_handle_sip_i_state(switch_core_session_t *session, int status,
 				uint8_t match = 0;
 				int is_ok = 1;
 
+				if (switch_channel_var_true(channel, "sip_unhold_nosdp")) {
+					ss_state = nua_callstate_completed;
+					goto state_process;
+				}
+
 				if (tech_pvt->mparams.num_codecs) {
 					match = sofia_media_negotiate_sdp(session, r_sdp, SDP_TYPE_RESPONSE);
 				}
