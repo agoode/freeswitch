@@ -119,7 +119,8 @@ api_command_t conference_api_sub_commands[] = {
 	{"vid-fgimg", (void_fn_t) & conference_api_sub_canvas_fgimg, CONF_API_SUB_ARGS_SPLIT, "vid-fgimg", "<file> | clear [<canvas-id>]"},
 	{"vid-bgimg", (void_fn_t) & conference_api_sub_canvas_bgimg, CONF_API_SUB_ARGS_SPLIT, "vid-bgimg", "<file> | clear [<canvas-id>]"},
 	{"vid-bandwidth", (void_fn_t) & conference_api_sub_vid_bandwidth, CONF_API_SUB_ARGS_SPLIT, "vid-bandwidth", "<BW>"},
-	{"vid-personal", (void_fn_t) & conference_api_sub_vid_personal, CONF_API_SUB_ARGS_SPLIT, "vid-personal", "[on|off]"}
+	{"vid-personal", (void_fn_t) & conference_api_sub_vid_personal, CONF_API_SUB_ARGS_SPLIT, "vid-personal", "[on|off]"},
+	{"callanswer", (void_fn_t) & conference_api_sub_callanswer, CONF_API_SUB_MEMBER_TARGET, "callanswer", "<member_id|last>"}
 };
 
 switch_status_t conference_api_sub_pause_play(conference_obj_t *conference, switch_stream_handle_t *stream, int argc, char **argv)
@@ -1914,6 +1915,11 @@ switch_status_t conference_api_sub_list(conference_obj_t *conference, switch_str
 				fcount++;
 			}
 
+			if (conference_utils_test_flag(conference, CFLAG_EARLY_MEDIA)) {
+				stream->write_function(stream, "%searly_media", fcount ? "|" : "");
+				fcount++;
+			}
+
 			if (conference_utils_test_flag(conference, CFLAG_ENFORCE_MIN)) {
 				stream->write_function(stream, "%senforce_min", fcount ? "|" : "");
 				fcount++;
@@ -2068,6 +2074,30 @@ switch_status_t conference_api_sub_floor(conference_member_t *member, switch_str
 
 	return SWITCH_STATUS_SUCCESS;
 }
+
+switch_status_t conference_api_sub_callanswer(conference_member_t *member, switch_stream_handle_t *stream, void *data)
+{
+
+	if (member == NULL)
+		return SWITCH_STATUS_GENERR;
+
+	switch_mutex_lock(member->conference->mutex);
+
+	if (conference_member_answer(member->conference, member) == SWITCH_STATUS_SUCCESS) {
+		if (stream != NULL) {
+			stream->write_function(stream, "OK answered %u\n", member->id);
+		}
+	} else {
+		if (stream != NULL) {
+			stream->write_function(stream, "-ERR cannot answer for member %u\n", member->id);
+		}
+	}
+	
+	switch_mutex_unlock(member->conference->mutex);
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
 
 switch_status_t conference_api_sub_clear_vid_floor(conference_obj_t *conference, switch_stream_handle_t *stream, void *data)
 {

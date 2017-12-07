@@ -1396,7 +1396,7 @@ void conference_loop_output(conference_member_t *member)
 			conference_member_play_file(member, "tone_stream://%(500,0,640)", 0, SWITCH_TRUE);
 	}
 
-	if (!conference_utils_test_flag(member->conference, CFLAG_ANSWERED)) {
+	if (!conference_utils_test_flag(member->conference, CFLAG_ANSWERED) && !conference_utils_test_flag(member->conference, CFLAG_EARLY_MEDIA)) {
 		switch_channel_answer(channel);
 	}
 
@@ -1462,7 +1462,8 @@ void conference_loop_output(conference_member_t *member)
 				conference_utils_set_flag(member->conference, CFLAG_ANSWERED);
 			}
 		} else {
-			if (conference_utils_test_flag(member->conference, CFLAG_ANSWERED) && !switch_channel_test_flag(channel, CF_ANSWERED)) {
+			if ((conference_utils_test_flag(member->conference, CFLAG_ANSWERED) && !switch_channel_test_flag(channel, CF_ANSWERED)) 
+					&& !conference_utils_test_flag(member->conference, CFLAG_EARLY_MEDIA)) {
 				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(member->session), SWITCH_LOG_DEBUG, "CLFAG_ANSWERED set, answering inbound channel\n");
 				switch_channel_answer(channel);
 			}

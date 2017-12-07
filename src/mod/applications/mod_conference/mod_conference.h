@@ -187,6 +187,7 @@ typedef enum {
 	MFLAG_ENDCONF,
 	MFLAG_HAS_AUDIO,
 	MFLAG_TALKING,
+	MFLAG_EARLY_MEDIA,
 	MFLAG_RESTART,
 	MFLAG_MINTWO,
 	MFLAG_MUTE_DETECT,
@@ -229,6 +230,7 @@ typedef enum {
 	CFLAG_DESTRUCT,
 	CFLAG_LOCKED,
 	CFLAG_ANSWERED,
+	CFLAG_EARLY_MEDIA,
 	CFLAG_BRIDGE_TO,
 	CFLAG_WAIT_MOD,
 	CFLAG_VID_FLOOR,
@@ -1026,6 +1028,7 @@ switch_status_t conference_member_parse_position(conference_member_t *member, co
 video_layout_t *conference_video_find_best_layout(conference_obj_t *conference, layout_group_t *lg, uint32_t count, uint32_t file_count);
 void conference_list_count_only(conference_obj_t *conference, switch_stream_handle_t *stream);
 void conference_member_set_floor_holder(conference_obj_t *conference, conference_member_t *member);
+switch_status_t conference_member_answer(conference_obj_t *conference, conference_member_t *member);
 void conference_utils_member_clear_flag(conference_member_t *member, member_flag_t flag);
 void conference_utils_member_clear_flag_locked(conference_member_t *member, member_flag_t flag);
 switch_status_t conference_video_attach_video_layer(conference_member_t *member, mcu_canvas_t *canvas, int idx);
@@ -1179,6 +1182,7 @@ switch_status_t conference_api_sub_deaf(conference_member_t *member, switch_stre
 switch_status_t conference_api_sub_undeaf(conference_member_t *member, switch_stream_handle_t *stream, void *data);
 switch_status_t conference_api_sub_video_filter(conference_member_t *member, switch_stream_handle_t *stream, void *data);
 switch_status_t conference_api_sub_floor(conference_member_t *member, switch_stream_handle_t *stream, void *data);
+switch_status_t conference_api_sub_callanswer(conference_member_t *member, switch_stream_handle_t *stream, void *data);
 switch_status_t conference_api_sub_vid_floor(conference_member_t *member, switch_stream_handle_t *stream, void *data);
 switch_status_t conference_api_sub_clear_vid_floor(conference_obj_t *conference, switch_stream_handle_t *stream, void *data);
 switch_status_t conference_api_sub_position(conference_member_t *member, switch_stream_handle_t *stream, void *data);
