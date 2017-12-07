@@ -6397,6 +6397,10 @@ static void sofia_handle_sip_r_invite(switch_core_session_t *session, int status
 									  tagi_t tags[])
 {
 	char *call_info = NULL;
+	sip_remote_party_id_t *rpid = NULL;
+	sip_p_asserted_identity_t *passerted = NULL;
+	sip_p_preferred_identity_t *ppreferred = NULL;
+
 	if (sip && session) {
 		switch_channel_t *channel = switch_core_session_get_channel(session);
 		const char *uuid;
@@ -6566,6 +6570,48 @@ static void sofia_handle_sip_r_invite(switch_core_session_t *session, int status
 					} else {
 						switch_ivr_transfer_variable(session, other_session, SOFIA_SIP_PROGRESS_HEADER_PREFIX_T);
 					}
+					switch_core_session_rwunlock(other_session);
+				}
+			}
+
+			if ((vval = switch_channel_get_variable(channel, "sip_copy_callee_id_from_response")) && switch_true(vval)) {
+				switch_core_session_t *other_session;
+				const char *callee_id_name = NULL, *callee_id_number = NULL;
+
+				if ((rpid = sip_remote_party_id(sip))) {
+					if (rpid->rpid_url->url_user) {
+						callee_id_number = rpid->rpid_url->url_user;
+					}
+					if (!zstr(rpid->rpid_display)) {
+						callee_id_name = rpid->rpid_display;
+					}
+				}
+
+				if ((passerted = sip_p_asserted_identity(sip))) {
+					if (passerted->paid_url->url_user) {
+						callee_id_number = passerted->paid_url->url_user;
+					}
+					if (!zstr(passerted->paid_display)) {
+						callee_id_name = passerted->paid_display;
+					}
+				}
+
+				if ((ppreferred = sip_p_preferred_identity(sip))) {
+					if (ppreferred->ppid_url->url_user) {
+						callee_id_number = ppreferred->ppid_url->url_user;
+					}
+					if (!zstr(ppreferred->ppid_display)) {
+						callee_id_name = ppreferred->ppid_display;
+					}
+				}
+
+				if ((callee_id_name || callee_id_number) &&
+				    switch_core_session_get_partner(session, &other_session) == SWITCH_STATUS_SUCCESS) {
+					private_object_t *other_tech_pvt = switch_core_session_get_private(other_session);
+
+					switch_channel_set_variable(other_tech_pvt->channel, "callee_id_number", callee_id_number);
+					switch_channel_set_variable(other_tech_pvt->channel, "callee_id_name", callee_id_name);
+
 					switch_core_session_rwunlock(other_session);
 				}
 			}
