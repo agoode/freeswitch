@@ -2579,6 +2579,16 @@ SWITCH_DECLARE(char *) switch_cache_db_execute_sql2str(switch_cache_db_handle_t 
 */
 SWITCH_DECLARE(switch_status_t) switch_cache_db_execute_sql(switch_cache_db_handle_t *dbh, char *sql, char **err);
 /*!
+ \brief Executes the sql with parameters
+ \param [in] dbh The handle
+ \param [in] sql - sql to run
+ \param [in] params - array of values for parameters
+ \param [in] params_count - number of parameters supplied
+ \param [out] err - Error if it exists
+*/
+SWITCH_DECLARE(switch_status_t) switch_cache_db_execute_sql_params(switch_cache_db_handle_t *dbh, char *sql, char const* const* params, int params_count, char **err);
+
+/*!
  \brief Executes the sql and uses callback for row-by-row processing
  \param [in] dbh The handle
  \param [in] sql - sql to run
@@ -2588,6 +2598,20 @@ SWITCH_DECLARE(switch_status_t) switch_cache_db_execute_sql(switch_cache_db_hand
 */
 SWITCH_DECLARE(switch_status_t) switch_cache_db_execute_sql_callback(switch_cache_db_handle_t *dbh, const char *sql,
 																	 switch_core_db_callback_func_t callback, void *pdata, char **err);
+
+/*!
+ \brief Executes the sql with parameters and uses callback for row-by-row processing
+ \param [in] dbh The handle
+ \param [in] sql - sql to run
+ \param [in] callback - function pointer to callback
+ \param [in] pdata - data to pass to callback
+ \param [in] params - array of values for parameters
+ \param [in] params_count - number of parameters supplied
+ \param [out] err - Error if it exists
+*/
+SWITCH_DECLARE(switch_status_t) switch_cache_db_execute_sql_callback_params(switch_cache_db_handle_t *dbh,
+																	 const char *sql, switch_core_db_callback_func_t callback, void *pdata,
+																	 char const* const* params, int params_count, char **err);
 
 /*!
  \brief Executes the sql and uses callback for row-by-row processing

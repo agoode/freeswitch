@@ -95,6 +95,8 @@ SWITCH_DECLARE(void) switch_pgsql_handle_destroy(switch_pgsql_handle_t **handlep
 
 SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_send_query(switch_pgsql_handle_t *handle, const char* sql);
 
+SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_send_query_params(switch_pgsql_handle_t *handle, const char* sql, char const* const* params, int params_count);
+
 SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_cancel_real(const char *file, const char *func, int line, switch_pgsql_handle_t *handle);
 #define switch_pgsql_cancel(handle) switch_pgsql_cancel_real(__FILE__, (char * )__SWITCH_FUNC__, __LINE__, handle)
 
@@ -115,6 +117,15 @@ SWITCH_DECLARE(switch_pgsql_state_t) switch_pgsql_handle_get_state(switch_pgsql_
 SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_exec_detailed(const char *file, const char *func, int line,
 															   switch_pgsql_handle_t *handle, const char *sql, char **err);
 #define switch_pgsql_handle_exec(handle, sql, err) switch_pgsql_handle_exec_detailed(__FILE__, (char * )__SWITCH_FUNC__, __LINE__, handle, sql, err)
+
+SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_exec_base_detailed_params(const char *file, const char *func, int line,
+																			 switch_pgsql_handle_t *handle, const char *sql,
+																			 char const* const* params, int params_count, char **err);
+#define switch_pgsql_handle_exec_base_params(handle, sql, params, params_count, err) switch_pgsql_handle_exec_base_detailed_params(__FILE__, (char * )__SWITCH_FUNC__, __LINE__, handle, sql, params, params_count, err)
+
+SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_exec_detailed_params(const char *file, const char *func, int line,
+																		switch_pgsql_handle_t *handle, const char *sql, char const* const* params, int params_count, char **err);
+#define switch_pgsql_handle_exec_params(handle, sql, params, params_count, err) switch_pgsql_handle_exec_detailed_params(__FILE__, (char * )__SWITCH_FUNC__, __LINE__, handle, sql, params, params_count, err)
 
 SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_exec_string_detailed(const char *file, const char *func, int line,
 																			   switch_pgsql_handle_t *handle, const char *sql, char *resbuf, size_t len, char **err);
@@ -139,6 +150,12 @@ SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_SQLEndTran(switch_pgsql_handl
 SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_callback_exec_detailed(const char *file, const char *func, int line, switch_pgsql_handle_t *handle,
 																			   const char *sql, switch_core_db_callback_func_t callback, void *pdata,
 																			   char **err);
+
+SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_callback_exec_detailed_params(const char *file, const char *func, int line,
+																			   switch_pgsql_handle_t *handle,
+																			   const char *sql, switch_core_db_callback_func_t callback, void *pdata,
+																			   char const* const* params, int params_count, char **err);
+
 /*!
   \brief Execute the sql query and issue a callback for each row returned
   \param handle the PGSQL handle
@@ -152,6 +169,9 @@ SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_callback_exec_detailed
 		switch_pgsql_handle_callback_exec_detailed(__FILE__, (char * )__SWITCH_FUNC__, __LINE__, \
 												  handle, sql, callback, pdata, err)
 
+#define switch_pgsql_handle_callback_exec_params(handle,  sql,  callback, pdata, params, params_count, err) \
+		switch_pgsql_handle_callback_exec_detailed_params(__FILE__, (char * )__SWITCH_FUNC__, __LINE__, \
+												  handle, sql, callback, pdata, params, params_count, err)
 
 SWITCH_DECLARE(char *) switch_pgsql_handle_get_error(switch_pgsql_handle_t *handle);
 

@@ -65,6 +65,14 @@ SWITCH_DECLARE(switch_odbc_status_t) switch_odbc_SQLSetAutoCommitAttr(switch_odb
 SWITCH_DECLARE(switch_odbc_status_t) switch_odbc_SQLEndTran(switch_odbc_handle_t *handle, switch_bool_t commit);
 SWITCH_DECLARE(switch_odbc_status_t) switch_odbc_statement_handle_free(switch_odbc_statement_handle_t *stmt);
 
+SWITCH_DECLARE(switch_odbc_status_t) switch_odbc_handle_callback_exec_detailed_params(const char *file, const char *func, int line,
+																					  switch_odbc_handle_t *handle,
+																					  const char *sql, switch_core_db_callback_func_t callback, void *pdata,
+																					  char const* const* params, int params_count, char **err);
+
+SWITCH_DECLARE(switch_odbc_status_t) switch_odbc_handle_exec_params(switch_odbc_handle_t *handle, const char *sql, switch_odbc_statement_handle_t *rstmt,
+																	char const* const* params, int params_count, char **err);
+
 /*!
   \brief Execute the sql query and issue a callback for each row returned
   \param file the file from which this function is called
@@ -93,6 +101,9 @@ SWITCH_DECLARE(switch_odbc_status_t) switch_odbc_handle_callback_exec_detailed(c
 		switch_odbc_handle_callback_exec_detailed(__FILE__, (char * )__SWITCH_FUNC__, __LINE__, \
 												  handle, sql, callback, pdata, err)
 
+#define switch_odbc_handle_callback_exec_params(handle,  sql,  callback, pdata, params, params_count, err) \
+		switch_odbc_handle_callback_exec_detailed_params(__FILE__, (char * )__SWITCH_FUNC__, __LINE__, \
+												  handle, sql, callback, pdata, params, params_count, err)
 
 SWITCH_DECLARE(char *) switch_odbc_handle_get_error(switch_odbc_handle_t *handle, switch_odbc_statement_handle_t stmt);
 

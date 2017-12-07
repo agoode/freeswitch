@@ -446,10 +446,11 @@ SWITCH_DECLARE(switch_odbc_status_t) switch_odbc_handle_exec_string(switch_odbc_
 #endif
 }
 
-SWITCH_DECLARE(switch_odbc_status_t) switch_odbc_handle_exec(switch_odbc_handle_t *handle, const char *sql, switch_odbc_statement_handle_t *rstmt,
-															 char **err)
+SWITCH_DECLARE(switch_odbc_status_t) switch_odbc_handle_exec_params(switch_odbc_handle_t *handle, const char *sql, switch_odbc_statement_handle_t *rstmt,
+															char const* const* params, int params_count, char **err)
 {
 #ifdef SWITCH_HAVE_ODBC
+	SQLLEN nts = SQL_NTS, nul = SQL_NULL_DATA;
 	SQLHSTMT stmt = NULL;
 	int result;
 	char *err_str = NULL, *err2 = NULL;
@@ -469,6 +470,23 @@ SWITCH_DECLARE(switch_odbc_status_t) switch_odbc_handle_exec(switch_odbc_handle_
 	if (SQLPrepare(stmt, (unsigned char *) sql, SQL_NTS) != SQL_SUCCESS) {
 		err2 = "SQLPrepare failed.";
 		goto error;
+	}
+
+	if ((params) && (params_count > 0)) {
+		SQLUSMALLINT i;
+		for(i = 0; i < (SQLUSMALLINT)params_count; ++i) {
+			const char *param = params[i];
+			if (param == NULL) {
+				result = SQLBindParameter(stmt, i + 1, SQL_PARAM_INPUT, SQL_C_CHAR, SQL_CHAR, 0, 0, NULL, 0, &nul);
+			}
+			else {
+				result = SQLBindParameter(stmt, i + 1, SQL_PARAM_INPUT, SQL_C_CHAR, SQL_CHAR, 0, 0, (SQLPOINTER)param, 0, &nts);
+			}
+			if (!SQL_SUCCEEDED(result)) {
+				err2 = "Unable to bind SQL parameter!";
+				goto error;
+			}
+		}
 	}
 
 	result = SQLExecute(stmt);
@@ -537,19 +555,134 @@ SWITCH_DECLARE(switch_odbc_status_t) switch_odbc_handle_exec(switch_odbc_handle_
 	return SWITCH_ODBC_FAIL;
 }
 
-SWITCH_DECLARE(switch_odbc_status_t) switch_odbc_handle_callback_exec_detailed(const char *file, const char *func, int line,
+SWITCH_DECLARE(switch_odbc_status_t) switch_odbc_handle_exec(switch_odbc_handle_t *handle, const char *sql, switch_odbc_statement_handle_t *rstmt,
+															char **err)
+{
+	return switch_odbc_handle_exec_params(handle, sql, rstmt, NULL, 0, err);
+}
+
+#ifdef SWITCH_HAVE_ODBC
+
+typedef struct column_buffer_tag {
+	char *d;
+	size_t s;
+	size_t c;
+} column_buffer_t;
+
+/*
+static void column_buffer_init(column_buffer_t *b) {
+	b->d = 0;
+	b->s = b->c = 0;
+}
+*/
+
+static char* column_buffer_reset(column_buffer_t *b) {
+	b->s = 0;
+	return b->d;
+}
+
+static size_t column_buffer_free_size(column_buffer_t *b) {
+	return b->c - b->s;
+}
+
+static char* column_buffer_ensure(column_buffer_t *b, size_t size) {
+	size_t free_space = b->c - b->s;
+
+	if(free_space < size){
+		size_t requred_space = size - free_space;
+		size_t delta = 0;
+		char *tmp;
+
+		if (b->c) {
+			delta = b->c >> 1;
+		}
+
+		if (delta < requred_space) {
+			delta = requred_space;
+		}
+
+		tmp = malloc(b->c + delta);
+		if (tmp) {
+			if (b->d) {
+				memcpy(tmp, b->d, b->s);
+				free(b->d);
+			}
+			b->d = tmp;
+			b->c += delta;
+		}
+		else {
+			return NULL;
+		}
+	}
+	return b->d + b->s;
+}
+
+static void column_buffer_add_size(column_buffer_t *b, size_t size) {
+	size_t s = b->s + size;
+	switch_assert(s <= b->c);
+	b->s = s;
+}
+
+static char* column_buffer_data(column_buffer_t *b) {
+	return b->d;
+}
+
+/*
+static size_t column_buffer_size(column_buffer_t *b) {
+	return b->s;
+}
+*/
+
+static void column_buffer_free(column_buffer_t *b) {
+	if(b->d){
+		free(b->d);
+	}
+	b->d = 0;
+	b->s = b->c = 0;
+}
+
+#endif
+
+#ifdef SWITCH_HAVE_ODBC
+
+static int column_has_more_data(SQLHSTMT stmt, SQLRETURN result){
+	if (result == SQL_SUCCESS_WITH_INFO) {
+		SQLCHAR state[6];
+		SQLRETURN rc;
+		SQLSMALLINT i = 1;
+		while ((rc = SQLGetDiagRec(SQL_HANDLE_STMT, stmt, i, state, NULL, NULL, 0, NULL)) != SQL_NO_DATA) {
+			if (SQL_SUCCEEDED(rc) && (0 == strncmp((char*)state, "01004", 5))) {
+				return 1;
+			}
+			i++;
+		}
+	}
+	return 0;
+}
+
+#endif
+
+#ifdef SWITCH_HAVE_ODBC
+#  define SWITCH_ODBC_INIT_COLUMN_SIZE 4096
+#endif
+
+SWITCH_DECLARE(switch_odbc_status_t) switch_odbc_handle_callback_exec_detailed_params(const char *file, const char *func, int line,
 																			   switch_odbc_handle_t *handle,
 																			   const char *sql, switch_core_db_callback_func_t callback, void *pdata,
-																			   char **err)
+																			   char const* const* params, int params_count, char **err)
 {
 #ifdef SWITCH_HAVE_ODBC
+	SQLLEN nts = SQL_NTS, nul = SQL_NULL_DATA;
 	SQLHSTMT stmt = NULL;
 	SQLSMALLINT c = 0, x = 0;
 	SQLLEN m = 0;
 	char *x_err = NULL, *err_str = NULL;
-	int result;
+	SQLRETURN result;
 	int err_cnt = 0;
 	int done = 0;
+	char **names = 0;
+	char **vals = 0;
+	column_buffer_t *cols = 0;
 
 	handle->affected_rows = 0;
 
@@ -570,6 +703,23 @@ SWITCH_DECLARE(switch_odbc_status_t) switch_odbc_handle_callback_exec_detailed(c
 		goto error;
 	}
 
+	if ((params) && (params_count > 0)) {
+		SQLUSMALLINT i;
+		for(i = 0; i < (SQLUSMALLINT)params_count; ++i) {
+			const char *param = params[i];
+			if (param == NULL) {
+				result = SQLBindParameter(stmt, i + 1, SQL_PARAM_INPUT, SQL_C_CHAR, SQL_CHAR, 0, 0, NULL, 0, &nul);
+			}
+			else {
+				result = SQLBindParameter(stmt, i + 1, SQL_PARAM_INPUT, SQL_C_CHAR, SQL_CHAR, 0, 0, (SQLPOINTER)param, 0, &nts);
+			}
+			if (!SQL_SUCCEEDED(result)) {
+				x_err = "Unable to bind SQL parameter!";
+				goto error;
+			}
+		}
+	}
+
 	result = SQLExecute(stmt);
 
 	if (result != SQL_SUCCESS && result != SQL_SUCCESS_WITH_INFO && result != SQL_NO_DATA) {
@@ -581,66 +731,139 @@ SWITCH_DECLARE(switch_odbc_status_t) switch_odbc_handle_callback_exec_detailed(c
 	SQLRowCount(stmt, &m);
 	handle->affected_rows = (int) m;
 
-
 	while (!done) {
-		int name_len = 256;
-		char **names;
-		char **vals;
-		int y = 0;
-
 		result = SQLFetch(stmt);
 
 		if (result != SQL_SUCCESS) {
 			if (result != SQL_NO_DATA) {
+				x_err = "Unable to fetch row";
 				err_cnt++;
 			}
 			break;
 		}
 
-		names = calloc(c, sizeof(*names));
-		vals = calloc(c, sizeof(*vals));
+		if (!names) {
+			/* allocate only once and only if Fetch success*/
+			names = calloc(2 * c, sizeof(*names));
+			cols = calloc(c, sizeof(*cols));
 
-		switch_assert(names && vals);
+			switch_assert(names && cols);
 
-		for (x = 1; x <= c; x++) {
-			SQLSMALLINT NameLength = 0, DataType = 0, DecimalDigits = 0, Nullable = 0;
-			SQLULEN ColumnSize = 0;
-			names[y] = malloc(name_len);
-			memset(names[y], 0, name_len);
+			memset(names, 0, c * sizeof(*names));
+			memset(cols, 0, c * sizeof(*cols));
+			vals = &names[c];
 
-			SQLDescribeCol(stmt, x, (SQLCHAR *) names[y], (SQLSMALLINT) name_len, &NameLength, &DataType, &ColumnSize, &DecimalDigits, &Nullable);
+			/* call SQLDescribeCol only once for each column*/
+			for (x = 0; x < c; x++) {
+				SQLSMALLINT NameLength = 256, DataType = 0, DecimalDigits = 0, Nullable = 0;
+				SQLULEN ColumnSize = 0; char *data;
 
-			if (!ColumnSize) {
-				SQLCHAR val[16384] = { 0 };
-				ColumnSize = 16384;
-				SQLGetData(stmt, x, SQL_C_CHAR, val, ColumnSize, NULL);
-				vals[y] = strdup((char *)val);
-			} else {
+				names[x] = malloc(NameLength);
+
+				switch_assert(names[x]);
+
+				memset(names[x], 0, NameLength);
+
+				result = SQLDescribeCol(stmt, x + 1, (SQLCHAR *)names[x], NameLength, &NameLength, &DataType, &ColumnSize, &DecimalDigits, &Nullable);
+
+				if (!SQL_SUCCEEDED(result)) {
+					x_err = "Describe column error";
+					err_cnt++;
+					break;
+				}
+
+				/* some drivers returns some big value for all data.
+				e.g. pgsql returns by default 8k for TEXT type.
+				Sybase ASA drivers returns 32k for all output params
+				for stored proc. So we reduce init size to some sane value */
+				if ((!ColumnSize) || (ColumnSize > SWITCH_ODBC_INIT_COLUMN_SIZE)) {
+					ColumnSize = SWITCH_ODBC_INIT_COLUMN_SIZE - 1;
+				}
 				ColumnSize++;
 
-				vals[y] = malloc(ColumnSize);
-				memset(vals[y], 0, ColumnSize);
-				SQLGetData(stmt, x, SQL_C_CHAR, (SQLCHAR *) vals[y], ColumnSize, NULL);
+				/* allocate column buffer */
+				data = column_buffer_ensure(&cols[x], ColumnSize);
+				switch_assert(data);
 			}
-			y++;
+
+			if (!SQL_SUCCEEDED(result)) {
+				break;
+			}
 		}
 
-		if (callback(pdata, y, vals, names)) {
+		/* Get data for each column*/
+		for (x = 0; x < c; x++) {
+			SQLLEN got;
+			column_buffer_t *value = &cols[x];
+			/* buffer has at least `ColumnSize` avaliable memory because we init it when get column names*/
+			char *data = column_buffer_reset(value);
+			/* we pass full buffer size at first call */
+			SQLUINTEGER chunk_size = column_buffer_free_size(value);
+
+			result = SQLGetData(stmt, x+1, SQL_C_CHAR, data, chunk_size, &got);
+			if (got != SQL_NULL_DATA) {
+				while (column_has_more_data(stmt, result)) {
+					if ((got > 0) && ((SQLUINTEGER)got >= chunk_size)) {
+						/* driver may returns number of rest of data.
+						But this info may be not accurate and some drivers
+						has some bugs so we just continue execute in loop */
+						column_buffer_add_size(value, chunk_size - 1);
+						data = column_buffer_ensure(value, got - (chunk_size - 1) + 1);
+					}
+					else if (got == SQL_NO_TOTAL) {
+						/* unknown size. Driver should fill full buffer */
+						column_buffer_add_size(value, chunk_size - 1);
+						data = column_buffer_ensure(value, SWITCH_ODBC_INIT_COLUMN_SIZE);
+					}
+					else {
+						/*this is not last chunk but driver fill not full buffer
+						this is not documented bihavior and I never see this but just in case.
+						assume that driver returns size without null teminated char*/
+						column_buffer_add_size(value, got);
+						data = column_buffer_ensure(value, SWITCH_ODBC_INIT_COLUMN_SIZE);
+					}
+					chunk_size = column_buffer_free_size(value);
+
+					switch_assert(data);
+
+					result = SQLGetData(stmt, x+1, SQL_C_CHAR, data, chunk_size, &got);
+				}
+				/* returns size without last terminated null symbol */
+				column_buffer_add_size(value, got + 1);
+				vals[x] = column_buffer_data(value);
+			}
+			else{
+				vals[x] = NULL;
+			}
+
+			if (!SQL_SUCCEEDED(result)) {
+				x_err = "Get column data error";
+				err_cnt++;
+				break;
+			}
+		}
+
+		if (!SQL_SUCCEEDED(result)) {
+			break;
+		}
+
+		if (callback(pdata, c, vals, names)) {
 			done = 1;
 		}
-
-		for (x = 0; x < y; x++) {
-			free(names[x]);
-			free(vals[x]);
-		}
-		free(names);
-		free(vals);
 	}
 
-	SQLFreeHandle(SQL_HANDLE_STMT, stmt);
-	stmt = NULL; /* Make sure we don't try to free this handle again */
+	if (names) {
+		for (x = 0; x < c; x++) {
+			free(names[x]);
+			column_buffer_free(&cols[x]);
+		}
+		free(names);
+		free(cols);
+	}
 
 	if (!err_cnt) {
+		/* make sure we can retrive last error for statement */
+		SQLFreeHandle(SQL_HANDLE_STMT, stmt);
 		return SWITCH_ODBC_SUCCESS;
 	}
 
@@ -667,9 +890,16 @@ SWITCH_DECLARE(switch_odbc_status_t) switch_odbc_handle_callback_exec_detailed(c
 		SQLFreeHandle(SQL_HANDLE_STMT, stmt);
 	}
 
-
 #endif
 	return SWITCH_ODBC_FAIL;
+}
+
+SWITCH_DECLARE(switch_odbc_status_t) switch_odbc_handle_callback_exec_detailed(const char *file, const char *func, int line,
+																			   switch_odbc_handle_t *handle,
+																			   const char *sql, switch_core_db_callback_func_t callback, void *pdata,
+																			   char **err)
+{
+	return switch_odbc_handle_callback_exec_detailed_params(file, func, line, handle, sql, callback, pdata, NULL, 0, err);
 }
 
 SWITCH_DECLARE(void) switch_odbc_handle_destroy(switch_odbc_handle_t **handlep)
@@ -773,7 +1003,6 @@ SWITCH_DECLARE(switch_odbc_status_t) switch_odbc_SQLEndTran(switch_odbc_handle_t
 	return (switch_odbc_status_t) SWITCH_FALSE;
 #endif
 }
-
 
 /* For Emacs:
  * Local Variables:

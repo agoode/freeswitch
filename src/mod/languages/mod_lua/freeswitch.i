@@ -32,6 +32,38 @@
   $1 = default_swiglua_fn;
 }
 
+%typemap(typecheck) SWIGLUA_FN {
+  $1 = lua_isfunction(L, $input);
+}
+
+%typemap(in, checkfn = "lua_istable") SWIGLUA_TABLE {
+  $1.L = L;
+  $1.idx = $input;
+}
+
+%typemap(default) SWIGLUA_TABLE {
+  SWIGLUA_TABLE default_swiglua_table = { 0 };
+  $1 = default_swiglua_table;
+}
+
+%typemap(typecheck) SWIGLUA_TABLE {
+  $1 = lua_istable(L, $input);
+}
+
+/* export NULL value for parameters */
+%init %{
+  {
+    int top = lua_gettop(L);
+
+    SWIG_Lua_get_table(L,"Dbh");
+
+    lua_pushstring(L, "NULL");
+    lua_pushlightuserdata(L, NULL);
+    lua_rawset(L,-3);
+
+    lua_settop(L, top);
+  }
+%}
 
 %ignore SwitchToMempool;   
 %newobject EventConsumer::pop;
@@ -88,6 +120,8 @@ class Session : public CoreSession {
 };
 
 class Dbh {
+  public:
+    static const int SUPPORTS_PARAMS = 1;
   private:
     switch_cache_db_handle_t *dbh;
     char *err;
@@ -100,6 +134,8 @@ class Dbh {
     bool connected();
     bool test_reactive(char *test_sql, char *drop_sql = NULL, char *reactive_sql = NULL);
     bool query(char *sql, SWIGLUA_FN lua_fun);
+    bool query(char *sql, SWIGLUA_TABLE lua_params);
+    bool query(char *sql, SWIGLUA_TABLE lua_params, SWIGLUA_FN lua_fun);
     int affected_rows();
     char *last_error();
     void clear_error();

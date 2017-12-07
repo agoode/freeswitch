@@ -63,6 +63,150 @@ struct switch_pgsql_result {
 };
 #endif
 
+#ifdef SWITCH_HAVE_PGSQL
+#define dbsql_is_line_comment(p)   (p[0] == '-') && (p[1] == '-')
+#define dbsql_is_comment_begin(p)  (p[0] == '/') && (p[1] == '*')
+#define dbsql_is_comment_end(p)    (p[0] == '*') && (p[1] == '/')
+#define dbsql_is_string_literal(p) (p[0] == '"') || (p[0] == '\'')
+
+#define dbsql_skip_comment_begin(p)  (p += 2)
+#define dbsql_skip_comment_end(p)    (p += 2)
+
+static void dbsql_skip_until_eol(char const** pp)
+{
+	const char *p = *pp;
+	while (*p) {
+		char c = *p++;
+		if (c == '\r') {
+			c = *p++;
+		}
+		if (c == '\n') {
+			break;
+		}
+	}
+	*pp = p;
+}
+
+static void dbsql_skip_until_comment_end(char const** pp)
+{
+	const char *p = *pp;
+	while (*p) {
+		if (dbsql_is_comment_end(p)) {
+			dbsql_skip_comment_end(p);
+			break;
+		}
+		++p;
+	}
+	*pp = p;
+}
+
+static void dbsql_skip_until_string_end(char const** pp, char close_char)
+{
+	const char *p = *pp;
+	while (*p) {
+		if (dbsql_is_string_literal(p)) {
+			const char c = *p++;
+			if (c == *p) {
+				++p;
+				continue;
+			}
+			if(close_char == c) {
+				break;
+			}
+		}
+		++p;
+	}
+	*pp = p;
+}
+
+static const char* dbsql_normalize_params(const char *sql)
+{
+	char *s, *t;
+	unsigned int count = 0;
+	size_t len;
+	const char *p = sql;
+
+	/*Count number of params to be able allocate memory to new query*/
+	while (*p) {
+		if(dbsql_is_line_comment(p)) {
+			dbsql_skip_until_eol(&p);
+		}
+		else if(dbsql_is_comment_begin(p)) {
+			dbsql_skip_comment_begin(p);
+			dbsql_skip_until_comment_end(&p);
+		}
+		else if(dbsql_is_string_literal(p)) {
+			const char c = *p++;
+			dbsql_skip_until_string_end(&p, c);
+		}
+		else {
+			/*if query has native parameter placeholder we do not make new query.
+			  this allows execute query like `select $1::jsonb ? 'c' as value`. */
+			if (*p == '$') {
+				if isdigit(p[1]) {
+					return sql;
+				}
+			}
+			if (*p == '?') {
+				++count;
+			}
+			++p;
+		}
+	}
+
+	/* we can not find any param placeholder so we just do not need new query */
+	if (count == 0) {
+		return sql;
+	}
+
+	if (count > 999) {
+		return NULL;
+	}
+
+	len = (p - sql) + count * 3;
+	s = (char*)malloc(len);
+	if (s == NULL) {
+		return NULL;
+	}
+	p = sql;
+	t = s;
+	count = 0;
+
+	while (*p) {
+		if (dbsql_is_line_comment(p)) {
+			const char *b = p;
+			dbsql_skip_until_eol(&p);
+			memcpy(t, b, p - b);
+			t += p - b;
+		}
+		else if(dbsql_is_comment_begin(p)) {
+			const char *b = p;
+			dbsql_skip_comment_begin(p);
+			dbsql_skip_until_comment_end(&p);
+			memcpy(t, b, p - b);
+			t += p - b;
+		}
+		else if(dbsql_is_string_literal(p)) {
+			const char *b = p;
+			const char c = *p++;
+			dbsql_skip_until_string_end(&p, c);
+			memcpy(t, b, p - b);
+			t += p - b;
+		}
+		else if(*p == '?') {
+			t += sprintf(t, "$%u", ++count);
+			++p;
+		}
+		else {
+			*t++ = *p++;
+		}
+	}
+	*t = '\0';
+
+	return s;
+}
+#endif
+
 SWITCH_DECLARE(switch_pgsql_handle_t *) switch_pgsql_handle_new(const char *dsn)
 {
 #ifdef SWITCH_HAVE_PGSQL
@@ -243,14 +387,30 @@ SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_disconnect(switch_pgsq
 #endif
 }
 
-SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_send_query(switch_pgsql_handle_t *handle, const char* sql)
+SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_send_query_params(switch_pgsql_handle_t *handle, const char* sql, char const* const* params, int params_count)
 {
 #ifdef SWITCH_HAVE_PGSQL
 	char *err_str;
+	int ret;
 
 	switch_safe_free(handle->sql);
 	handle->sql = strdup(sql);
-	if (!PQsendQuery(handle->con, sql)) {
+
+	if ((params) && (params_count > 0)) {
+		const char *normalized_sql = dbsql_normalize_params(sql);
+			if (!normalized_sql) {
+				normalized_sql = sql;
+			}
+		ret = PQsendQueryParams(handle->con, normalized_sql, params_count, NULL, params, NULL, NULL, 0);
+		if (normalized_sql != sql) {
+			free((void*)normalized_sql);
+		}
+	}
+	else {
+		ret = PQsendQuery(handle->con, sql);
+	}
+
+	if (!ret) {
 		err_str = switch_pgsql_handle_get_error(handle);
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "Failed to send query (%s) to database: %s\n", sql, err_str);
 		switch_pgsql_finish_results(handle);
@@ -261,6 +421,11 @@ SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_send_query(switch_pgsql_handl
  error:
 #endif
 	return SWITCH_PGSQL_FAIL;
+}
+
+SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_send_query(switch_pgsql_handle_t *handle, const char* sql)
+{
+	return switch_pgsql_send_query_params(handle, sql, NULL, 0);
 }
 
 SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_cancel_real(const char *file, const char *func, int line, switch_pgsql_handle_t *handle)
@@ -573,13 +738,12 @@ SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_exec_string_detailed(c
 #endif
 }
 
-SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_exec_base_detailed(const char *file, const char *func, int line,
-																			 switch_pgsql_handle_t *handle, const char *sql, char **err)
+SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_exec_base_detailed_params(const char *file, const char *func, int line,
+																			 switch_pgsql_handle_t *handle, const char *sql,
+																			 char const* const* params, int params_count, char **err)
 {
 #ifdef SWITCH_HAVE_PGSQL
 	char *err_str = NULL, *er = NULL;
-
-
 
 	switch_pgsql_flush(handle);
 	handle->affected_rows = 0;
@@ -606,7 +770,7 @@ SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_exec_base_detailed(con
 		handle->in_txn = SWITCH_TRUE;
 	}
 
-	if (switch_pgsql_send_query(handle, sql) != SWITCH_PGSQL_SUCCESS) {
+	if (switch_pgsql_send_query_params(handle, sql, params, params_count) != SWITCH_PGSQL_SUCCESS) {
 		er = strdup("Error sending query!");
 		if (switch_pgsql_finish_results(handle) != SWITCH_PGSQL_SUCCESS) {
 			db_is_up(handle);
@@ -645,11 +809,17 @@ SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_exec_base_detailed(con
 	return SWITCH_PGSQL_FAIL;
 }
 
-SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_exec_detailed(const char *file, const char *func, int line,
-																		switch_pgsql_handle_t *handle, const char *sql, char **err)
+SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_exec_base_detailed(const char *file, const char *func, int line,
+																			 switch_pgsql_handle_t *handle, const char *sql, char **err)
+{
+	return switch_pgsql_handle_exec_base_detailed_params(file, func, line, handle, sql, NULL, 0, err);
+}
+
+SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_exec_detailed_params(const char *file, const char *func, int line,
+																		switch_pgsql_handle_t *handle, const char *sql, char const* const* params, int params_count, char **err)
 {
 #ifdef SWITCH_HAVE_PGSQL
-	if (switch_pgsql_handle_exec_base_detailed(file, func, line, handle, sql, err) == SWITCH_PGSQL_FAIL) {
+	if (switch_pgsql_handle_exec_base_detailed_params(file, func, line, handle, sql, params, params_count, err) == SWITCH_PGSQL_FAIL) {
 		goto error;
 	}
 
@@ -659,10 +829,16 @@ SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_exec_detailed(const ch
 	return SWITCH_PGSQL_FAIL;
 }
 
-SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_callback_exec_detailed(const char *file, const char *func, int line,
+SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_exec_detailed(const char *file, const char *func, int line,
+																		switch_pgsql_handle_t *handle, const char *sql, char **err)
+{
+	return switch_pgsql_handle_exec_detailed_params(file, func, line, handle, sql, NULL, 0, err);
+}
+
+SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_callback_exec_detailed_params(const char *file, const char *func, int line,
 																			   switch_pgsql_handle_t *handle,
 																			   const char *sql, switch_core_db_callback_func_t callback, void *pdata,
-																			   char **err)
+																			   char const* const* params, int params_count, char **err)
 {
 #ifdef SWITCH_HAVE_PGSQL
 	char *err_str = NULL;
@@ -673,7 +849,7 @@ SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_callback_exec_detailed
 
 	switch_assert(callback != NULL);
 
-	if (switch_pgsql_handle_exec_base(handle, sql, err) == SWITCH_PGSQL_FAIL) {
+	if (switch_pgsql_handle_exec_base_params(handle, sql, params, params_count, err) == SWITCH_PGSQL_FAIL) {
 		goto error;
 	}
 
@@ -759,6 +935,14 @@ SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_callback_exec_detailed
  error:
 #endif
 	return SWITCH_PGSQL_FAIL;
+}
+
+SWITCH_DECLARE(switch_pgsql_status_t) switch_pgsql_handle_callback_exec_detailed(const char *file, const char *func, int line,
+																			   switch_pgsql_handle_t *handle,
+																			   const char *sql, switch_core_db_callback_func_t callback, void *pdata,
+																			   char **err)
+{
+	return switch_pgsql_handle_callback_exec_detailed_params(file, func, line, handle, sql, callback, pdata, NULL, 0, err);
 }
 
 SWITCH_DECLARE(void) switch_pgsql_handle_destroy(switch_pgsql_handle_t **handlep)

@@ -210,6 +210,18 @@ SWITCH_DECLARE(const char *) switch_core_db_errmsg(switch_core_db_t *db);
 SWITCH_DECLARE(int) switch_core_db_exec(switch_core_db_t *db, const char *sql, switch_core_db_callback_func_t callback, void *data, char **errmsg);
 
 /**
+ * A function to executes one or more statements of SQL.
+ * 
+ * Function identical to switch_core_db_exec(), but in addition it allows
+ * pass array of values for parameters.
+ * It possible pass NULL as array pointer and/or 0 as array length. In this
+ * case function will be work exactly as switch_core_db_exec().
+ * NULL pointer inside array represent SQL NULL value.
+ */
+SWITCH_DECLARE(int) switch_core_db_exec_params(switch_core_db_t *db, const char *sql, switch_core_db_callback_func_t callback, void *data,
+											   char const* const* params, int params_count, char **errmsg);
+
+/**
  * This function is called to delete a compiled
  * SQL statement obtained by a previous call to switch_core_db_prepare().
  * If the statement was executed successfully, or

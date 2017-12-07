@@ -537,7 +537,7 @@ SWITCH_DECLARE(switch_status_t) _switch_cache_db_get_db_handle(switch_cache_db_h
 }
 
 
-static switch_status_t switch_cache_db_execute_sql_real(switch_cache_db_handle_t *dbh, const char *sql, char **err)
+static switch_status_t switch_cache_db_execute_sql_real_params(switch_cache_db_handle_t *dbh, const char *sql, char const* const* params, int params_count, char **err)
 {
 	switch_status_t status = SWITCH_STATUS_FALSE;
 	char *errmsg = NULL;
@@ -555,18 +555,18 @@ static switch_status_t switch_cache_db_execute_sql_real(switch_cache_db_handle_t
 	case SCDB_TYPE_PGSQL:
 		{
 			type = "PGSQL";
-			status = switch_pgsql_handle_exec(dbh->native_handle.pgsql_dbh, sql, &errmsg);
+			status = switch_pgsql_handle_exec_params(dbh->native_handle.pgsql_dbh, sql, params, params_count, &errmsg);
 		}
 		break;
 	case SCDB_TYPE_ODBC:
 		{
 			type = "ODBC";
-			status = switch_odbc_handle_exec(dbh->native_handle.odbc_dbh, sql, NULL, &errmsg);
+			status = switch_odbc_handle_exec_params(dbh->native_handle.odbc_dbh, sql, NULL, params, params_count, &errmsg);
 		}
 		break;
 	case SCDB_TYPE_CORE_DB:
 		{
-			int ret = switch_core_db_exec(dbh->native_handle.core_db_dbh, sql, NULL, NULL, &errmsg);
+			int ret = switch_core_db_exec_params(dbh->native_handle.core_db_dbh, sql, NULL, NULL, params, params_count, &errmsg);
 			type = "NATIVE";
 
 			if (ret == SWITCH_CORE_DB_OK) {
@@ -597,6 +597,11 @@ static switch_status_t switch_cache_db_execute_sql_real(switch_cache_db_handle_t
 	if (io_mutex) switch_mutex_unlock(io_mutex);
 
 	return status;
+}
+
+static switch_status_t switch_cache_db_execute_sql_real(switch_cache_db_handle_t *dbh, const char *sql, char **err)
+{
+	return switch_cache_db_execute_sql_real_params(dbh, sql, NULL, 0, err);
 }
 
 /**
@@ -663,7 +668,7 @@ static switch_status_t switch_cache_db_execute_sql_chunked(switch_cache_db_handl
 }
 
 
-SWITCH_DECLARE(switch_status_t) switch_cache_db_execute_sql(switch_cache_db_handle_t *dbh, char *sql, char **err)
+SWITCH_DECLARE(switch_status_t) switch_cache_db_execute_sql_params(switch_cache_db_handle_t *dbh, char *sql, char const* const* params, int params_count, char **err)
 {
 	switch_status_t status = SWITCH_STATUS_FALSE;
 	switch_mutex_t *io_mutex = dbh->io_mutex;
@@ -673,7 +678,12 @@ SWITCH_DECLARE(switch_status_t) switch_cache_db_execute_sql(switch_cache_db_hand
 	switch (dbh->type) {
 	default:
 		{
-			status = switch_cache_db_execute_sql_chunked(dbh, (char *) sql, 32768, err);
+			if ((params) && (params_count > 0)) {
+				status = switch_cache_db_execute_sql_real_params(dbh, (char *) sql, params, params_count, err);
+			}
+			else {
+				status = switch_cache_db_execute_sql_chunked(dbh, (char *) sql, 32768, err);
+			}
 		}
 		break;
 	}
@@ -681,9 +691,12 @@ SWITCH_DECLARE(switch_status_t) switch_cache_db_execute_sql(switch_cache_db_hand
 	if (io_mutex) switch_mutex_unlock(io_mutex);
 
 	return status;
-
 }
 
+SWITCH_DECLARE(switch_status_t) switch_cache_db_execute_sql(switch_cache_db_handle_t *dbh, char *sql, char **err)
+{
+	return switch_cache_db_execute_sql_params(dbh, sql, NULL, 0, err);
+}
 
 SWITCH_DECLARE(int) switch_cache_db_affected_rows(switch_cache_db_handle_t *dbh)
 {
@@ -1158,8 +1171,9 @@ SWITCH_DECLARE(switch_status_t) switch_cache_db_execute_sql_event_callback_err(s
 	return status;
 }
 
-SWITCH_DECLARE(switch_status_t) switch_cache_db_execute_sql_callback(switch_cache_db_handle_t *dbh,
-																	 const char *sql, switch_core_db_callback_func_t callback, void *pdata, char **err)
+SWITCH_DECLARE(switch_status_t) switch_cache_db_execute_sql_callback_params(switch_cache_db_handle_t *dbh,
+																	 const char *sql, switch_core_db_callback_func_t callback, void *pdata,
+																	 char const* const* params, int params_count, char **err)
 {
 	switch_status_t status = SWITCH_STATUS_FALSE;
 	char *errmsg = NULL;
@@ -1175,17 +1189,17 @@ SWITCH_DECLARE(switch_status_t) switch_cache_db_execute_sql_callback(switch_cach
 	switch (dbh->type) {
 	case SCDB_TYPE_PGSQL:
 		{
-			status = switch_pgsql_handle_callback_exec(dbh->native_handle.pgsql_dbh, sql, callback, pdata, err);
+			status = switch_pgsql_handle_callback_exec_params(dbh->native_handle.pgsql_dbh, sql, callback, pdata, params, params_count, err);
 		}
 		break;
 	case SCDB_TYPE_ODBC:
 		{
-			status = switch_odbc_handle_callback_exec(dbh->native_handle.odbc_dbh, sql, callback, pdata, err);
+			status = switch_odbc_handle_callback_exec_params(dbh->native_handle.odbc_dbh, sql, callback, pdata, params, params_count, err);
 		}
 		break;
 	case SCDB_TYPE_CORE_DB:
 		{
-			int ret = switch_core_db_exec(dbh->native_handle.core_db_dbh, sql, callback, pdata, &errmsg);
+			int ret = switch_core_db_exec_params(dbh->native_handle.core_db_dbh, sql, callback, pdata, params, params_count, &errmsg);
 
 			if (ret == SWITCH_CORE_DB_OK || ret == SWITCH_CORE_DB_ABORT) {
 				status = SWITCH_STATUS_SUCCESS;
@@ -1196,6 +1210,11 @@ SWITCH_DECLARE(switch_status_t) switch_cache_db_execute_sql_callback(switch_cach
 				if (!strstr(errmsg, "query abort")) {
 					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "SQL ERR: [%s] %s\n", sql, errmsg);
 				}
+				if (err) {
+					char *tmp = NULL;
+					switch_strdup(tmp, errmsg);
+					*err = tmp;
+				}
 				switch_core_db_free(errmsg);
 			}
 		}
@@ -1205,6 +1224,12 @@ SWITCH_DECLARE(switch_status_t) switch_cache_db_execute_sql_callback(switch_cach
 	if (io_mutex) switch_mutex_unlock(io_mutex);
 
 	return status;
+}
+
+SWITCH_DECLARE(switch_status_t) switch_cache_db_execute_sql_callback(switch_cache_db_handle_t *dbh,
+																	 const char *sql, switch_core_db_callback_func_t callback, void *pdata, char **err)
+{
+	return switch_cache_db_execute_sql_callback_params(dbh, sql, callback, pdata, NULL, 0, err);
 }
 
 SWITCH_DECLARE(switch_status_t) switch_cache_db_execute_sql_callback_err(switch_cache_db_handle_t *dbh, const char *sql,
