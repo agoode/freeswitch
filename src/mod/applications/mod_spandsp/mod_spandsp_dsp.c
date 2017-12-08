@@ -730,7 +730,11 @@ static switch_status_t tone_detector_create(switch_core_session_t *session, tone
 	}
 	memset(ldetector, 0, sizeof(tone_detector_t));
 	ldetector->descriptor = descriptor;
+
+	switch_mutex_lock(spandsp_globals.mutex);
 	ldetector->debug = spandsp_globals.tonedebug;
+	switch_mutex_unlock(spandsp_globals.mutex);
+
 	ldetector->session = session;
 	*detector = ldetector;
 	return SWITCH_STATUS_SUCCESS;
@@ -794,6 +798,7 @@ switch_status_t callprogress_detector_start(switch_core_session_t *session, cons
 	switch_channel_t *channel = switch_core_session_get_channel(session);
 	tone_detector_t *detector = NULL;
 	tone_descriptor_t *descriptor = NULL;
+	tone_descriptor_t *desc = NULL;
 	switch_media_bug_t *bug = NULL;
 
 	/* are we already running? */
@@ -802,8 +807,14 @@ switch_status_t callprogress_detector_start(switch_core_session_t *session, cons
 		return SWITCH_STATUS_FALSE;
 	}
 
+	switch_mutex_lock(spandsp_globals.mutex);
 	/* find the tone descriptor with the matching name and create the detector */
 	descriptor = switch_core_hash_find(spandsp_globals.tones, name);
+	desc = switch_core_hash_find(spandsp_globals.tones, name);
+	switch_zmalloc(descriptor, sizeof(tone_descriptor_t));
+	memcpy(descriptor, desc, sizeof(tone_descriptor_t));
+	switch_mutex_unlock(spandsp_globals.mutex);
+
 	if (!descriptor) {
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "no tone descriptor defined with name '%s'.  Update configuration. \n", name);
 		return SWITCH_STATUS_FALSE;
