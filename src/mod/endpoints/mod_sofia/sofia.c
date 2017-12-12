@@ -6396,7 +6396,9 @@ static void sofia_handle_sip_r_invite(switch_core_session_t *session, int status
 								sofia_dispatch_event_t *de,
 									  tagi_t tags[])
 {
-	char *call_info = NULL;
+	const sip_call_info_t *call_info = NULL;
+	char *call_info_str = NULL;
+
 	if (sip && session) {
 		switch_channel_t *channel = switch_core_session_get_channel(session);
 		const char *uuid;
@@ -6493,13 +6495,13 @@ static void sofia_handle_sip_r_invite(switch_core_session_t *session, int status
 
 
 		if (sofia_test_pflag(profile, PFLAG_MANAGE_SHARED_APPEARANCE)) {
-			if (channel && sip->sip_call_info) {
+			if (channel && (call_info = sip_call_info(sip))) {
 				char *p;
-				call_info = sip_header_as_string(nua_handle_home(nh), (void *) sip->sip_call_info);
+				call_info_str = sip_header_as_string(nua_handle_home(nh), (void *) call_info);
 
-				if (switch_stristr("appearance", call_info)) {
-					switch_channel_set_variable(channel, "presence_call_info_full", call_info);
-					if ((p = strchr(call_info, ';'))) {
+				if (switch_stristr("appearance", call_info_str)) {
+					switch_channel_set_variable(channel, "presence_call_info_full", call_info_str);
+					if ((p = strchr(call_info_str, ';'))) {
 						switch_channel_set_variable(channel, "presence_call_info", p + 1);
 					}
 				}
@@ -6567,6 +6569,19 @@ static void sofia_handle_sip_r_invite(switch_core_session_t *session, int status
 						switch_ivr_transfer_variable(session, other_session, SOFIA_SIP_PROGRESS_HEADER_PREFIX_T);
 					}
 					switch_core_session_rwunlock(other_session);
+				}
+			}
+
+			if ((vval = switch_channel_get_variable(channel, "sip_copy_call_info_from_response")) && switch_true(vval)) {
+				if ((call_info = sip_call_info(sip))) {
+					if (!call_info_str) {
+						call_info_str = sip_header_as_string(nh->nh_home, (void *) call_info);
+					}
+					if (status > 199) {
+						switch_channel_set_variable_partner(channel, SOFIA_SIP_RESPONSE_HEADER_PREFIX "Call-Info", call_info_str);
+					} else {
+						switch_channel_set_variable_partner(channel, SOFIA_SIP_PROGRESS_HEADER_PREFIX "Call-Info", call_info_str);
+					}
 				}
 			}
 		}
@@ -6974,7 +6989,7 @@ static void sofia_handle_sip_r_invite(switch_core_session_t *session, int status
 						full_contact = sip_header_as_string(nua_handle_home(tech_pvt->nh), (void *) sip->sip_contact);
 					}
 
-					if (call_info && (p = strchr(call_info, ';'))) {
+					if (call_info_str && (p = strchr(call_info_str, ';'))) {
 						p++;
 					}
 
@@ -7020,8 +7035,8 @@ static void sofia_handle_sip_r_invite(switch_core_session_t *session, int status
 
   end:
 
-	if (call_info) {
-		su_free(nua_handle_home(nh), call_info);
+	if (call_info_str) {
+		su_free(nua_handle_home(nh), call_info_str);
 	}
 
 	if (!session && (status == 180 || status == 183 || status == 200)) {
