@@ -85,6 +85,7 @@
 #include <ctype.h>
 #include <fcntl.h>
 #include <string.h>
+#include <float.h>
 #ifdef _MSC_VER
 #include <Winsock2.h>
 #if _MSC_VER < 1500

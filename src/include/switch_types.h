@@ -677,8 +677,6 @@ typedef struct {
 	uint32_t last_rpt_ts;         /* RTP timestamp at which the last report was generated and sent */
 	uint32_t ssrc;                /* identifier of the source */
 	uint32_t csrc;                /* contributing source 0-15 32bit each */
-	uint32_t last_pkt_tsdiff;     /* Jitter calculation, timestamp difference between the two last received packet */
-	double   inter_jitter;        /* Jitter calculation, Interarrival jitter */
 	uint32_t last_rpt_ext_seq;    /* Packet loss calculation, extended sequence number at the begining of this RTCP report interval */
 	uint16_t last_rpt_cycle;      /* Packet loss calculation, sequence number cycle at the begining of the current RTCP report interval */
 	uint16_t period_pkt_count;    /* Packet loss calculation, packet count received during this RTCP report interval */
@@ -695,11 +693,141 @@ typedef struct {
 	uint32_t init;
 } switch_rtcp_numbers_t;
 
+/* 
+ * Descriptive statistics subsystem
+ *
+ * Descriptive statistics subsystem calculates statistics for params
+ * of type switch_desc_stat_val_t. Such data contains @options which tells
+ * statistics subsystem which statistics must be calculated for given param.
+ * Therefore each param gets calculated according to it's @options (specifying
+ * the way data get accounted, i.e. policy [default, variance, percentile, etc]).
+ *
+ * When param (referenced by switch_stat_param_name_t) is updated, the statistics
+ * are recalculated according to the param's @options by a call to:
+ *
+ * switch_desc_stats_update(switch_desc_stat_val_t *stats, double val)
+ *
+ *
+ * Params may be configured in the dialplan. For example:
+ *
+ * <action application="set" data="rtcp_stats=rtcp_rtt=+v+av,rtcp_jitter=+p95"/>
+ *
+ * adds calculation of variance and average for RTT and 95-th percentile for jitter.
+ * (note: comma separated).
+ *
+ * Dynamic params configuration from dialplan
+ *
+ * All that is needed to be done in FS core to enable new params
+ * is to define their number and to create a table of type:
+ *             
+ * switch_desc_stat_val_t params[PARAMS_N];
+ *                     
+ * containing them together with mapping of param's name to index
+ * in table (array of strings).
+ * To init stats calc for these params, configure options bitmask
+ * for each of them or pass the table together with the name
+ * of the channel variable which configures these params
+ * to switch_desc_stats_parse:
+ *
+ * switch_status_t switch_desc_stats_parse(switch_desc_stat_val_t *stats,
+ *		int stats_n, const char *channel_var_name, const char **desc_stat_str2param,
+ *		switch_core_session_t *session)
+ *
+ * Update param on new data:
+ *
+ * SWITCH_DECLARE(switch_status_t) switch_desc_stats_update(switch_desc_stat_val_t *stats, double val)
+ *
+ * This will calculate stats according to the setting from the dialplan.
+ *
+ * RTCP descriptive statistics are example usage of switch_desc_stat_ subsystem.
+ * For RTCP a table of stats is stored in switch_rtp_stats_t:
+ *
+ * switch_desc_stat_val_t rtcp_desc_stats[SWITCH_RTCP_DESC_STAT_PARAM_N]
+ *
+ * Params stored in that table have the meaning described by switch_rtcp_desc_stat_param_name_t.
+ * Mapping function-table is: switch_rtcp_desc_stat_str2param[SWITCH_RTCP_DESC_STAT_PARAM_N].
+ * Usage is:
+ * memset(&rtp_session->stats.rtcp_desc_stats, 0, sizeof(rtp_session->stats.rtcp_desc_stats));
+ * i = 0;
+ * for (;i < SWITCH_RTCP_DESC_STAT_PARAM_N; ++i) {
+ *	  rtp_session->stats.rtcp_desc_stats[i].options = SWITCH_RTCP_DESC_STAT_OPTION_DEFAULT;
+ *	  rtp_session->stats.rtcp_desc_stats[i].min = DBL_MAX;
+ *	  rtp_session->stats.rtcp_desc_stats[i].max = DBL_MIN;
+ * }
+ *
+ * switch_desc_stats_parse(rtp_session->stats.rtcp_desc_stats, SWITCH_RTCP_DESC_STAT_PARAM_N,
+ *		"rtcp_stats", switch_rtcp_desc_stat_str2param, rtp_session->session);
+ *
+ * switch_desc_stat_val_t *rtt_desc_stat = &rtp_session->stats.rtcp_desc_stats[SWITCH_RTCP_DESC_STAT_PARAM_RTT];
+ * switch_desc_stats_update(rtt_desc_stat, rtt_now);
+ *
+ * TODO: memory and CPU friendly way to calc percentiles on the fly ?
+ */
+
+/* Statistics */
+typedef enum {
+	SWITCH_DESC_STAT_OPTION_MIN = 0,
+	SWITCH_DESC_STAT_OPTION_MAX,
+	SWITCH_DESC_STAT_OPTION_AV,
+	SWITCH_DESC_STAT_OPTION_VAR,
+	SWITCH_DESC_STAT_OPTION_PERCENTILE,
+	SWITCH_DESC_STAT_OPTION_JITTER_RFC3550,	/* exclusive, cannot be computed together with other stats, calc this and other stats on the result instead */
+	SWITCH_DESC_STAT_OPTION_N
+} switch_desc_stat_option_t;
+
+typedef struct switch_desc_stat_val_s {
+	uint16_t options;		/* bit mask of enabled characteristics, setup to default value per channel - can be overwritten by user */
+
+	double min;				/* minimum value seen */
+	double max;				/* maximum value seen */
+	double av;				/* arithmetic average of values == Expected value E(x) == alpha_1(x) */
+	double variance;		/* variance */
+	double std_dev;			/* standard deviation */
+	double val;				/* current (or most recent) value, updated at the end of _desc_stats_update routine (after calcs) */
+	double percentile;		/* percentile */
+	double n;				/* number of samples, updated at the end of _desc_stats_update routine (after calcs)*/
+	double av2;				/* average of values squared == E(x^2) == alpha_2(x) */
+
+	double jitter_rfc3550;				/* interarrival jitter as per RFC3550 */
+	uint8_t have_jitter_rfc3550_risi;	/* initial value of (Ri - Si) as per RFC 3550 */
+} switch_desc_stat_val_t;
+
+/*
+ * RTCP descriptive statistics.
+ *
+ * RTCP desc stats are stored in rtcp_desc_stats table in switch_rtp_stats_t.
+ * Params are set to default configuration per channel - this can be updated
+ * by user by setting channel's variable: rtcp_stats.
+ *
+ * <application="set" data="configuration">
+ * e.g. configuration == "rtcp_stats=rtcp_rtt=+v+av,rtcp_jitter_peer=+p95,rtcp_jitter_fs+=p95"
+ * to add variance and average calculation to RTT and 95-th percentile calc to peer's jitter
+ * and jitter seen in FS (note: comma separated).
+ */
+
+/* Parameters. These enums are indices into rtcp_desc_stats table. */
+typedef enum {
+	SWITCH_RTCP_DESC_STAT_PARAM_RTT = 0,
+	SWITCH_RTCP_DESC_STAT_PARAM_JITTER_PEER,				/* this is jitter value received from the peer */
+	SWITCH_RTCP_DESC_STAT_PARAM_INTER_JITTER_RFC3550_CALC,	/* this is used for jitter calculation */
+	SWITCH_RTCP_DESC_STAT_PARAM_INTER_JITTER_RFC3550_STAT,	/* this is used for stats on calculated jitter on FS side */
+	SWITCH_RTCP_DESC_STAT_PARAM_PKT_LOST_FRACTION,
+	SWITCH_RTCP_DESC_STAT_PARAM_N
+} switch_rtcp_desc_stat_param_name_t;
+
+/* mapping: param string -> switch_stat_param_t */
+extern const char* switch_rtcp_desc_stat_str2param[SWITCH_RTCP_DESC_STAT_PARAM_N];
+/* Default config for RTCP descriptive statistics. Can be overwritten per channel.*/
+#define SWITCH_RTCP_DESC_STAT_OPTION_DEFAULT (1u << SWITCH_DESC_STAT_OPTION_MIN) | (1u << SWITCH_DESC_STAT_OPTION_MAX) | (1u << SWITCH_DESC_STAT_OPTION_AV) | (1u << SWITCH_DESC_STAT_OPTION_VAR)
+
 typedef struct {
 	switch_rtp_numbers_t inbound;
 	switch_rtp_numbers_t outbound;
 	switch_rtcp_numbers_t rtcp;
 	uint32_t read_count;
+
+	/* RTCP descriptive stats indexed by switch_rtcp_desc_stat_param_name_t */
+	switch_desc_stat_val_t rtcp_desc_stats[SWITCH_RTCP_DESC_STAT_PARAM_N];
 } switch_rtp_stats_t;
 
 typedef enum {

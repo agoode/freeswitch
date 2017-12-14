@@ -1838,7 +1838,7 @@ static void rtcp_generate_report_block(switch_rtp_t *rtp_session, struct switch_
 	rtcp_report_block->highest_sequence_number_received = htonl(stats->high_ext_seq_recv);
 
 	/* Jitter */
-	rtcp_report_block->jitter = htonl((uint32_t)stats->inter_jitter);
+	rtcp_report_block->jitter = htonl((uint32_t) rtp_session->stats.rtcp_desc_stats[SWITCH_RTCP_DESC_STAT_PARAM_INTER_JITTER_RFC3550_STAT].val);
 
 	/* Delay since Last Sender Report (DLSR) : 32bits, 1/65536 seconds */
 	lsr_now = (uint32_t)(ntp_usec*0.065536) | (ntp_sec&0x0000ffff)<<16; /* 0.065536 is used for convertion from useconds to fraction of 65536 (x65536/1000000) */
@@ -1864,8 +1864,6 @@ static void rtcp_stats_init(switch_rtp_t *rtp_session)
 	stats->init = 1;
 	stats->last_rpt_ext_seq = 0;
 	stats->last_rpt_cycle = 0;
-	stats->last_pkt_tsdiff = 0;
-	stats->inter_jitter = 0;
 	stats->cycle = 0;
 	stats->high_ext_seq_recv = ntohs((uint16_t)hdr->seq);
 	stats->base_seq = ntohs((uint16_t)hdr->seq);
@@ -1910,11 +1908,17 @@ static int rtcp_stats(switch_rtp_t *rtp_session)
 	switch_core_session_t *session = switch_core_memory_pool_get_data(rtp_session->pool, "__session");
 	srtp_hdr_t * hdr = &rtp_session->last_rtp_hdr;
 	switch_rtcp_numbers_t * stats = &rtp_session->stats.rtcp;
-	uint32_t packet_spacing_diff = 0, pkt_tsdiff, pkt_extended_seq;
+#ifdef DEBUG_RTCP
+	uint32_t packet_spacing_diff = 0;
+#endif
+	uint32_t pkt_tsdiff, pkt_extended_seq;
 	uint16_t pkt_seq, seq_diff, max_seq;
 	const int MAX_DROPOUT = 3000;
 	const int MAX_MISORDER = 100;
 	const int RTP_SEQ_MOD = (1<<16);
+
+	switch_desc_stat_val_t *jitter_rfc3550_desc_calc = &rtp_session->stats.rtcp_desc_stats[SWITCH_RTCP_DESC_STAT_PARAM_INTER_JITTER_RFC3550_CALC];
+	switch_desc_stat_val_t *jitter_rfc3550_desc_stat = &rtp_session->stats.rtcp_desc_stats[SWITCH_RTCP_DESC_STAT_PARAM_INTER_JITTER_RFC3550_STAT];
 
 	if(!rtp_session->rtcp_sock_output || !rtp_session->flags[SWITCH_RTP_FLAG_ENABLE_RTCP] || rtp_session->flags[SWITCH_RTP_FLAG_RTCP_PASSTHRU] || !rtp_session->rtcp_interval)
 		return 0; /* do not process RTCP in current state */
@@ -1954,25 +1958,27 @@ static int rtcp_stats(switch_rtp_t *rtp_session)
 
 	stats->period_pkt_count++;
 	stats->pkt_count++;
+
+	/* Interarrival jitter calculation */
+	pkt_tsdiff = abs((int32_t)(rtp_session->write_timer.samplecount - ntohl(hdr->ts)));  /* relative transit times for this packet */
+	switch_desc_stats_update(jitter_rfc3550_desc_calc, pkt_tsdiff);
+
 #ifdef DEBUG_RTCP
+	packet_spacing_diff = abs((int32_t)(pkt_tsdiff - jitter_rfc3550_desc_calc->val));
 	switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG10, "rtcp_stats: period_pkt_count[%d]last_seq[%d]cycle[%d]stats_ssrc[%u]local_ts[%u]\n",
 			stats->period_pkt_count, pkt_seq, stats->cycle, stats->ssrc, rtp_session->write_timer.samplecount);
 #endif
-	/* Interarrival jitter calculation */
-	pkt_tsdiff = abs((int32_t)(rtp_session->write_timer.samplecount - ntohl(hdr->ts)));  /* relative transit times for this packet */
-	if (stats->pkt_count < 2) { /* Can not compute Jitter with only one packet */
-		stats->last_pkt_tsdiff = pkt_tsdiff;
-	} else {
-		/* Jitter : difference of relative transit times for the two packets */
-		packet_spacing_diff = abs((int32_t)(pkt_tsdiff - stats->last_pkt_tsdiff));
-		stats->last_pkt_tsdiff = pkt_tsdiff;
-		/* Interarrival jitter estimation, "J(i) = J(i-1) + ( |D(i-1,i)| - J(i-1) )/16" */
-		stats->inter_jitter = (stats->inter_jitter + (((double)packet_spacing_diff - stats->inter_jitter) /16.));
+
+	if (jitter_rfc3550_desc_calc->n > 0) {
+		switch_desc_stats_update(jitter_rfc3550_desc_stat, jitter_rfc3550_desc_calc->jitter_rfc3550);
 	}
 
 #ifdef DEBUG_RTCP
 	switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG10, "rtcp_stats: pkt_ts[%d]local_ts[%d]diff[%d]pkt_spacing[%d]inter_jitter[%f]seq[%d]stats_ssrc[%d]",
-			ntohl(hdr->ts), rtp_session->write_timer.samplecount, pkt_tsdiff, packet_spacing_diff, stats->inter_jitter, ntohs(hdr->seq), stats->ssrc);
+			ntohl(hdr->ts), rtp_session->write_timer.samplecount, pkt_tsdiff, packet_spacing_diff, rtp_session->stats.rtcp_desc_stats[SWITCH_RTCP_DESC_STAT_PARAM_INTER_JITTER_RFC3550_STAT].val, ntohs(hdr->seq), stats->ssrc);
+	if (jitter_rfc3550_desc_calc->n > 0) {
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(rtp_session->session), SWITCH_LOG_DEBUG3, "RTCP FS jitter RFC3550 desc stat: min %f max %f av %f cur %f sample_n %f std_dev %f\n", jitter_rfc3550_desc_stat->min, jitter_rfc3550_desc_stat->max, jitter_rfc3550_desc_stat->av, jitter_rfc3550_desc_stat->val, jitter_rfc3550_desc_stat->n, jitter_rfc3550_desc_stat->std_dev);
+	}
 #endif
 	return 1;
 }
@@ -4094,12 +4100,191 @@ SWITCH_DECLARE(switch_status_t) switch_rtp_set_remote_ssrc(switch_rtp_t *rtp_ses
 	return SWITCH_STATUS_SUCCESS;
 }
 
+const char* switch_rtcp_desc_stat_str2param[SWITCH_RTCP_DESC_STAT_PARAM_N] = {
+	[SWITCH_RTCP_DESC_STAT_PARAM_RTT] = "rtcp_rtt",
+	[SWITCH_RTCP_DESC_STAT_PARAM_JITTER_PEER] = "rtcp_jitter_peer",
+	[SWITCH_RTCP_DESC_STAT_PARAM_INTER_JITTER_RFC3550_CALC] = "rtcp_jitter_fs_calc",
+	[SWITCH_RTCP_DESC_STAT_PARAM_INTER_JITTER_RFC3550_STAT] = "rtcp_jitter_fs",
+	[SWITCH_RTCP_DESC_STAT_PARAM_PKT_LOST_FRACTION] = "rtcp_pkt_lost_fraction"
+};
+
+/* If the option is enabled the value must be:
+	SWITCH_DESC_STAT_OPTION_MIN				- level (value)
+	SWITCH_DESC_STAT_OPTION_MAX				- level (value)
+	SWITCH_DESC_STAT_OPTION_AV				- level (value)
+	SWITCH_DESC_STAT_OPTION_VAR				- level (value)
+	SWITCH_DESC_STAT_OPTION_PERCENTILE		- level (value)
+	SWITCH_DESC_STAT_OPTION_JITTER_RFC3550	- (Rj - Sj) for D(i,j) calc as per RFC 3550
+ */
+SWITCH_DECLARE(switch_status_t) switch_desc_stats_update(switch_desc_stat_val_t *stats, double val)
+{
+	uint32_t options = 0;
+	double n_by_nplus1 = 0.0;
+	double Dij = 0.0;
+
+	if (!stats) {
+		return SWITCH_STATUS_FALSE;
+	}
+
+	options = stats->options;
+	if (options == 0) {
+		return SWITCH_STATUS_FALSE;
+	}
+
+	/* Calc stats using old number of samples stats->n */ 
+
+	if (options & (1u << SWITCH_DESC_STAT_OPTION_MIN)) {
+		if (val < stats->min) {
+			stats->min = val;
+		}
+	}
+
+	if (options & (1u << SWITCH_DESC_STAT_OPTION_MAX)) {
+		if (val > stats->max) {
+			stats->max = val;
+		}
+	}
+
+	/* If the varaince is to be calculated, average will be calculated too. */
+	if (options & ((1u << SWITCH_DESC_STAT_OPTION_AV) | (1u << SWITCH_DESC_STAT_OPTION_VAR))) {
+		n_by_nplus1 = stats->n / (stats->n + 1);
+		stats->av = n_by_nplus1 * stats->av + val / (stats->n + 1);
+
+		if (options & (1u << SWITCH_DESC_STAT_OPTION_VAR)) {
+			stats->av2 = n_by_nplus1 * stats->av2 + val * val / (stats->n + 1);
+			stats->variance = stats->av2 - stats->av * stats->av;
+			stats->std_dev = sqrt(stats->variance);
+		}
+	}
+
+	if (options & (1u << SWITCH_DESC_STAT_OPTION_JITTER_RFC3550)) {
+		if (!stats->have_jitter_rfc3550_risi) {
+			stats->have_jitter_rfc3550_risi = 1;
+			goto update_val_only_and_exit;
+		}
+
+		Dij = abs(val - stats->val);
+		stats->jitter_rfc3550 = stats->jitter_rfc3550 + (Dij - stats->jitter_rfc3550) / 16.0;
+	}
+
+	/* Update */
+	stats->n++;
+	
+update_val_only_and_exit:
+	stats->val = val;
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
+/* 
+ * stats - pointer to statistics table
+ * stats_n - size of table
+ * channel_var_name - identifier of these stats in the dialplan
+ * desc_stat_str2param - table of strings mapping param names to indices in stats table, size of the table must be same as size of stats table == stats_n
+ */
+static switch_status_t switch_desc_stats_parse(switch_desc_stat_val_t *stats, int stats_n, const char *channel_var_name, const char **desc_stat_str2param, switch_core_session_t *session)
+{
+	const char *val = NULL;
+
+	char *mydata = NULL;
+	int argc = 0, idx = 0, i = 0;
+	char **argv = NULL;
+
+	char        *candidate[3];
+	const char *parsed_key = NULL;
+	char *parsed_val = NULL;
+	char *options = NULL;
+	
+	int argc2 = 0, idx2 = 0;
+	char *argv2[SWITCH_DESC_STAT_OPTION_N * 2] = { 0 };
+
+	switch_desc_stat_val_t *stat_val = NULL;
+		
+	if (!session || !stats || stats_n < 1 || !channel_var_name) {
+		return SWITCH_STATUS_FALSE;
+	}
+
+	argv = switch_core_session_alloc(session, sizeof(char*) * stats_n * 2);
+	if (!argv) {
+		return SWITCH_STATUS_FALSE;
+	}
+
+	if ((val = switch_channel_get_variable(switch_core_session_get_channel(session), channel_var_name)) && !zstr(val)) {
+
+		mydata = switch_core_session_strdup(session, val);
+		argc = switch_separate_string(mydata, ',', argv, stats_n * 2);
+		if (argc < 1 || argc > stats_n) {
+			return SWITCH_STATUS_FALSE;
+		}
+
+		idx = 0;
+		while (idx < argc) {
+
+			argc2 = switch_separate_string(argv[idx], '=', candidate, (sizeof(candidate) / sizeof(candidate[0])));
+			if (argc2 != 2) {
+				return SWITCH_STATUS_FALSE;
+			}
+
+			parsed_key = candidate[0];
+			if (zstr(parsed_key)) {
+				return SWITCH_STATUS_FALSE;
+			}
+
+			parsed_val = candidate[1];
+			if (zstr(parsed_val)) {
+				return SWITCH_STATUS_FALSE;
+			}
+
+			/* try to map string to switch_stat_param_name_t */
+			i = 0;
+			for (; i < stats_n; ++i) {
+				if (!strcmp(parsed_key, desc_stat_str2param[i]))
+					break;
+			}
+
+			if (i == stats_n) {
+				return SWITCH_STATUS_FALSE;
+			}
+
+			stat_val = &stats[i];
+
+			/* Update stat's config according to options */
+			options = parsed_val;
+			
+			argc2 = switch_separate_string(options, '+', argv2, (sizeof(argv2) / sizeof(argv2[0])));
+			if (argc2 < 2 || argc2 > SWITCH_DESC_STAT_OPTION_N + 1) {	/* +1 because first entry should be "" */
+				return SWITCH_STATUS_FALSE;
+			}
+			
+			idx2 = 1;	/* skip first entry - it must be "" */
+			while (idx2 < argc2) {
+				if (*argv2[idx2] == 'a') {
+					stat_val->options |= (1u << SWITCH_DESC_STAT_OPTION_AV);
+				} else if (*argv2[idx2] == 'v') {
+					stat_val->options |= (1u << SWITCH_DESC_STAT_OPTION_VAR);
+				} else if (*argv2[idx2] == 'p') {
+					stat_val->options |= (1u << SWITCH_DESC_STAT_OPTION_PERCENTILE);
+					stat_val->percentile = atoi(argv2[idx2] + 1);
+				} else if (*argv2[idx2] == 'j') {
+					stat_val->options |= (1u << SWITCH_DESC_STAT_OPTION_JITTER_RFC3550);
+				}
+				++idx2;
+			}
+
+			++idx;
+		}
+	}
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
 SWITCH_DECLARE(switch_status_t) switch_rtp_create(switch_rtp_t **new_rtp_session,
 												  switch_payload_t payload,
 												  uint32_t samples_per_interval,
 												  uint32_t ms_per_packet,
 												  switch_rtp_flag_t flags[SWITCH_RTP_FLAG_INVALID], char *timer_name, const char **err, switch_memory_pool_t *pool)
 {
+	int i = 0;
 	switch_rtp_t *rtp_session = NULL;
 	switch_core_session_t *session = switch_core_memory_pool_get_data(pool, "__session");
 	switch_channel_t *channel = NULL;
@@ -4303,6 +4488,23 @@ SWITCH_DECLARE(switch_status_t) switch_rtp_create(switch_rtp_t **new_rtp_session
 	memset(rtp_session->stats.inbound.loss, 0, sizeof(rtp_session->stats.inbound.loss));
 	rtp_session->stats.inbound.last_loss = 0;
 	rtp_session->stats.inbound.last_processed_seq = -1;
+
+	/* descriptive stats */
+	memset(&rtp_session->stats.rtcp_desc_stats, 0, sizeof(rtp_session->stats.rtcp_desc_stats));
+
+	i = 0;
+	for (;i < SWITCH_RTCP_DESC_STAT_PARAM_N; ++i) {
+		rtp_session->stats.rtcp_desc_stats[i].options = SWITCH_RTCP_DESC_STAT_OPTION_DEFAULT;
+		rtp_session->stats.rtcp_desc_stats[i].min = DBL_MAX;
+		rtp_session->stats.rtcp_desc_stats[i].max = DBL_MIN;
+	}
+
+	/* We want to calc RFC3550 interarrival jitter so set _OPTION_JITTER_RFC3550_CALC on param. */
+	rtp_session->stats.rtcp_desc_stats[SWITCH_RTCP_DESC_STAT_PARAM_INTER_JITTER_RFC3550_CALC].options = (1u << SWITCH_DESC_STAT_OPTION_JITTER_RFC3550);
+
+	if (switch_desc_stats_parse(rtp_session->stats.rtcp_desc_stats, SWITCH_RTCP_DESC_STAT_PARAM_N, "rtcp_stats", switch_rtcp_desc_stat_str2param, rtp_session->session) != SWITCH_STATUS_SUCCESS) {
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(rtp_session->session), SWITCH_LOG_ERROR, "Parsing of RTCP descriptive stats failed\n");
+	}
 
 	rtp_session->ready = 1;
 	*new_rtp_session = rtp_session;
@@ -6452,7 +6654,7 @@ static switch_status_t process_rtcp_report(switch_rtp_t *rtp_session, rtcp_msg_t
 
 				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(rtp_session->session), SWITCH_LOG_DEBUG3,"Received a RR with %d report blocks, " \
 								  "length in words = %d, " \
-								  "SSRC = 0x%X, ",
+								  "SSRC = 0x%X\n",
 								  msg->header.count,
 								  ntohs((uint16_t)msg->header.length),
 								  ntohl(rr->ssrc));
@@ -6462,6 +6664,9 @@ static switch_status_t process_rtcp_report(switch_rtp_t *rtp_session, rtcp_msg_t
 
 			for (i = 0; i < (int)msg->header.count && i < MAX_REPORT_BLOCKS ; i++) {
 				uint32_t old_avg = rtp_session->rtcp_frame.reports[i].loss_avg;
+				switch_desc_stat_val_t *rtt_desc_stat = &rtp_session->stats.rtcp_desc_stats[SWITCH_RTCP_DESC_STAT_PARAM_RTT];
+				switch_desc_stat_val_t *jitter_desc_stat = &rtp_session->stats.rtcp_desc_stats[SWITCH_RTCP_DESC_STAT_PARAM_JITTER_PEER];
+				switch_desc_stat_val_t *pkt_lost_fraction_desc_stat = &rtp_session->stats.rtcp_desc_stats[SWITCH_RTCP_DESC_STAT_PARAM_PKT_LOST_FRACTION];
 				uint8_t percent_fraction = (uint8_t)report->fraction * 100 / 256 ;
 				if (!rtp_session->rtcp_frame.reports[i].loss_avg) {
 					rtp_session->rtcp_frame.reports[i].loss_avg = (uint8_t)percent_fraction;
@@ -6470,6 +6675,12 @@ static switch_status_t process_rtcp_report(switch_rtp_t *rtp_session, rtcp_msg_t
 																			 ((float)(uint8_t)percent_fraction * .3));
 				}
 
+				switch_desc_stats_update(pkt_lost_fraction_desc_stat, report->fraction);
+
+#ifdef DEBUG_RTCP
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(rtp_session->session), SWITCH_LOG_DEBUG3, "RTCP pkt lost desc stat: min %f max %f av %f cur %f sample_n %f std_dev %f\n", pkt_lost_fraction_desc_stat->min, pkt_lost_fraction_desc_stat->max, pkt_lost_fraction_desc_stat->av, pkt_lost_fraction_desc_stat->val, pkt_lost_fraction_desc_stat->n, pkt_lost_fraction_desc_stat->std_dev);
+#endif
+
 				rtp_session->rtcp_frame.reports[i].ssrc = ntohl(report->ssrc);
 				rtp_session->rtcp_frame.reports[i].fraction = (uint8_t)report->fraction;
 				rtp_session->rtcp_frame.reports[i].lost = ntohl(report->lost);
@@ -6477,6 +6688,13 @@ static switch_status_t process_rtcp_report(switch_rtp_t *rtp_session, rtcp_msg_t
 				rtp_session->rtcp_frame.reports[i].jitter = ntohl(report->jitter);
 				rtp_session->rtcp_frame.reports[i].lsr = ntohl(report->lsr);
 				rtp_session->rtcp_frame.reports[i].dlsr = ntohl(report->dlsr);
+
+				switch_desc_stats_update(jitter_desc_stat, rtp_session->rtcp_frame.reports[i].jitter);
+
+#ifdef DEBUG_RTCP
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(rtp_session->session), SWITCH_LOG_DEBUG3, "RTCP peer's jitter desc stat: min %f max %f av %f cur %f sample_n %f std_dev %f\n", jitter_desc_stat->min, jitter_desc_stat->max, jitter_desc_stat->av, jitter_desc_stat->val, jitter_desc_stat->n, jitter_desc_stat->std_dev);
+#endif
+
 				if (rtp_session->rtcp_frame.reports[i].lsr && !rtp_session->flags[SWITCH_RTP_FLAG_RTCP_PASSTHRU]) {
 					switch_time_exp_gmt(&now_hr,now);
 					/* Calculating RTT = A - DLSR - LSR */
@@ -6487,6 +6705,13 @@ static switch_status_t process_rtcp_report(switch_rtp_t *rtp_session, rtcp_msg_t
 									  1900 + now_hr.tm_year, now_hr.tm_mday, now_hr.tm_mon, now_hr.tm_hour, now_hr.tm_min, now_hr.tm_sec, now_hr.tm_usec,
 									  rtp_session->rtcp_frame.reports[i].ssrc, rtt_now,
 									  lsr_now, rtp_session->rtcp_frame.reports[i].dlsr, rtp_session->rtcp_frame.reports[i].lsr);
+
+					switch_desc_stats_update(rtt_desc_stat, rtt_now);
+
+#ifdef DEBUG_RTCP
+					switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(rtp_session->session), SWITCH_LOG_DEBUG3, "RTCP rtt desc stat: min %f max %f av %f cur %f sample_n %f std_dev %f\n", rtt_desc_stat->min, rtt_desc_stat->max, rtt_desc_stat->av, rtt_desc_stat->val, rtt_desc_stat->n, rtt_desc_stat->std_dev);
+#endif
+
 					if (!rtp_session->rtcp_frame.reports[i].rtt_avg) {
 						rtp_session->rtcp_frame.reports[i].rtt_avg = rtt_now;
 					} else {

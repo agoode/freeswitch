@@ -201,6 +201,20 @@ SWITCH_DECLARE(switch_status_t) switch_rtp_set_ssrc(switch_rtp_t *rtp_session, u
 SWITCH_DECLARE(switch_status_t) switch_rtp_set_remote_ssrc(switch_rtp_t *rtp_session, uint32_t ssrc);
 
 /*!
+  \brief Update statistics for param @stats with new value @val
+  \param pool the memory pool to use for long term allocations
+  \note If the option is enabled the value must be:
+	option									value
+	SWITCH_DESC_STAT_OPTION_MIN				- level (value)
+	SWITCH_DESC_STAT_OPTION_MAX				- level (value)
+	SWITCH_DESC_STAT_OPTION_AV				- level (value)
+	SWITCH_DESC_STAT_OPTION_VAR				- level (value)
+	SWITCH_DESC_STAT_OPTION_PERCENTILE		- level (value)
+	SWITCH_DESC_STAT_OPTION_JITTER_RFC3550	- (Rj - Sj) for D(i,j) calc as per RFC 3550
+*/
+SWITCH_DECLARE(switch_status_t) switch_desc_stats_update(switch_desc_stat_val_t *stats, double val);
+
+/*!
   \brief Set/Get RTP end port
   \param port new value (if > 0)
   \return the current RTP end port
