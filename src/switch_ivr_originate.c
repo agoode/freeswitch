@@ -2813,6 +2813,10 @@ SWITCH_DECLARE(switch_status_t) switch_ivr_originate(switch_core_session_t *sess
 					switch_event_merge(originate_var_event, local_var_event);
 				}
 
+				if ((current_variable = switch_event_get_header(originate_var_event, "origination_context"))) {
+					new_profile->context = switch_core_strdup(new_profile->pool, current_variable);
+				}
+
 				if ((current_variable = switch_event_get_header(originate_var_event, "origination_ani"))) {
 					new_profile->ani = switch_core_strdup(new_profile->pool, current_variable);
 					myflags |= SOF_NO_EFFECTIVE_ANI;
